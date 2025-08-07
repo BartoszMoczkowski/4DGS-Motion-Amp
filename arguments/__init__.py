@@ -160,7 +160,8 @@ def get_combined_args(parser : ArgumentParser):
         with open(cfgfilepath) as cfg_file:
             print("Config file found: {}".format(cfgfilepath))
             cfgfile_string = cfg_file.read()
-    except TypeError:
+    # WHY WOULD YOU ADD ONLY ALLOW TYPE ERRORS ????
+    except:
         print("Config file not found at")
         pass
     args_cfgfile = eval(cfgfile_string)
