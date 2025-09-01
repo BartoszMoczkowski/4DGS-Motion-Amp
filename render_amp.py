@@ -75,7 +75,6 @@ def generate_frame_data(views, gaussians, pipeline, background, cam_type, low_vr
         cov3D_list,
     ]
     for _idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        
         means3D_final,means2D, scales_final, rotations_final, opacity_final, shs_final,colors_precomp,cov3D_precomp,rasterizer_settings = render(view, gaussians, pipeline, background,cam_type=cam_type)
 
         if low_vram_mode:
@@ -95,73 +94,6 @@ def generate_frame_data(views, gaussians, pipeline, background, cam_type, low_vr
         del values,means3D_final,means2D, scales_final, rotations_final, opacity_final, shs_final,colors_precomp,cov3D_precomp
     
     return values_list, rasterizer_settings_list
-
-
-def amplify_frame_data_phase(values_list, amp_factors, freq_cutoffs):
-
-    for i, zipped in enumerate(zip(values_list, amp_factors,freq_cutoffs)):
-        values, a, freq_cutoff = zipped
-        if a == -1:
-            continue
-        if any(list(map(lambda x : x == None, values))):
-            continue
-        lower_bound, upper_bound = freq_cutoff
-        values_unsqueezed = list(map(lambda x : x.unsqueeze(-1),values))
-        values_tensor = torch.cat(values_unsqueezed, dim=-1)
-
-        fft : torch.Tensor = torch.fft.rfft(values_tensor,dim=-1,norm="ortho")
-        n_frames = len(values)
-        frequencies = torch.fft.rfftfreq(n_frames,1/20)
-        lower_bound = lower_bound * frequencies.min()
-        upper_bound = upper_bound * frequencies.max()
-
-        filtered_frequencies = (frequencies > lower_bound) & (frequencies < upper_bound) 
-        fft_amplitude = fft.real
-        fft_phase = fft.imag
-        fft_phase_time_mean : torch.Tensor = fft_phase.mean(axis=-1).unsqueeze(-1).repeat(*([1]*len(fft_phase.shape)),frequencies.shape[0])
-        fft_phase_amp = (fft_phase_time_mean + a * (fft_phase - fft_phase_time_mean)) * filtered_frequencies.cuda()
-        fft_amp = torch.complex(fft_amplitude, fft_phase_amp) 
-        del fft, fft_phase, fft_amplitude, fft_phase_amp, fft_phase_time_mean
-        torch.cuda.empty_cache()
-        amped_values = torch.fft.irfft(fft_amp,dim=-1,norm="ortho")
-        # amped_values = amped_values.roll(1,-1)
-        # amped_values[:,:,0] = values_tensor[:,:,0]
-        values_list[i] = list(map(lambda x : x.squeeze(),torch.split(amped_values,1,dim=-1)))
-        del  amped_values,filtered_frequencies, frequencies, values_unsqueezed,values_tensor,fft_amp
-        torch.cuda.empty_cache()
-
-    return values_list
-
-def amplify_frame_data_phase_abs(values_list, amp_factors, freq_cutoffs):
-
-    for i, zipped in enumerate(zip(values_list, amp_factors,freq_cutoffs)):
-        values, a, freq_cutoff = zipped
-        if a == -1:
-            continue
-        if any(list(map(lambda x : x == None, values))):
-            continue
-        lower_bound, upper_bound = freq_cutoff
-        values_unsqueezed = list(map(lambda x : x.unsqueeze(-1),values))
-        values_tensor = torch.cat(values_unsqueezed, dim=-1)
-
-        fft : torch.Tensor = torch.fft.rfft(values_tensor,dim=-1,norm="ortho")
-        n_frames = len(values)
-        frequencies = torch.fft.rfftfreq(n_frames,1/20)
-        lower_bound = lower_bound * frequencies.min()
-        upper_bound = upper_bound * frequencies.max()
-
-        filtered_frequencies = (frequencies > lower_bound) & (frequencies < upper_bound) 
-        fft_amp = fft +  a *  filtered_frequencies.cuda() 
-        del  fft
-        torch.cuda.empty_cache()
-        amped_values = torch.fft.irfft(fft_amp,dim=-1,norm="ortho")
-        # amped_values = amped_values.roll(1,-1)
-        # amped_values[:,:,0] = values_tensor[:,:,0]
-        values_list[i] = list(map(lambda x : x.squeeze(),torch.split(amped_values,1,dim=-1)))
-        del  amped_values,filtered_frequencies, frequencies, values_unsqueezed,values_tensor,fft_amp
-        torch.cuda.empty_cache()
-
-    return values_list
 
 def amplify_frame_data_eulerian(values_list, amp_factors, freq_cutoffs, low_vram_mode=False):
 
@@ -200,7 +132,7 @@ def amplify_frame_data_eulerian(values_list, amp_factors, freq_cutoffs, low_vram
 
     return values_list
 
-def amplify_frame_data_eulerian_mod(values_list, amp_factors, freq_cutoffs):
+def amplify_frame_data_eulerian_mod(values_list, amp_factors, freq_cutoffs,low_vram_mode=False):
     print(torch.cuda.max_memory_allocated()/1e9)
     for i, zipped in enumerate(zip(values_list, amp_factors,freq_cutoffs)):
         values, a, freq_cutoff = zipped
@@ -210,12 +142,13 @@ def amplify_frame_data_eulerian_mod(values_list, amp_factors, freq_cutoffs):
             continue
         lower_bound, upper_bound = freq_cutoff
         values_unsqueezed = list(map(lambda x : x.unsqueeze(-1),values))
-        values_tensor_full = torch.cat(values_unsqueezed, dim=-1).cuda()
+        values_tensor_full = torch.cat(values_unsqueezed, dim=-1)
         temp = []
         del values_unsqueezed
         # Somehow 1024 is FASTER ??? no fucking clue. But hey thats free performance
         for values_tensor in values_tensor_full.split(1024,dim=0):
-            print(values_tensor.shape)
+            if low_vram_mode:
+                values_tensor = values_tensor.cuda()
             values_delta = values_tensor.roll(-1,-1) - values_tensor
 
             fft_delta = torch.fft.rfft(values_delta,dim=-1,norm="ortho")
@@ -229,24 +162,25 @@ def amplify_frame_data_eulerian_mod(values_list, amp_factors, freq_cutoffs):
         
             values_delta_filtered = torch.fft.irfft(fft_delta_filtered,dim=-1,norm="ortho")
             amped_values = values_tensor + a * values_delta_filtered
-            temp.append(values_tensor)
+            if low_vram_mode:
+                amped_values = amped_values.cpu()
+            temp.append(amped_values)
             del fft_delta_filtered,fft_delta, filtered_frequencies, frequencies, values_delta_filtered,values_tensor
             torch.cuda.empty_cache()
 
 
         catted = torch.cat(temp, dim=0)
-        print(catted.shape)
 
         amped_values_rerolled = catted.roll(1,-1)
         amped_values_rerolled[:,:,0] = values_tensor_full[:,:,0]
-        values_list[i] = list(map(lambda x : x.squeeze(),torch.split(amped_values_rerolled.cpu(),1,dim=-1)))
+
+        values_list[i] = list(map(lambda x : x.squeeze(),torch.split(amped_values_rerolled,1,dim=-1)))
         del values_delta,values, amped_values,amped_values_rerolled
         torch.cuda.empty_cache()
     print(torch.cuda.max_memory_allocated()/1e9)
-    print("Done")
     return values_list
 
-def amplify_frame_data_eulerian_abs(values_list, amp_factors, freq_cutoffs):
+def amplify_frame_data_eulerian_abs(values_list, amp_factors, freq_cutoffs,low_vram_mode=False):
 
     for i, zipped in enumerate(zip(values_list, amp_factors,freq_cutoffs)):
         values, a, freq_cutoff = zipped
@@ -258,7 +192,10 @@ def amplify_frame_data_eulerian_abs(values_list, amp_factors, freq_cutoffs):
         values_unsqueezed = list(map(lambda x : x.unsqueeze(-1),values))
         n_frames = len(values)
         values_tensor = torch.cat(values_unsqueezed, dim=-1)
-        values_delta = values_tensor - values_tensor[:,:,0].unsqueeze(-1).repeat(*([1]*len(values_tensor.shape)),values_tensor.shape[-1])
+        if low_vram_mode:
+            values_tensor = values_tensor.cuda()
+
+        values_delta = values_tensor - torch.narrow(values_tensor,-1,-1,1).repeat(*((len(values_tensor.shape)-1)*[1]),values_tensor.shape[-1])
 
         fft_delta = torch.fft.rfft(values_delta,dim=-1,norm="ortho")
         frequencies = torch.fft.rfftfreq(n_frames,1/20)
@@ -269,23 +206,75 @@ def amplify_frame_data_eulerian_abs(values_list, amp_factors, freq_cutoffs):
         fft_delta = fft_delta * filtered_frequencies.cuda() 
     
         values_delta_filtered = torch.fft.irfft(fft_delta,dim=-1,norm="ortho")
-        amped_values = values_tensor + a * values_delta_filtered
-        amped_values = amped_values.roll(1,-1)
-        amped_values[:,:,0] = values_tensor[:,:,0]
+        amped_values = torch.narrow(values_tensor,-1,-1,1).repeat(*((len(values_tensor.shape)-1)*[1]),values_tensor.shape[-1]) + a * values_delta_filtered
+        if low_vram_mode:
+            amped_values = amped_values.cpu()
         values_list[i] = list(map(lambda x : x.squeeze(),torch.split(amped_values,1,dim=-1)))
         del values_delta, amped_values,fft_delta, filtered_frequencies, frequencies, values_delta_filtered, values_unsqueezed,values_tensor
         torch.cuda.empty_cache()
 
     return values_list
 
-def render_data(values_list, rasterizer_settings_list, views, name, cam_type, low_vram_mode=False):
+def amplify_frame_data_eulerian_abs_mod(values_list, amp_factors, freq_cutoffs,low_vram_mode=False):
+    print(torch.cuda.max_memory_allocated()/1e9)
+    for i, zipped in enumerate(zip(values_list, amp_factors,freq_cutoffs)):
+        values, a, freq_cutoff = zipped
+        if a == -1:
+            continue
+        if any(list(map(lambda x : x == None, values))):
+            continue
+        lower_bound, upper_bound = freq_cutoff
+        values_unsqueezed = list(map(lambda x : x.unsqueeze(-1),values))
+        values_tensor_full = torch.cat(values_unsqueezed, dim=-1)
+        if not low_vram_mode:
+            values_tensor_full = values_tensor_full.cuda()
+
+        values_delta_full = values_tensor_full - torch.narrow(values_tensor_full,-1,-1,1).repeat(*((len(values_tensor_full.shape)-1)*[1]),values_tensor_full.shape[-1])
+        temp = []
+        del values_unsqueezed
+        # Somehow 1024 is FASTER ??? no fucking clue. But hey thats free performance
+        for values_delta in values_delta_full.split(1024,dim=0):
+            if low_vram_mode:
+                values_delta = values_delta.cuda()
+
+            fft_delta = torch.fft.rfft(values_delta,dim=-1,norm="ortho")
+            n_frames = len(values)
+            frequencies = torch.fft.rfftfreq(n_frames,1/20)
+            lower_bound = lower_bound * frequencies.min()
+            upper_bound = upper_bound * frequencies.max()
+
+            filtered_frequencies = (frequencies > lower_bound) & (frequencies < upper_bound) 
+            fft_delta_filtered = fft_delta * filtered_frequencies.cuda() 
+        
+            values_delta_filtered = torch.fft.irfft(fft_delta_filtered,dim=-1,norm="ortho")
+            amped_values = a * values_delta_filtered
+            if low_vram_mode:
+                amped_values = amped_values.cpu()
+    
+            temp.append(amped_values)
+            del fft_delta_filtered,fft_delta, filtered_frequencies, frequencies, values_delta_filtered
+            torch.cuda.empty_cache()
+        
+
+
+        catted = torch.cat(temp, dim=0) + torch.narrow(values_tensor_full,-1,-1,1).repeat(*((len(values_tensor_full.shape)-1)*[1]),values_tensor_full.shape[-1])
+
+        values_list[i] = list(map(lambda x : x.squeeze(),torch.split(catted,1,dim=-1)))
+        del values_delta,values, amped_values,values_tensor_full,values_delta_full
+        torch.cuda.empty_cache()
+    print(torch.cuda.max_memory_allocated()/1e9)
+    return values_list
+
+def render_data(values_list, rasterizer_settings_list, views, name, cam_type, low_vram_mode=False, frozen_cam=False):
     render_images = []
     gt_list = []
     render_list = []
     for i in range(len(rasterizer_settings_list)):
-        print(torch.cuda.max_memory_allocated()/1e9)
 
-        rasterizer_settings = rasterizer_settings_list[i]
+        if frozen_cam:
+            rasterizer_settings = rasterizer_settings_list[0]
+        else:
+            rasterizer_settings = rasterizer_settings_list[i]
         rasterizer = GaussianRasterizer(raster_settings=rasterizer_settings)
 
 
@@ -298,14 +287,14 @@ def render_data(values_list, rasterizer_settings_list, views, name, cam_type, lo
             # opacities = values_list[4][i].cuda()
             # scales = values_list[2][i].cuda()
             # rotations = values_list[3][i].cuda()
-            means3D = values_list[0].pop().cuda()
-            means2D = values_list[1].pop().cuda()
-            shs = values_list[5].pop().cuda()
-            opacities = values_list[4].pop().cuda()
-            scales = values_list[2].pop().cuda()
-            rotations = values_list[3].pop().cuda()
-            colors_precomp = values_list[6].pop()
-            cov3D_precomp = values_list[7].pop()
+            means3D = values_list[0].pop(0).cuda()
+            means2D = values_list[1].pop(0).cuda()
+            shs = values_list[5].pop(0).cuda()
+            opacities = values_list[4].pop(0).cuda()
+            scales = values_list[2].pop(0).cuda()
+            rotations = values_list[3].pop(0).cuda()
+            colors_precomp = values_list[6].pop(0)
+            cov3D_precomp = values_list[7].pop(0)
         else:
             means3D = values_list[0][i]
             means2D = values_list[1][i]
@@ -313,8 +302,8 @@ def render_data(values_list, rasterizer_settings_list, views, name, cam_type, lo
             opacities = values_list[4][i]
             scales = values_list[2][i]
             rotations = values_list[3][i]
-            colors_precomp = values_list[6].pop()
-            cov3D_precomp = values_list[7].pop()
+            colors_precomp = values_list[6].pop(0)
+            cov3D_precomp = values_list[7].pop(0)
 
 
         rendered_image, radii, depth = rasterizer(

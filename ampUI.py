@@ -4,12 +4,13 @@ import os
 import itertools as it
 from arguments import ModelParams, PipelineParams, get_combined_args, ModelHiddenParams
 from render_amp import main, load_config, AmpConfig, generate_frame_data, render_data
-from render_amp import amplify_frame_data_eulerian,amplify_frame_data_eulerian_abs,amplify_frame_data_phase,amplify_frame_data_phase_abs,amplify_frame_data_eulerian_mod
+from render_amp import amplify_frame_data_eulerian,amplify_frame_data_eulerian_mod,amplify_frame_data_eulerian_abs,amplify_frame_data_eulerian_abs_mod
 import torch
 import numpy as np
 import io 
 import av
 import time
+from PIL import Image
 torch.cuda.empty_cache()
 def run_amp(model_path, config_path, amp_list, freq_list, method):
     main(model_path, config_path, amp_list, freq_list, method)
@@ -58,14 +59,20 @@ class AMPUI():
             if method == "base":
                 amped_values = amplify_frame_data_eulerian(self.values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
             elif method == "base segmented":
-                amped_values = amplify_frame_data_eulerian_mod(self.values, self.config.amp_factors, self.config.freq_list)
+                amped_values = amplify_frame_data_eulerian_mod(self.values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
+            elif method == "abs":
+                amped_values = amplify_frame_data_eulerian_abs(self.values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
+            elif method == "abs segmented":
+                amped_values = amplify_frame_data_eulerian_abs_mod(self.values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
+
 
             execution_time = time.time_ns() - start_time
-            images, _,_ = render_data(amped_values, self.ras_settings, self.config.scene.getVideoCameras(), "video", self.config.cam_type,self.low_vram_mode)
-            print("???")
+            images, _,_ = render_data(amped_values, self.ras_settings, self.config.scene.getVideoCameras(), "video", self.config.cam_type,self.low_vram_mode, frozen_cam=True)
             del amped_values
             torch.cuda.empty_cache()
             return images, execution_time
+
+
 
 if "AI" not in st.session_state:
     st.session_state["AI"] = AMPUI()   
@@ -102,13 +109,17 @@ for i in range(8):
     freq_high_list[i] = freq_high.number_input(f"{chanels_list[i]} High Frequency Cutoff", min_value=0.0, max_value=100.0, value=freq_high_list[i])
 
 AI.low_vram_mode = st.checkbox("Low VRAM mode")
+method = st.selectbox("Select Method", ["base","base segmented","abs", "abs segmented"])
 
 if st.button("Load Config", on_click=lambda : AI.load_config(os.path.join("./output", selected_model), os.path.join("./arguments", selected_config),a_s,list(zip(freq_low_list,freq_high_list)))):
-
+    print(
+        os.path.join("./output", selected_model), 
+        os.path.join("./arguments", selected_config),
+        a_s,
+        list(zip(freq_low_list,freq_high_list)))
     st.write(AI.config  )
 
 
-method = st.selectbox("Select Method", ["base","base segmented"])
 
 if st.button("render"):
 
@@ -136,14 +147,20 @@ if st.button("render"):
     stream.height = height
     stream.pix_fmt = 'yuv420p'
 
+    space_time = []
+
     # Convert each frame to an AV VideoFrame and encode it.
     for frame in frames:
+
+        space_time.append(np.expand_dims(frame[300,:,:],axis=1))
         # Convert the NumPy array (assumed to be in RGB format) to a PyAV VideoFrame.
         video_frame = av.VideoFrame.from_ndarray(frame, format='rgb24')
         # Encode the frame and mux the resulting packets to the container.
         for packet in stream.encode(video_frame):
             container.mux(packet)
-
+    image = Image.fromarray(np.hstack(space_time))
+    del frames
+    st.image(image.resize((width,height)),use_column_width=True)
     # Flush any remaining packets.
     for packet in stream.encode():
         container.mux(packet)
@@ -153,7 +170,7 @@ if st.button("render"):
     # Retrieve the video bytes from the in-memory buffer.
     video_bytes = output_buffer.getvalue()
     video_stream = io.BytesIO(video_bytes)
-    print(frames[0].shape)
+
     #st.image(frames[0])
     st.video(video_stream)
 
