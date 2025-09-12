@@ -15,9 +15,9 @@ from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianR
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from time import time as get_time
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, stage="fine", cam_type=None):
+def render_mod(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, stage="fine", cam_type=None):
     """
-    Render the scene. 
+    Deform the scene with the given parameters and return the data that would be passed into the renderer. 
     
     Background tensor (bg_color) must be on GPU!
     """
@@ -119,25 +119,4 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         colors_precomp = override_color
 
     return means3D_final,means2D, scales_final, rotations_final, opacity, shs_final,colors_precomp,cov3D_precomp, raster_settings
-    # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    # time3 = get_time()
-    rendered_image, radii, depth = rasterizer(
-        means3D = means3D_final,
-        means2D = means2D,
-        shs = shs_final,
-        colors_precomp = colors_precomp,
-        opacities = opacity,
-        scales = scales_final,
-        rotations = rotations_final,
-        cov3D_precomp = cov3D_precomp)
-    # time4 = get_time()
-    # print("rasterization:",time4-time3)
-    # breakpoint()
-    # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
-    # They will be excluded from value updates used in the splitting criteria.
-    return {"render": rendered_image,
-            "viewspace_points": screenspace_points,
-            "visibility_filter" : radii > 0,
-            "radii": radii,
-            "depth":depth}
 

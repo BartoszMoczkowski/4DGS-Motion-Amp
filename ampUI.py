@@ -1,9 +1,7 @@
-#Create a skeleton streamlit app...
 import streamlit as st
 import os 
 import itertools as it
-from arguments import ModelParams, PipelineParams, get_combined_args, ModelHiddenParams
-from render_amp import main, load_config, AmpConfig, generate_frame_data, render_data
+from render_amp import load_config, AmpConfig, generate_frame_data, render_data
 from render_amp import amplify_frame_data_eulerian,amplify_frame_data_eulerian_mod,amplify_frame_data_eulerian_abs,amplify_frame_data_eulerian_abs_mod
 import torch
 import numpy as np
@@ -11,11 +9,11 @@ import io
 import av
 import time
 from PIL import Image
-torch.cuda.empty_cache()
-def run_amp(model_path, config_path, amp_list, freq_list, method):
-    main(model_path, config_path, amp_list, freq_list, method)
 
+# Because there are a lot of input parameters for the modified pipeline, A simple GUI was created 
+# in streamlit to make testing easier.
 class AMPUI():
+    # Helper class for running the modified rendering pipeline
     config = None
     low_vram_mode = False
     def __init__(self):
@@ -23,6 +21,7 @@ class AMPUI():
         print("AMPUI initialized")
 
     def load_config(self, model_path, config_path, amp_factors, freq_cutoffs):
+        # load the scene from the given paths and store the data for the amplification
         with torch.no_grad():
             try:
                 del self.config
@@ -51,7 +50,8 @@ class AMPUI():
             self.ras_settings = ras_settings
 
     def render(self, method):
-        print(method)
+        # Run the amplification and rendering and return the resulting images, as well as 
+        # the time needed to run the amplification step
         with torch.no_grad():
 
             start_time = time.time_ns()
@@ -73,28 +73,26 @@ class AMPUI():
             return images, execution_time
 
 
-
+# store the AMPUI object in the streamlit session_statet to prevent it from being unloaded on restarts
 if "AI" not in st.session_state:
     st.session_state["AI"] = AMPUI()   
 AI = st.session_state["AI"]
 
 st.title("AMP UI")
 
-
-#Create a list of all folders in the avialable under ./output folder and generate a dropdown menu for user to select from
+# list all models as a dropdown menu
 model_folders = [folder for folder in os.listdir("./output")]
 secondary_model_folders = [list(map(lambda x : os.path.join(folder,x),os.listdir(os.path.join("./output", folder)))) for folder in model_folders] 
 secondary_model_folders = list(it.chain.from_iterable(secondary_model_folders))
-#Create a dropdown menu for user to select from the list of secondary folders
 selected_model = st.selectbox("Select Folder", secondary_model_folders)
 
-#filter only folders from conifg_folders...
+# list of configs as a dropdown menu
 config_folders = [folder for folder in os.listdir("./arguments") if os.path.isdir(os.path.join("./arguments", folder))]
 secondary_config_folders = [list(map(lambda x : os.path.join(folder,x),os.listdir(os.path.join("./arguments", folder)))) for folder in config_folders] 
 secondary_config_folders = list(it.chain.from_iterable(secondary_config_folders))
-#Create a dropdown menu for user to select from the list of secondary folders
 selected_config = st.selectbox("Select Folder", secondary_config_folders)
 
+# Create fields in which the user can set the amplification factors and frequency filtering ranges
 chanels_list = ["pos3d","pos2d","rotation","scale","opacity","SHs","color","cov3D"]
 a_s = [-1.0] * len(chanels_list)
 freq_low_list = [0.0]*len(chanels_list)
@@ -108,9 +106,11 @@ for i in range(8):
     freq_low_list[i] = freq_low.number_input(f"{chanels_list[i]} Low Frequency Cutoff", min_value=0.0, max_value=100.0, value=freq_low_list[i])
     freq_high_list[i] = freq_high.number_input(f"{chanels_list[i]} High Frequency Cutoff", min_value=0.0, max_value=100.0, value=freq_high_list[i])
 
+# Create checkbox for low VRAM modoe an a dropdown for the different algorithms
 AI.low_vram_mode = st.checkbox("Low VRAM mode")
 method = st.selectbox("Select Method", ["base","base segmented","abs", "abs segmented"])
 
+# Button for loading the scene
 if st.button("Load Config", on_click=lambda : AI.load_config(os.path.join("./output", selected_model), os.path.join("./arguments", selected_config),a_s,list(zip(freq_low_list,freq_high_list)))):
     print(
         os.path.join("./output", selected_model), 
@@ -119,8 +119,7 @@ if st.button("Load Config", on_click=lambda : AI.load_config(os.path.join("./out
         list(zip(freq_low_list,freq_high_list)))
     st.write(AI.config  )
 
-
-
+# Button to start rendering
 if st.button("render"):
 
     torch.cuda.memory.reset_accumulated_memory_stats()
@@ -133,15 +132,11 @@ if st.button("render"):
     peak_memory_cached = torch.cuda.max_memory_cached()
 
     height, width = frames[0].shape[:2]
-    fps = 20  # frames per second
-
-    # Create an in-memory buffer.
+    fps = 20 # For testing this is set manualy in the code
     output_buffer = io.BytesIO()
 
-    # Open an output container in 'write' mode with format 'mp4'
     container = av.open(output_buffer, mode='w', format='mp4')
 
-    # Add a video stream. Here we use 'libx264' (H.264 codec).
     stream = container.add_stream('libx264', rate=fps)
     stream.width = width
     stream.height = height
@@ -149,31 +144,26 @@ if st.button("render"):
 
     space_time = []
 
-    # Convert each frame to an AV VideoFrame and encode it.
     for frame in frames:
-
-        space_time.append(np.expand_dims(frame[300,:,:],axis=1))
-        # Convert the NumPy array (assumed to be in RGB format) to a PyAV VideoFrame.
+        # To create the crosssection of the video we take a slice of it along the 1st or 2nd axis,
+        # one againg set manual as it is rarly changed
+        space_time.append(np.expand_dims(frame[:,200,:],axis=1))
         video_frame = av.VideoFrame.from_ndarray(frame, format='rgb24')
-        # Encode the frame and mux the resulting packets to the container.
         for packet in stream.encode(video_frame):
             container.mux(packet)
     image = Image.fromarray(np.hstack(space_time))
     del frames
     st.image(image.resize((width,height)),use_column_width=True)
-    # Flush any remaining packets.
     for packet in stream.encode():
         container.mux(packet)
 
     container.close()
 
-    # Retrieve the video bytes from the in-memory buffer.
     video_bytes = output_buffer.getvalue()
     video_stream = io.BytesIO(video_bytes)
 
-    #st.image(frames[0])
+    # Show the video and the performance metrics
     st.video(video_stream)
-
 
     st.write(f"Algorithm run time: {execution_time/1e6}ms")
     st.write(f"Max memory allocated: {peak_memory_allocated/1e6}Mb")

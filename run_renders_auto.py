@@ -1,22 +1,14 @@
 import pandas as pd
-from render_amp import AmpConfig
-import os
 import torch
-
 import os 
-import itertools as it
-from arguments import ModelParams, PipelineParams, get_combined_args, ModelHiddenParams
-from render_amp import main, load_config, AmpConfig, generate_frame_data, render_data
-from render_amp import amplify_frame_data_eulerian,amplify_frame_data_eulerian_mod,amplify_frame_data_eulerian_abs,amplify_frame_data_eulerian_abs_mod
 import torch
-import numpy as np
-import io 
-import av
 import time
-from PIL import Image
-import streamlit as st
+
+from render_amp import load_config, AmpConfig, generate_frame_data, render_data
+from render_amp import amplify_frame_data_eulerian,amplify_frame_data_eulerian_mod,amplify_frame_data_eulerian_abs,amplify_frame_data_eulerian_abs_mod
 
 class AMPUI():
+    # Helper class for running the modified rendering pipeline
     config = None
     low_vram_mode = False
     def __init__(self):
@@ -24,6 +16,7 @@ class AMPUI():
         print("AMPUI initialized")
 
     def load_config(self, model_path, config_path, amp_factors, freq_cutoffs):
+        # load the scene from the given paths and store the data for the amplification
         with torch.no_grad():
             try:
                 del self.config
@@ -52,7 +45,8 @@ class AMPUI():
             self.ras_settings = ras_settings
 
     def render(self, method):
-        print(method)
+        # Run the amplification and rendering and return the resulting images, as well as 
+        # the time needed to run the amplification step
         with torch.no_grad():
 
             start_time = time.time_ns()
@@ -74,28 +68,32 @@ class AMPUI():
             return images, execution_time
 
 
-
+# prepare configs for running automated tests
 data = pd.DataFrame()
 
-a_s = [2] + [-1.0] * 7
-freqs = [(0.0,1.0)] * 8
+a_s = [2] + [-1.0] * 7 # amplfication factors
+freqs = [(0.0,1.0)] * 8 # frequency ranges
+
+# methods to test
 methods = [
     'base', 
     'base segmented', 
     'abs', 
     'abs segmented'
     ]
+# VRAM modes to test (True = low_vram_mode is on)
 vram_modes = [
     False, 
     True
     ]
-
+# Models to test (model_path, config_path)
 models = [
     ('multipleview\\test_hand_2','multipleview\\default.py'),
     ('dnerf\\bouncingballs','dnerf\\bouncingballs.py'),
     ('dnerf\\lego','dnerf\\lego.py'),
     ]
 
+# iteration for combination
 repeats = 5
 results = []
 
@@ -104,6 +102,9 @@ for method in methods:
     for vram_mode in vram_modes:
         for model,config in models:
             for _ in range(repeats):
+
+                # For each method, model and vram mode run the given number of iterations
+                # For each iteration load the scene and run the render pipeline, then save the performance metrics 
                 torch.cuda.empty_cache()
                 try:
                     AI = AMPUI()
@@ -118,6 +119,8 @@ for method in methods:
 
                     peak_memory_allocated = torch.cuda.max_memory_allocated()
                     peak_memory_cached = torch.cuda.max_memory_cached()
+
+                    # Results are saved in Mb for VRAM and ms for runtime to avoid using numbers with large orders  of magnitude
                     results.append([model,method,vram_mode,peak_memory_allocated/1e6,peak_memory_cached/1e6,execution_time/1e6,""])
 
                     del frames, AI
