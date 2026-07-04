@@ -67,7 +67,7 @@ class AMPUI():
 
 
             execution_time = time.time_ns() - start_time
-            images, _,_ = render_data(amped_values, self.ras_settings, self.config.scene.getVideoCameras(), "video", self.config.cam_type,self.low_vram_mode, frozen_cam=True)
+            images, _,_ = render_data(amped_values, self.ras_settings, self.config.scene.getVideoCameras(), "video", self.config.cam_type,self.low_vram_mode, frozen_cam=False)
             del amped_values
             torch.cuda.empty_cache()
             return images, execution_time

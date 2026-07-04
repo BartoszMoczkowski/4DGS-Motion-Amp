@@ -8,3 +8,6 @@
 [submodule "SIBR_viewers"]
 	path = SIBR_viewers
 	url = https://gitlab.inria.fr/sibr/sibr_core
+[submodule "multibody-sync-4dgs"]
+	path = submodules/multibody-sync-4dgs
+	url = git@github.com:BartoszMoczkowski/multibody-sync-4dgs.git

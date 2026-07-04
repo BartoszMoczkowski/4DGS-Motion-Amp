@@ -1,0 +1,9 @@
+{
+  "name": "PyTorch CUDA uv DevContainer",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..", // This tells Docker to look at the project root
+  },
+  "runArgs": ["--gpus=all"],
+  "overrideCommand": true,
+}
