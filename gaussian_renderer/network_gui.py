@@ -27,6 +27,10 @@ def init(wish_host, wish_port):
     global host, port, listener
     host = wish_host
     port = wish_port
+    # Allow immediate rebind after a crash/restart (e.g. train.py's nan-loss os.execv
+    # self-restart): without SO_REUSEADDR the port can be stuck in TIME_WAIT and bind()
+    # raises "Address already in use" even though nothing is actively listening.
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind((host, port))
     listener.listen()
     listener.settimeout(0)

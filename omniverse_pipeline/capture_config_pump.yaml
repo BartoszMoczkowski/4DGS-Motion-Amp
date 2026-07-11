@@ -1,0 +1,59 @@
+# Capture config for the ANIMATED pump (omni_capture.py, Isaac Sim 5.1).
+# Target: CONJUNTO_BOMBAS_animated.usd — 107 labelled parts, 106 with subtle periodic
+# motion, frame_base static. Timeline 0-59 @ 24fps (60 keyframes).
+#
+# Run:  <isaac-python> omni_capture.py --config capture_config_pump.yaml
+# Then: python omni_to_4dgs.py --capture Q:/Omniverse/renders/capture_pump --out . --name pump01
+#
+# Scene facts (measured): Y-up, metersPerUnit 0.01 (cm). bbox [0,0,0]..[1195,2542,2039] cm.
+# center (598,1271,1019) cm, radius ~1736 cm (17.4 m).
+
+app:
+  headless: true
+
+scene:
+  usd_path: "Q:/Omniverse/assets/pump_radnom/CONJUNTO_BOMBAS_animated.usd"
+  subject_prim: null                     # whole stage IS the pump; rig sizes to its bbox
+  # Label each of the 107 parts (frame_base + part_001..106) as its own instance =>
+  # instance/semantic masks are the GT. Matches ..._animated_motion_groups.json (per-part
+  # motion segments; use --groups K in add_motion.py if you prefer K coarser segments).
+  semantic_roots: ["/World/CONJUNTO_BOMBAS"]
+
+rig:
+  layout: dome                           # dome gives good top+side coverage of a tall machine
+  n_cameras: 10                          # 8-12; override with --n-cameras
+  radius_scale: 2.5                      # cameras ~43 m out (2.5 * 17.4 m)
+  n_rings: 3
+  min_elev_deg: 15
+  max_elev_deg: 75
+  # world_up auto-detected as Y from the stage.
+
+capture:
+  width: 1600
+  height: 900
+  vfov_deg: 45
+  num_frames: 60                         # == timeline length, so 1 capture per authored keyframe
+  rt_subframes: 16                       # path-trace samples/frame (raise for less noise)
+  near: 90.0                             # ~0.05 * radius (cm)
+  far: 7000.0                            # ~4 * radius (cm)
+
+output:
+  capture_dir: "Q:/Omniverse/renders/capture_pump"
+  instance_segmentation: true
+  semantic_segmentation: true
+  num_init_points: 100000                # mesh has ~104k verts; ~100k init points is plenty
+
+lighting:                                # a headless render is black without a light
+  enabled: true
+  force: false                           # true = add our lights even if the scene has some
+  add_dome: true
+  dome_intensity: 1000.0
+  dome_texture: generate                 # dark grid backdrop -> contrast + features for 4DGS
+  bg_base: [6, 7, 11]                    # near-black background base color (0-255)
+  bg_line: [28, 32, 44]                  # faint grid line color
+  bg_dot: [48, 54, 70]                   # brighter dots at grid intersections
+  bg_step: 64                            # grid spacing in texture pixels
+  add_distant: true
+  distant_intensity: 4000.0              # key light (raised: dark dome gives little fill)
+  distant_elev_deg: 45.0
+  distant_azim_deg: -45.0

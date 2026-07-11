@@ -10,3 +10,8 @@ data/
 data
 submodules/
 *.zip
+omniverse_out*
+viseron/config/postgresql/
+viseron/segments/
+viseron/snapshots/
+viseron/thumbnails/

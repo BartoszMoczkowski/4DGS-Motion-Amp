@@ -207,6 +207,43 @@ def get_spiral(c2ws_all, near_fars, rads_scale=1.0, N_views=120):
     return np.stack(render_poses)
 
 
+def get_orbit(poses, N_views=300, n_rots=1):
+    """Smooth circular orbit around the scene, at fixed radius/height, always looking at the
+    scene center. `get_spiral`'s NeRF spiral heuristic (avg pose direction + near/far-derived
+    focus depth + percentile translation as spiral radius) assumes a forward-facing capture
+    with a narrow baseline (LLFF/DyNeRF-style camera arrays). It is a poor fit for an
+    object-centric 360-degree multi-camera rig (e.g. omniverse_pipeline's ring/dome of static
+    cameras): the cameras' view directions point inward from all around the subject, so their
+    *average* pose/orientation is close to degenerate, which is what makes the spiral video
+    path swing around erratically ("spinning rapidly") instead of tracing a calm orbit.
+
+    poses: (N_cams, 3, 5) in the loader's remapped [right, up, back, center | hwf] layout
+    (see multipleview_dataset.get_video_cam_infos / dataset_readers' `[c1,-c0,c2,c3]` remap).
+    """
+    centers = poses[:, :, 3]                         # (N_cams, 3)
+    scene_center = centers.mean(0)
+    up = normalize(poses[:, :, 1].sum(0))             # consistent with get_spiral's `up`
+
+    rel = centers - scene_center
+    height = rel @ up                                 # signed offset along up axis
+    rel_perp = rel - np.outer(height, up)             # component in the orbit plane
+    radius = np.linalg.norm(rel_perp, axis=1).mean()
+    avg_height = height.mean()
+
+    # Orthonormal basis for the orbit plane (perpendicular to `up`).
+    world_ref = np.array([0.0, 0.0, 1.0]) if abs(up[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+    e1 = normalize(np.cross(up, world_ref))
+    e2 = normalize(np.cross(up, e1))
+
+    render_poses = []
+    for i in range(N_views):
+        theta = 2.0 * np.pi * n_rots * i / N_views
+        pos = scene_center + up * avg_height + radius * (np.cos(theta) * e1 + np.sin(theta) * e2)
+        z = normalize(pos - scene_center)             # "back" axis, matches render_path_spiral
+        render_poses.append(viewmatrix(z, up, pos))
+    return np.stack(render_poses)
+
+
 class Neural3D_NDC_Dataset(Dataset):
     def __init__(
         self,

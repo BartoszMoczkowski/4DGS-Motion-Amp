@@ -1,0 +1,300 @@
+2026-07-07 10:45:55.251 [INFO    ] [viseron.core] - -------------------------------------------
+2026-07-07 10:45:55.253 [INFO    ] [viseron.core] - Initializing Viseron 3.5.3
+2026-07-07 10:45:55.261 [INFO    ] [viseron.components] - Setting up component data_stream
+2026-07-07 10:45:55.264 [INFO    ] [viseron.components] - Setup of component data_stream took 0.0 seconds
+2026-07-07 10:45:55.264 [INFO    ] [viseron.components] - Setting up component storage
+2026-07-07 10:45:55.310 [INFO    ] [viseron.components.storage] - Database connection established successfully
+2026-07-07 10:45:55.322 [INFO    ] [alembic.runtime.migration] - Context impl PostgresqlImpl.
+2026-07-07 10:45:55.323 [INFO    ] [alembic.runtime.migration] - Will assume transactional DDL.
+2026-07-07 10:45:55.380 [INFO    ] [viseron.components] - Setup of component storage took 0.1 seconds
+2026-07-07 10:45:55.380 [INFO    ] [viseron.components] - Setting up component webserver
+2026-07-07 10:45:55.390 [INFO    ] [viseron.components] - Setup of component webserver took 0.0 seconds
+2026-07-07 10:45:55.390 [INFO    ] [viseron.components] - Setting up component nvr
+2026-07-07 10:45:55.391 [INFO    ] [viseron.components] - Setting up component background_subtractor
+2026-07-07 10:45:55.391 [INFO    ] [viseron.components] - Setting up component ffmpeg
+2026-07-07 10:45:55.392 [INFO    ] [viseron.components] - Setting up component go2rtc
+2026-07-07 10:45:55.392 [INFO    ] [viseron.components] - Setup of component nvr took 0.0 seconds
+2026-07-07 10:45:55.397 [INFO    ] [viseron.components] - Setup of component background_subtractor took 0.0 seconds
+2026-07-07 10:45:55.400 [INFO    ] [viseron.components] - Setup of component ffmpeg took 0.0 seconds
+2026-07-07 10:45:55.402 [INFO    ] [viseron.components] - Setup of component go2rtc took 0.0 seconds
+2026-07-07 10:45:55.905 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_1 for component ffmpeg
+2026-07-07 10:45:55.905 [INFO    ] [viseron.domains] - Setting up domain motion_detector with identifier camera_1 for component background_subtractor
+2026-07-07 10:45:55.906 [INFO    ] [viseron.domains] - Setting up domain nvr with identifier camera_1 for component nvr
+2026-07-07 10:45:55.906 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg
+2026-07-07 10:45:55.907 [INFO    ] [viseron.domains] - Setting up domain motion_detector with identifier camera_2 for component background_subtractor
+2026-07-07 10:45:55.907 [INFO    ] [viseron.domains] - Setting up domain nvr with identifier camera_2 for component nvr
+2026-07-07 10:46:09.479 [INFO    ] [viseron.domains] - Setup of domain camera with identifier camera_1 for component ffmpeg took 13.6 seconds
+2026-07-07 10:46:09.492 [INFO    ] [viseron.domains] - Setup of domain motion_detector with identifier camera_1 for component background_subtractor took 0.0 seconds
+2026-07-07 10:46:09.506 [INFO    ] [viseron.components.nvr.nvr.camera_1] - Object detector is disabled
+2026-07-07 10:46:09.525 [WARNING ] [viseron.components.ffmpeg.stream.camera_1] - Container mp4 does not support pcm_mulaw audio codec. Audio will be transcoded as aac.
+2026-07-07 10:46:09.526 [WARNING ] [viseron.components.ffmpeg.stream.camera_1] - Container mp4 does not support pcm_mulaw audio codec. Audio will be transcoded as aac., message repeated 2 times
+2026-07-07 10:46:09.527 [INFO    ] [viseron.components.nvr.nvr.camera_1] - NVR for camera Cam_01 initialized
+2026-07-07 10:46:09.529 [INFO    ] [viseron.domains] - Setup of domain nvr with identifier camera_1 for component nvr took 0.0 seconds
+2026-07-07 10:46:11.324 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 10 seconds. Error: FFprobe command timed out after 15s
+2026-07-07 10:46:16.939 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5e1c1cb880c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:46:21.325 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 2
+2026-07-07 10:46:41.326 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:46:42.371 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5617535ad0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:46:42.477 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 20 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:46:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:46:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:47:02.478 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 3
+2026-07-07 10:47:22.479 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:47:23.560 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5b66c9ac90c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:47:23.560 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 10:47:23.678 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 30 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:47:53.678 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 4
+2026-07-07 10:47:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:47:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:48:13.678 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:48:14.693 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x572197f650c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:48:14.794 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 40 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:48:54.794 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 5
+2026-07-07 10:48:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:48:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:49:14.794 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:49:15.821 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x6492137520c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:49:15.822 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 10:49:15.933 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 50 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:49:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:49:55.916 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:50:05.934 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 6
+2026-07-07 10:50:25.934 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:50:26.955 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5b04831a20c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:50:26.956 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 10:50:27.059 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 60 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:50:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:50:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:51:27.058 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 7
+2026-07-07 10:51:47.058 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:51:48.087 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5c4cbd94a0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:51:48.088 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 10:51:48.198 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 70 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:51:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:51:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:52:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:52:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:52:58.197 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 8
+2026-07-07 10:53:18.198 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:53:19.223 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5b0f6d8ef0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:53:19.223 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 10:53:19.323 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 80 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:53:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:53:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:54:39.320 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 9
+2026-07-07 10:54:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:54:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:54:59.322 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:55:00.340 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x61cb94fe90c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:55:00.441 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 90 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:55:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:55:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:56:30.438 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 10
+2026-07-07 10:56:50.438 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:56:51.504 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5e5278a200c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:56:51.505 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 10:56:51.602 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 100 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:56:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:56:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:57:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:57:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:58:31.599 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 11
+2026-07-07 10:58:51.600 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 10:58:52.651 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5c193bdae0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 10:58:52.767 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 110 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 10:58:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:58:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 10:59:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 10:59:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:00:42.763 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 12
+2026-07-07 11:00:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:00:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:01:02.765 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:01:03.788 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x6127c45630c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:01:03.789 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:01:03.900 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 120 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:01:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:01:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:02:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:02:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:03:03.896 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 13
+2026-07-07 11:03:23.897 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:03:24.976 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5eba094000c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:03:24.977 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:03:25.107 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 130 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:03:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:03:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:04:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:04:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:05:35.103 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 14
+2026-07-07 11:05:55.103 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:05:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:05:55.916 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:05:56.133 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5b2ed73430c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:05:56.134 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:05:56.246 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 140 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:06:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:06:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:07:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:07:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:08:16.241 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 15
+2026-07-07 11:08:36.242 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:08:37.266 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x563b360a50c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:08:37.267 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:08:37.383 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 150 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:08:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:08:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:09:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:09:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:10:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:10:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:11:07.378 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 16
+2026-07-07 11:11:27.378 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:11:28.404 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x61c9dd6ae0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:11:28.405 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:11:28.522 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 160 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:11:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:11:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:12:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:12:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:13:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:13:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:14:08.516 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 17
+2026-07-07 11:14:28.518 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:14:29.575 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x61bddaacc0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:14:29.576 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:14:29.691 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 170 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:14:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:14:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:15:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:15:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:16:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:16:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:17:19.685 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 18
+2026-07-07 11:17:39.685 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:17:40.741 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x63bdac19a0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:17:40.742 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:17:40.864 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 180 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:17:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:17:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:18:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:18:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:19:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:19:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:20:40.858 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 19
+2026-07-07 11:20:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:20:55.916 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:21:00.859 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:21:01.913 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x58ca219b90c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:21:01.914 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:21:02.023 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 190 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:21:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:21:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:22:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:22:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:23:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:23:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:24:12.016 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 20
+2026-07-07 11:24:32.017 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:24:33.054 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x59886476f0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:24:33.054 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:24:33.165 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 200 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:24:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:24:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:25:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:25:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:26:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:26:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:27:53.157 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 21
+2026-07-07 11:27:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:27:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:28:13.157 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:28:14.200 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x648b70f110c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:28:14.326 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 210 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:28:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:28:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:29:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:29:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:30:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:30:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:31:44.316 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 22
+2026-07-07 11:31:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:31:55.916 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:32:04.317 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:32:05.361 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x63de4bce10c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:32:05.362 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:32:05.476 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 220 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:32:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:32:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:33:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:33:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:34:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:34:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:35:45.464 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 23
+2026-07-07 11:35:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:35:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:36:05.466 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:36:06.514 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x6036462d60c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:36:06.516 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:36:06.646 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 230 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:36:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:36:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:37:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:37:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:38:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:38:55.916 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:39:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:39:55.916 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:39:56.634 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 24
+2026-07-07 11:40:16.634 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:40:17.684 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x577d177c50c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:40:17.685 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:40:17.815 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 240 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:40:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:40:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:41:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:41:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:42:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:42:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:43:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:43:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:44:17.803 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 25
+2026-07-07 11:44:37.804 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:44:38.874 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5939402230c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:44:38.875 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:44:39.007 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 250 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:44:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:44:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:45:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:45:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:46:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:46:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:47:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:47:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:48:48.995 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 26
+2026-07-07 11:48:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:48:55.916 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:49:08.995 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:49:10.046 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5d443bafd0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:49:10.049 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - rtsp://*****:*****@192.168.3.185:554stream1: Connection refused
+2026-07-07 11:49:10.159 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 260 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:49:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:49:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:50:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:50:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:51:55.914 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:51:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:52:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:52:55.916 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:53:30.148 [INFO    ] [viseron.domains] - Setting up domain camera with identifier camera_2 for component ffmpeg, attempt 27
+2026-07-07 11:53:50.149 [WARNING ] [viseron.domains] - Setup of domain camera with identifier camera_2 for component ffmpeg is taking longer than 20 seconds
+2026-07-07 11:53:51.173 [ERROR   ] [viseron.components.ffmpeg.stream.camera_2] - [tcp @ 0x5d85a759b0c0] Connection to tcp://192.168.3.185:554?timeout=0 failed: Connection refused
+2026-07-07 11:53:51.267 [ERROR   ] [viseron.domains] - Domain camera with identifier camera_2 for component ffmpeg is not ready. Retrying in 270 seconds. Error: FFprobe could not connect to stream. Output: {'error': {'code': -111, 'string': 'Connection refused'}}
+2026-07-07 11:53:55.913 [WARNING ] [viseron.domains] - Domain motion_detector with identifier camera_2 still waiting for dependencies
+2026-07-07 11:53:55.915 [WARNING ] [viseron.domains] - Domain nvr with identifier camera_2 still waiting for dependencies
+2026-07-07 11:54:45.692 [INFO    ] [viseron.core] - Initiating shutdown
+2026-07-07 11:54:45.693 [WARNING ] [viseron.domains] - Setup retry for domain camera with identifier camera_2 for component ffmpeg aborted due to cancellation
+2026-07-07 11:54:45.823 [ERROR   ] [viseron.domains] - Unable to setup dependencies for domain motion_detector with identifier camera_2 for component background_subtractor
+2026-07-07 11:54:45.825 [ERROR   ] [viseron.domains] - Unable to setup dependencies for domain nvr with identifier camera_2 for component nvr
+2026-07-07 11:54:45.835 [INFO    ] [viseron.core] - Viseron initialized in 4130.8 seconds
+2026-07-07 11:54:45.840 [INFO    ] [viseron.components.nvr.nvr.camera_1] - Stopping NVR thread

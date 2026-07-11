@@ -1,0 +1,54 @@
+10:45:49.923 INF go2rtc platform=linux/amd64 revision=fa580c5 version=1.9.9
+10:45:49.923 DBG build vcs.time=2025-03-10T02:51:40Z version=go1.24.1
+10:45:49.923 INF config path=/tmp/go2rtc.yaml
+10:45:49.924 INF [rtsp] listen addr=:8554
+10:45:49.924 INF [api] listen addr=:1984
+10:45:49.924 INF [webrtc] listen addr=:8555
+10:45:55.402 DBG [api] restart /usr/local/bin/go2rtc
+10:45:55.472 INF go2rtc platform=linux/amd64 revision=fa580c5 version=1.9.9
+10:45:55.473 DBG build vcs.time=2025-03-10T02:51:40Z version=go1.24.1
+10:45:55.473 INF config path=/tmp/go2rtc.yaml
+10:45:55.473 INF [rtsp] listen addr=:8554
+10:45:55.473 INF [api] listen addr=:1984
+10:45:55.473 INF [webrtc] listen addr=:8555
+10:46:09.693 DBG [webrtc] new consumer src=camera_1
+10:46:09.784 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+10:46:15.246 DBG [webrtc] new consumer src=camera_1
+10:46:15.445 DBG [webrtc] new consumer src=camera_1
+10:46:47.442 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+10:46:47.957 DBG [webrtc] new consumer src=camera_1
+10:46:48.074 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+10:47:57.288 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+10:50:44.632 DBG [webrtc] new consumer src=camera_1
+10:50:44.743 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+10:51:14.871 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+10:55:13.086 DBG [webrtc] new consumer src=camera_1
+10:55:13.176 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:00:49.294 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:01:43.140 DBG [webrtc] new consumer src=camera_1
+11:01:43.236 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:04:03.292 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:12:07.909 DBG [webrtc] new consumer src=camera_1
+11:12:08.023 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:15:22.298 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:17:05.959 DBG [webrtc] new consumer src=camera_1
+11:17:06.067 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:17:08.057 DBG [webrtc] new consumer src=camera_1
+11:17:46.291 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:27:21.752 DBG [webrtc] new consumer src=camera_1
+11:27:21.836 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:27:27.333 DBG [webrtc] new consumer src=camera_1
+11:28:12.673 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:28:13.211 DBG [webrtc] new consumer src=camera_1
+11:28:13.331 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:28:16.996 DBG [webrtc] new consumer src=camera_1
+11:28:47.122 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:38:44.974 DBG [webrtc] new consumer src=camera_1
+11:38:45.090 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:38:50.872 DBG [webrtc] new consumer src=camera_1
+11:39:21.012 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:52:05.328 DBG [webrtc] new consumer src=camera_1
+11:52:05.470 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:52:35.570 DBG [streams] stop producer url=rtsp://admin:123456@192.168.3.177:554/stream1
+11:54:22.114 DBG [webrtc] new consumer src=camera_1
+11:54:22.222 DBG [streams] start producer url=rtsp://admin:123456@192.168.3.177:554/stream1

@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libgomp1 \
     libegl1 \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     libx11-6 \
     libxext6 \
     libxrender1 \
@@ -28,12 +30,14 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /workspace
 
 # Copy the dependency files first to leverage Docker caching
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock  ./
+COPY submodules/ ./submodules/
+RUN ls -la /*
 
 # Create the virtual environment and install dependencies
 # --frozen ensures uv uses the exact versions in uv.lock without updating it
-RUN uv venv .venv && \
-    uv sync --frozen
+# RUN uv venv .venv && \
+#     uv sync --frozen
 
 # Expose the virtual environment's binary folder to the PATH
 # This fulfills the requirement to expose the obtained python file/binaries

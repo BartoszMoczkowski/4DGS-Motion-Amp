@@ -1,9 +1,15 @@
 {
-  "name": "PyTorch CUDA uv DevContainer",
-  "build": {
-    "dockerfile": "../Dockerfile",
-    "context": "..", // This tells Docker to look at the project root
-  },
-  "runArgs": ["--gpus=all"],
-  "overrideCommand": true,
+    "name": "PyTorch CUDA uv DevContainer",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "context": ".." // This tells Docker to look at the project root
+    },
+    "mounts": [
+        // >>> EDIT THIS: bind your Omniverse assets folder into the container as /omniverse.
+        //     Linux host:  source=/path/to/Omniverse
+        //     WSL2 (Q:\):  first make Q: visible in WSL2, then e.g. source=/mnt/q/Omniverse
+        "source=Q:/Omniverse,target=/omniverse,type=bind,consistency=cached"
+    ],
+    "runArgs": ["--gpus=all", "--ipc=host"],
+    "overrideCommand": true
 }

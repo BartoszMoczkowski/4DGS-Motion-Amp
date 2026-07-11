@@ -1,0 +1,23 @@
+services:
+  viseron:
+    image: roflcoopter/viseron:latest
+    container_name: viseron
+    restart: unless-stopped
+    shm_size: "1024mb"
+    # Remove this line and switch back to roflcoopter/viseron:latest if you don't have
+    # an NVIDIA GPU set up — without it this image can fail to start/crash-loop.
+    volumes:
+      - ./segments:/segments
+      - ./snapshots:/snapshots
+      - ./thumbnails:/thumbnails
+      - ./event_clips:/event_clips
+      - ./timelapse:/timelapse
+      - ./config:/config
+      - /etc/localtime:/etc/localtime:ro
+    ports:
+      - "8888:8888"
+    # Uncomment to avoid permission issues between host and container.
+    # Find your UID/GID with `id` on Linux/WSL.
+    # environment:
+    #   - PUID=1000
+    #   - PGID=1000

@@ -1,0 +1,38 @@
+{
+  // Isaac Sim 5.1 + Claude Code dev container.
+  // Copy this folder to  .devcontainer/isaacsim/  then "Dev Containers: Reopen in Container".
+  // See README.md in this folder for prerequisites (NGC login, WSL2 GPU, Q: mount).
+  "image": "nvcr.io/nvidia/isaac-sim:6.0.1",
+
+  // GPU passthrough (needs NVIDIA Container Toolkit; on Windows use Docker Desktop + WSL2).
+  // --network=host lets Omniverse/Kit bind its local ports.
+  "runArgs": ["--gpus", "all"],
+
+  // Accept the Omniverse EULA / privacy consent for the Isaac Sim runtime.
+  "containerEnv": {
+    "ACCEPT_EULA": "Y",
+    "PRIVACY_CONSENT": "Y",
+    "OMNI_KIT_ACCEPT_EULA": "YES",
+  },
+
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+
+  "mounts": [
+    // >>> EDIT THIS: bind your Omniverse assets folder into the container as /omniverse.
+    //     Linux host:  source=/path/to/Omniverse
+    //     WSL2 (Q:\):  first make Q: visible in WSL2, then e.g. source=/mnt/q/Omniverse
+    "source=Q:/Omniverse,target=/omniverse,type=bind,consistency=cached",
+
+    // Persist Isaac Sim shader/asset cache across rebuilds (first run warms it slowly).
+    "source=isaac-cache,target=/isaac-sim/.cache,type=volume",
+    "source=isaac-compute,target=/isaac-sim/.nv/ComputeCache,type=volume",
+    "source=isaac-ovdata,target=/isaac-sim/.local/share/ov/data,type=volume",
+
+    // Persist Claude Code auth/config (CLAUDE_CONFIG_DIR=/isaac-sim/.claude).
+    "source=claude-config,target=/isaac-sim/.claude,type=volume",
+  ],
+
+  // Keep the container alive; the Isaac Sim ENTRYPOINT is overridden to bash above.
+  "overrideCommand": true,
+}

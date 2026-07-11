@@ -1,0 +1,47 @@
+# Config for omni_capture.py  (Omniverse/Isaac Sim 5.1 multi-camera capture)
+# CLI flags (--usd, --out, --n-cameras, --frames, --headless) override these.
+
+app:
+  headless: true # false to watch it render in the viewport
+
+scene:
+  # Absolute path to the USD to capture. SceneAssembly is the richer, animated target.
+  usd_path: "/omniverse/assets/physAI_start/SceneAssembly.usd"
+  # --- Alternative: the now-segmented pump (107 labelled rigid parts) ---
+  # usd_path: "Q:/Omniverse/assets/pump_radnom/CONJUNTO_BOMBAS_segmented.usd"
+  # semantic_roots: ["/World/CONJUNTO_BOMBAS"]   # labels each of the 107 parts by name
+  # NOTE: the segmented pump is still STATIC — author per-part periodic motion before it is
+  # useful for motion-segmentation/amplification testing (see notes §pump).
+  #
+  # Optional: focus the rig + point cloud on one prim (its world bbox). Omit for whole stage.
+  subject_prim: null # e.g. "/World/CL6_Line_Full/N_02_PCB_Router"
+  # Prims whose DIRECT CHILDREN become individually-labelled instances for GT segmentation.
+  # Omit/null -> every Mesh is labelled by its own name (many small instances).
+  semantic_roots: null # e.g. ["/World/CL6_Line_Full"] or ["/World/CONJUNTO_BOMBAS"]
+
+rig:
+  layout: dome # ring | dome
+  n_cameras: 10 # 8-12 recommended
+  radius_scale: 0 # camera distance = bbox_radius * radius_scale
+  height_scale: 0.3 # ring only: camera height above center = bbox_radius * this
+  start_deg: 0.0 # ring only
+  n_rings: 3 # dome only
+  min_elev_deg: 10 # dome only
+  max_elev_deg: 70 # dome only
+  # world_up is auto-detected from the stage up-axis; override here if needed.
+
+capture:
+  width: 1600
+  height: 900
+  vfov_deg: 45 # vertical field of view -> intrinsics
+  num_frames: 60 # frames sampled evenly across the stage timeline
+  rt_subframes: 8 # path-trace subframes per capture (higher = cleaner, slower)
+  # near/far default to radius*0.05 / radius*4.0 if omitted:
+  # near: 5.0
+  # far: 4000.0
+
+output:
+  capture_dir: "Q:/Omniverse/renders/capture_scene01"
+  instance_segmentation: true
+  semantic_segmentation: true
+  num_init_points: 100000 # mesh-vertex sample size for the 4DGS init cloud

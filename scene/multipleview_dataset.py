@@ -5,7 +5,7 @@ from PIL import Image
 from utils.graphics_utils import focal2fov
 from scene.colmap_loader import qvec2rotmat
 from scene.dataset_readers import CameraInfo
-from scene.neural_3D_dataset_NDC import get_spiral
+from scene.neural_3D_dataset_NDC import get_orbit
 from torchvision import transforms as T
 
 
@@ -61,7 +61,11 @@ class multipleview_dataset(Dataset):
         near_fars = poses_arr[:, -2:]
         poses = np.concatenate([poses[..., 1:2], -poses[..., :1], poses[..., 2:4]], -1)
         N_views = 300
-        val_poses = get_spiral(poses, near_fars, N_views=N_views)
+        # omniverse_pipeline captures are a static 360-degree ring/dome of cameras, not a
+        # forward-facing array -> use a calm circular orbit for the test video instead of
+        # get_spiral's LLFF-style heuristic (which degenerates into an erratic, fast-looking
+        # path for this camera layout; see scene/neural_3D_dataset_NDC.get_orbit).
+        val_poses = get_orbit(poses, N_views=N_views, n_rots=1)
 
         cameras = []
         len_poses = len(val_poses)

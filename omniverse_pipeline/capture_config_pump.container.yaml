@@ -1,0 +1,53 @@
+# Container variant of capture_config_pump.yaml — LINUX paths for the Isaac Sim
+# dev container, where the host Omniverse folder is bind-mounted at /omniverse and
+# this repo at /workspace. Same rig/capture/lighting settings as the Windows config.
+#
+# Run inside the container:
+#   /isaac-sim/python.sh /workspace/omniverse_pipeline/omni_capture.py \
+#       --config /workspace/omniverse_pipeline/capture_config_pump.container.yaml
+
+app:
+  headless: true
+
+scene:
+  usd_path: "/omniverse/assets/pump_radnom/CONJUNTO_BOMBAS_animated.usd"
+  subject_prim: null
+  semantic_roots: ["/World/CONJUNTO_BOMBAS"]
+
+rig:
+  layout: dome
+  n_cameras: 10
+  radius_scale: 2.5
+  n_rings: 3
+  min_elev_deg: 15
+  max_elev_deg: 75
+
+capture:
+  width: 1600
+  height: 900
+  vfov_deg: 45
+  num_frames: 60
+  rt_subframes: 16
+  near: 90.0
+  far: 7000.0
+
+output:
+  capture_dir: "/omniverse/renders/capture_pump"
+  instance_segmentation: true
+  semantic_segmentation: true
+  num_init_points: 100000
+
+lighting:
+  enabled: true
+  force: false
+  add_dome: true
+  dome_intensity: 1000.0
+  dome_texture: generate                 # dark grid backdrop -> contrast + features for 4DGS
+  bg_base: [6, 7, 11]
+  bg_line: [28, 32, 44]
+  bg_dot: [48, 54, 70]
+  bg_step: 64
+  add_distant: true
+  distant_intensity: 4000.0
+  distant_elev_deg: 45.0
+  distant_azim_deg: -45.0

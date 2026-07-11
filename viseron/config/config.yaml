@@ -1,0 +1,68 @@
+# Thanks for trying out Viseron!
+# This is a small walkthrough of the configuration to get you started.
+# There are far more components and options available than what is listed here.
+# See the documentation for the full list of configuration options.
+
+## Start by adding some cameras
+ffmpeg:
+  camera:
+    camera_1:  # This value has to be unique across all cameras
+      name: Cam_01
+      host: 192.168.3.177
+      port: 554
+      path: stream1
+      username: admin
+      password: "123456"
+      fps : 60
+      input_args: ["-avoid_negative_ts", "make_zero", "-fflags", "+genpts"]
+    camera_2:  # This value has to be unique across all cameras
+      name: Cam_02
+      host: 192.168.3.185
+      port: 554
+      path: stream1
+      username: admin
+      password: "123456"
+      fps : 60
+
+
+## A motion (or object) detector must be configured, otherwise the NVR has
+## nothing to scan and stays in the "idle" state forever, which blocks
+## manual recording. trigger_event_recording defaults to false, so this
+## will NOT start automatic recordings on its own.
+background_subtractor:
+  motion_detector:
+    cameras:
+      camera_1:
+      camera_2:
+
+## Docker Desktop on Windows uses a bind-mount layer that does not reliably
+## deliver inotify file-created events into the container. Viseron's storage
+## component uses inotify by default to notice new recording segments and
+## register them in its database. Without "poll: true" here, segments are
+## written to disk just fine but never get indexed, so playback requests
+## fail with "Could not find init.mp4" / "Recording with id X not found"
+## even though the files are actually there.
+storage:
+  recorder:
+    tiers:
+      - path: /
+        poll: true
+  snapshots:
+    tiers:
+      - path: /
+        poll: true
+
+## To tie everything together we need to configure one more component.
+nvr:
+  camera_1:  # Run NVR for camera_1
+  camera_2:  # Run NVR for camera_1
+
+# Now you can restart Viseron and you should be good to go!
+go2rtc:
+  streams:
+    camera_1:
+      - rtsp://admin:123456@192.168.3.177:554/stream1
+    camera_2:
+      - rtsp://admin:123456@192.168.3.185:554/stream1
+  log:
+    level: debug
