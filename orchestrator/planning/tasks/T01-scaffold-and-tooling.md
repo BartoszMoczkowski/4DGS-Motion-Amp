@@ -1,6 +1,6 @@
 # T01 — Subproject scaffold & tooling
 
-- Status: todo
+- Status: done
 - Phase: 0
 - Depends on: —
 - Environment: host

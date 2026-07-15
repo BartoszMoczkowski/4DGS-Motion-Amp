@@ -32,6 +32,44 @@ def propagate_labels(src_points, src_labels, dst_points):
     return src_labels[nn]
 
 
+def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: bool = False) -> dict:
+    """Score a predicted segmentation against GT — the logic ``main()`` below drives from the
+    CLI, graduated into an importable function (``planning/INSTRUCTIONS.md``'s "refactor into
+    importable functions only when it clearly pays off" — this is that case: the pipeline
+    orchestrator's ``seg_eval.default`` stage, T07, needs to call this in-process rather than
+    duplicating the propagate/score glue).
+
+    Returns a dict with ``ari``, ``mean_iou``, ``matches`` (as :func:`best_iou_matching` returns
+    them), ``gt_on_pred`` (GT labels propagated onto ``pred_points``), the (possibly
+    floater-dropped) ``pred_points``/``pred_labels`` actually scored, and ``n_gt``/``n_pred``
+    instance counts — everything ``main()`` prints or writes a preview from.
+    """
+    pred_points = np.asarray(pred_points)
+    pred_labels = np.asarray(pred_labels)
+    gt_points = np.asarray(gt_points)
+    gt_labels = np.asarray(gt_labels)
+
+    if drop_floaters:
+        mask = pred_labels != -1
+        pred_points, pred_labels = pred_points[mask], pred_labels[mask]
+
+    gt_on_pred = propagate_labels(gt_points, gt_labels, pred_points)
+
+    ari = adjusted_rand_index(gt_on_pred, pred_labels)
+    mean_iou, matches = best_iou_matching(gt_on_pred, pred_labels)
+
+    return {
+        "ari": ari,
+        "mean_iou": mean_iou,
+        "matches": matches,
+        "gt_on_pred": gt_on_pred,
+        "pred_points": pred_points,
+        "pred_labels": pred_labels,
+        "n_gt": len(np.unique(gt_labels)),
+        "n_pred": len(np.unique(pred_labels)),
+    }
+
+
 def _write_colored_ply(path, xyz, labels):
     """Small self-contained PLY writer (pseudo-color per label) for a quick visual sanity
     check in any mesh viewer (MeshLab, CloudCompare, Blender...)."""
@@ -76,20 +114,15 @@ def main():
 
     pred = np.load(args.pred)
     gt = np.load(args.gt)
-    pred_points, pred_labels = pred["points"], pred["labels"]
-    gt_points, gt_labels = gt["points"], gt["labels"]
 
-    if args.drop_floaters:
-        mask = pred_labels != -1
-        pred_points, pred_labels = pred_points[mask], pred_labels[mask]
+    result = evaluate(
+        pred["points"], pred["labels"], gt["points"], gt["labels"],
+        drop_floaters=args.drop_floaters,
+    )
+    ari, mean_iou, matches = result["ari"], result["mean_iou"], result["matches"]
+    pred_points, pred_labels = result["pred_points"], result["pred_labels"]
+    n_gt, n_pred = result["n_gt"], result["n_pred"]
 
-    gt_on_pred = propagate_labels(gt_points, gt_labels, pred_points)
-
-    ari = adjusted_rand_index(gt_on_pred, pred_labels)
-    mean_iou, matches = best_iou_matching(gt_on_pred, pred_labels)
-
-    n_gt = len(np.unique(gt_labels))
-    n_pred = len(np.unique(pred_labels))
     print(f"GT instances: {n_gt}  |  predicted segments: {n_pred}  |  predicted points: {len(pred_labels)}")
     print(f"Adjusted Rand Index: {ari:.4f}")
     print(f"Mean best-match IoU (Hungarian, {min(n_gt, n_pred)} matches): {mean_iou:.4f}")
@@ -111,7 +144,7 @@ def main():
         from motion_seg.visualize import render_comparison_png
 
         render_comparison_png(
-            pred_points, gt_on_pred, pred_labels, "GT (propagated)", "Predicted", comparison_png
+            pred_points, result["gt_on_pred"], pred_labels, "GT (propagated)", "Predicted", comparison_png
         )
         print(f"[ok] wrote {comparison_png}")
 

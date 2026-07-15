@@ -1,0 +1,45 @@
+# Base preset — the floor every scene/experiment preset extends.
+#
+# Everything NOT listed here falls back to the pydantic model defaults in `models.py`, which
+# mirror `arguments/__init__.py`'s ParamGroup class defaults (the 4DGS-general defaults, not
+# specific to any dataset family).
+#
+# The `hidden:`/`optim:` overrides below instead mirror `arguments/multipleview/default.py` —
+# this repo's own default hyperparameters for the "multipleview" (Omniverse-capture) dataset
+# family, which already diverge from the bare `arguments/__init__.py` defaults (finer time
+# resolution, wider net, lighter TV regularization, shorter training run). Every `multipleview/*`
+# scene preset (e.g. `pump01`) is meant to extend this one, not `arguments/__init__.py`'s raw
+# defaults directly — see MIGRATION.md.
+name: base
+
+hidden:
+  kplanes_config:
+    grid_dimensions: 2
+    input_coordinate_dim: 4
+    output_coordinate_dim: 16
+    # last entry is the TIME resolution of the deformation grid.
+    resolution: [64, 64, 64, 150]
+  multires: [1, 2]
+  defor_depth: 0
+  net_width: 128
+  plane_tv_weight: 0.0002
+  time_smoothness_weight: 0.001
+  l1_time_planes: 0.0001
+  no_do: false
+  no_dshs: false
+  no_ds: false
+  empty_voxel: false
+  static_mlp: false
+
+optim:
+  dataloader: true
+  iterations: 15000
+  batch_size: 1
+  coarse_iterations: 3000
+  densify_until_iter: 10000
+  opacity_threshold_coarse: 0.005
+  opacity_threshold_fine_init: 0.005
+  opacity_threshold_fine_after: 0.005
+  # opacity_reset_interval intentionally left at the class default (3000) here — matches
+  # `arguments/multipleview/default.py`'s commented-out override. A scene whose fine-stage
+  # deformation network engages exactly at this interval needs to raise it (see pump01.yaml).

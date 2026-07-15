@@ -1,0 +1,12 @@
+# Example experiment preset: re-tune Option-B (rigidity-graph) segmentation on the pump01 scene
+# without re-running the GPU trajectory-extraction step. Matches the usage shown in
+# motion_seg/run.sh's header comment:
+#   ./motion_seg/run.sh pump01 --threshold-mult 2 --opacity-thresh 0.2
+extends: pump01
+name: pump01_segB_tuned
+
+segment:
+  impl: rigid
+  rigid:
+    threshold_mult: 2.0
+    opacity_thresh: 0.2

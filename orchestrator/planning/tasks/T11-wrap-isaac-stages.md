@@ -10,10 +10,15 @@ Bring the synthetic-capture front end under the orchestrator so the pipeline run
 end-to-end from a USD asset. (Milestone M3.)
 
 ## In scope
-- Register `capture.isaac` wrapping `omni_capture.py` (run via `/isaac-sim/python.sh` in the
-  `isaac` container), producing the multi-cam capture + GT poses/segmentation as artifacts.
-- Register `prep.split` (`split_mesh.py`) and `prep.motion` (`add_motion.py`) — USD/trimesh CPU
-  work; decide env (small CPU image vs. reuse `isaac` which already has USD) and document it.
+- Register `capture.isaac`, porting (copy, not import/subprocess) `omni_capture.py`'s logic into
+  `pipeline/vendored/isaac/` (run via `/isaac-sim/python.sh` in the `isaac` container), producing
+  the multi-cam capture + GT poses/segmentation as artifacts. Per `INSTRUCTIONS.md`'s copy-in
+  rule, only the `isaac` container (Isaac Sim runtime) is external — `omni_capture.py` itself is a
+  reference, not a dependency.
+- Register `prep.split` and `prep.motion`, porting `split_mesh.py`/`add_motion.py`'s logic into
+  `pipeline/vendored/isaac/` (or a small CPU image's vendored dir, if that's the env decided
+  below) — USD/trimesh CPU work; decide env (small CPU image vs. reuse `isaac` which already has
+  USD) and document it.
 - Chain `prep.split → prep.motion → capture.isaac → convert` so the full DAG connects to T09's
   half.
 
@@ -23,12 +28,12 @@ Authoring new scenes/motions (that's asset work, done via these stages).
 ## Deliverables
 Three registered stages + a preset running the entire pipeline from `CONJUNTO_BOMBAS.usd` to amp.
 
-## Acceptance criteria (Bartosz's WSL2 machine)
+## Acceptance criteria (Bartosz's Windows + Docker Desktop machine)
 - `run_capture.sh`'s smoke test (`--n-cameras 2 --frames 2`) reproduced via `run_stage`.
 - Full `run_pipeline(preset="pump01")` from prep through amp completes; artifacts + manifest
   populated; warm Isaac container avoids repeated cold-start.
 
-## Relevant existing files
+## Relevant existing files (reference only — do not import/call; port the logic into `pipeline/vendored/isaac/`)
 `omniverse_pipeline/{split_mesh,add_motion,omni_capture}.py`,
 `omniverse_pipeline/.devcontainer/{devcontainer.json,run_capture.sh}`,
 `capture_config_pump.yaml`, NOTES_omniverse_pipeline.md.

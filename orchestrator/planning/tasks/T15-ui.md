@@ -21,7 +21,7 @@ New capabilities beyond what Layer 1 exposes.
 ## Deliverables
 `orchestrator/ui/` Streamlit app + run instructions.
 
-## Acceptance criteria (Bartosz's WSL2 machine)
+## Acceptance criteria (Bartosz's Windows + Docker Desktop machine)
 - Launch and monitor a run from the UI; see previews and compare two runs.
 - No pipeline logic lives in the UI — it only calls the API.
 

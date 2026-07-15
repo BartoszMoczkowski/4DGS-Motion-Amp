@@ -1,6 +1,6 @@
 # T04 — Stage base class & registry
 
-- Status: todo
+- Status: done
 - Phase: 0
 - Depends on: T01
 - Environment: host

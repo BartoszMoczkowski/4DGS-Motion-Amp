@@ -3,7 +3,7 @@
 - Status: todo
 - Phase: 4
 - Depends on: T13, T09
-- Environment: host (WSL2)
+- Environment: host (Windows)
 
 ## Goal
 Expose the full control + read surface so Claude can run the pipeline and actually *see* results.

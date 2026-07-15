@@ -23,7 +23,7 @@ Multi-GPU / parallel scheduling (single-GPU serial by design).
 ## Deliverables
 `pipeline/resources/` module + scheduler integration + estimates per stage in config.
 
-## Acceptance criteria (Bartosz's WSL2 machine)
+## Acceptance criteria (Bartosz's Windows + Docker Desktop machine)
 - Forcing a too-large stage triggers the reduced-memory fallback and completes (or fails cleanly
   with a clear message) rather than crashing the run.
 - Manifest shows measured peak memory and any fallback applied.

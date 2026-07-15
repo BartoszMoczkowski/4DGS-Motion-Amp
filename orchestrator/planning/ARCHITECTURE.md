@@ -11,7 +11,7 @@ Single source of truth for how the three layers fit together. Expands the origin
 
 ## The pipeline as a DAG (ground truth)
 
-| # | Stage (role.impl) | Wraps | Env | GPU |
+| # | Stage (role.impl) | Ported from (reference only) | Env | GPU |
 |---|---|---|---|---|
 | 1 | prep.split | `omniverse_pipeline/split_mesh.py` | isaac/host* | no |
 | 2 | prep.motion | `omniverse_pipeline/add_motion.py` | isaac/host* | no |
@@ -28,6 +28,45 @@ Single source of truth for how the three layers fit together. Expands the origin
 
 The two GPU images never need to run simultaneously → single-GPU **serial** scheduling is fine.
 
+**"Ported from" means exactly that, not "imports at runtime."** `omniverse_pipeline/`, `motion_seg/`,
+and the repo-root scripts are throwaway/testing scripts — a reference for already-verified logic,
+not a dependency. No stage may `sys.path`-hack into them or shell out to them (superseded
+"wrap, don't rewrite"; see `INSTRUCTIONS.md` and `.claude_notes/NOTES_pipeline_orchestration.md`,
+2026-07-14). The only thing genuinely external to this project is the **container runtime**
+(`isaac`/`cuda` images) — never the script files. See "Vendored stage logic" below for where the
+copied-in code lives.
+
+### Vendored stage logic
+
+Each stage's `run()` calls orchestrator-owned code, not the original script:
+
+```
+orchestrator/
+  pipeline/
+    stages/            <- Stage subclasses: orchestration only (config, artifacts, logging, ctx)
+    vendored/          <- copied-in logic, ported from the reference scripts above
+      host/            <- convert, segment.rigid, seg_eval logic (plain CPU, runs in `host` venv)
+      cuda/             <- train/render/seg_extract/amp/segment.mbs logic (runs inside the `cuda`
+                            container; the container is external, this code is not)
+      isaac/            <- prep.split/prep.motion/capture.isaac logic (runs inside the `isaac`
+                            container; same rule)
+```
+
+A `host`-environment stage (T07: `convert`/`segment.rigid`/`seg_eval`) imports from
+`pipeline.vendored.host.<module>` directly (a normal in-project import, not a `sys.path` reach
+outside `orchestrator/`) and calls the ported function in-process — no container involved, no
+GPU/torch dependency.
+
+A `cuda`/`isaac`-environment stage (T09: `train`/`render`/`seg_extract`/`amp`) never imports its
+vendored module at all — `pipeline/vendored/cuda/*.py`'s real dependencies (`torch`, `arguments`,
+`scene`, `gaussian_renderer`, ...) only exist inside the container, not in the orchestrator's own
+host process. Instead the stage builds a CLI invocation (`python pipeline/vendored/cuda/<name>.py
+<args>`) from the resolved config and hands it to `ctx.containers.exec_in_container(...)` (T08) —
+see `pipeline/stages/cuda_common.py`. T08's repo bind-mount (`/workspace`) is what makes
+`pipeline/vendored/cuda|isaac` visible inside the running container, so the container executes
+the orchestrator's copy, not whatever happens to be sitting in
+`omniverse_pipeline/`/`motion_seg`/repo root at the time.
+
 ## Layer 1 — `pipeline/` execution module
 
 Components (each maps to a task):
@@ -43,9 +82,16 @@ Components (each maps to a task):
 - **DAG scheduler + cache** (T05): topo-sort by artifact deps; skip fresh stages. Cache key =
   resolved-config + input-artifact hashes + code version (git SHA + stage source hash).
   `from_stage`/`to_stage`/`only`/`force`, resume-on-crash.
-- **Path translation** (T06): the *only* place that maps host ↔ WSL2 ↔ container paths.
-- **Container manager** (T08): Docker SDK/CLI over Docker Desktop from WSL2; reuses the existing
-  devcontainer defs for image+mounts; GPU passthrough; warm long-lived containers; log streaming.
+- **Path translation** (T06): the *only* place that maps host ↔ container paths. **Revised
+  2026-07-14:** two spaces, not three — the runtime host is native Windows (see
+  `INSTRUCTIONS.md`'s locked decision), so there's no separate WSL2 execution environment whose
+  filesystem view differs from the host's own. WSL2/Linux-distro support, if it ever comes back,
+  re-enters as a third space the same way `container` already works.
+- **Container manager** (T08): Docker SDK/CLI over Docker Desktop, driven directly from Windows;
+  reuses the existing devcontainer defs for image+mounts; GPU passthrough; warm long-lived
+  containers; log streaming; also mounts/bakes in `pipeline/vendored/cuda|isaac` so container
+  stages run the orchestrator's own copied-in code, not the reference scripts (see "Vendored stage
+  logic" above).
 - **Resource manager** (T12): pynvml/`nvidia-smi` VRAM+RAM query; serial gating so combined VRAM
   never exceeds free; adaptive knobs (`low_vram_mode`, seg working-set, `rt_subframes`) and
   OOM-retry with reduced memory.
@@ -55,8 +101,9 @@ Components (each maps to a task):
 
 ## Layer 2 — MCP server (HTTP)
 
-Thin server on the WSL2 host wrapping the Layer 1 API + Docker + filesystem. Exists because the
-Claude sandbox has no CUDA/Isaac/Docker.
+Thin server on Bartosz's Windows machine (running natively, driving Docker Desktop directly — see
+`INSTRUCTIONS.md`'s locked decision) wrapping the Layer 1 API + Docker + filesystem. Exists because
+the Claude sandbox has no CUDA/Isaac/Docker.
 
 - **Transport: HTTP** (streamable HTTP / SSE) with auth, so Claude can be local or remote (T13).
 - **Async jobs**: `run_pipeline`/`run_stage` return a `run_id` immediately; Claude polls status /
@@ -80,10 +127,15 @@ compare runs.
 - Phase 3 (resources): T12
 - Phase 4 (MCP over HTTP): T13–T14
 - Phase 5 (UI): T15
+- **Phase 6 (deferred, not scheduled): WSL2/Linux-distro bundling.** Packaging a proper WSL2 +
+  Docker setup (e.g. so the whole orchestrator ships as a one-command WSL2 environment rather than
+  assuming Docker Desktop is already installed on Windows) — see T16 in `TASKS.md`. Explicitly
+  deferred 2026-07-14 in favor of running natively on Windows first; revisit if/when running from
+  Linux/WSL2 actually matters again (e.g. a non-Windows machine, or CI).
 
 ## Cross-cutting risks
 
 Config unification is highest-value but tedious (T02). Cache correctness needs code-version in the
 key (T05). Path translation must stay centralized (T06). Isaac cold-start needs warm container +
-persisted cache volumes (T08/T11). MCP auth + reachability from the sandbox to the WSL2 host is the
-main integration unknown (T13).
+persisted cache volumes (T08/T11). MCP auth + reachability from the sandbox to Bartosz's Windows
+machine is the main integration unknown (T13).

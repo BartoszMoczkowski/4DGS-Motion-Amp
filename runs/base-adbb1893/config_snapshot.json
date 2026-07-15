@@ -1,0 +1,312 @@
+{
+  "amp": {
+    "channels": {
+      "SHs": {
+        "factor": -1.0,
+        "freq_high": 1.0,
+        "freq_low": 0.0
+      },
+      "color": {
+        "factor": -1.0,
+        "freq_high": 1.0,
+        "freq_low": 0.0
+      },
+      "cov3D": {
+        "factor": -1.0,
+        "freq_high": 1.0,
+        "freq_low": 0.0
+      },
+      "opacity": {
+        "factor": -1.0,
+        "freq_high": 1.0,
+        "freq_low": 0.0
+      },
+      "pos2d": {
+        "factor": -1.0,
+        "freq_high": 1.0,
+        "freq_low": 0.0
+      },
+      "pos3d": {
+        "factor": -1.0,
+        "freq_high": 1.0,
+        "freq_low": 0.0
+      },
+      "rotation": {
+        "factor": -1.0,
+        "freq_high": 1.0,
+        "freq_low": 0.0
+      },
+      "scale": {
+        "factor": -1.0,
+        "freq_high": 1.0,
+        "freq_low": 0.0
+      }
+    },
+    "configs": null,
+    "frozen_cam": false,
+    "iteration": -1,
+    "low_vram_mode": false,
+    "method": "eulerian",
+    "quiet": false,
+    "skip_test": false,
+    "skip_train": false,
+    "skip_video": false,
+    "video_fps": 20,
+    "video_path": "render.mp4"
+  },
+  "capture": {
+    "capture": {
+      "far": null,
+      "height": 900,
+      "near": null,
+      "num_frames": 60,
+      "rt_subframes": 8,
+      "vfov_deg": 45.0,
+      "width": 1600
+    },
+    "headless": true,
+    "lighting": {
+      "add_distant": true,
+      "add_dome": true,
+      "bg_base": [
+        6,
+        7,
+        11
+      ],
+      "bg_dot": [
+        48,
+        54,
+        70
+      ],
+      "bg_line": [
+        28,
+        32,
+        44
+      ],
+      "bg_step": 64,
+      "distant_azim_deg": -45.0,
+      "distant_elev_deg": 45.0,
+      "distant_intensity": 4000.0,
+      "dome_intensity": 1000.0,
+      "dome_texture": null,
+      "enabled": true,
+      "force": false
+    },
+    "output": {
+      "capture_dir": "",
+      "instance_segmentation": true,
+      "num_init_points": 100000,
+      "semantic_segmentation": true
+    },
+    "rig": {
+      "layout": "dome",
+      "max_elev_deg": 75.0,
+      "min_elev_deg": 15.0,
+      "n_cameras": 10,
+      "n_rings": 3,
+      "radius_scale": 2.5
+    },
+    "scene": {
+      "semantic_roots": [],
+      "subject_prim": null,
+      "usd_path": ""
+    }
+  },
+  "convert": {
+    "far": 1000.0,
+    "name": "omni_scene",
+    "near": 0.1,
+    "target_radius": 4.0
+  },
+  "hidden": {
+    "apply_rotation": false,
+    "bounds": 1.6,
+    "defor_depth": 0,
+    "empty_voxel": false,
+    "grid_pe": 0,
+    "kplanes_config": {
+      "grid_dimensions": 2,
+      "input_coordinate_dim": 4,
+      "output_coordinate_dim": 16,
+      "resolution": [
+        64,
+        64,
+        64,
+        150
+      ]
+    },
+    "l1_time_planes": 0.0001,
+    "multires": [
+      1,
+      2
+    ],
+    "net_width": 128,
+    "no_do": false,
+    "no_dr": false,
+    "no_ds": false,
+    "no_dshs": false,
+    "no_dx": false,
+    "no_grid": false,
+    "opacity_pe": 2,
+    "plane_tv_weight": 0.0002,
+    "posebase_pe": 10,
+    "scale_rotation_pe": 2,
+    "static_mlp": false,
+    "time_smoothness_weight": 0.001,
+    "timebase_pe": 4,
+    "timenet_output": 32,
+    "timenet_width": 64
+  },
+  "model": {
+    "add_points": false,
+    "data_device": "cuda",
+    "eval": true,
+    "extension": ".png",
+    "images": "images",
+    "llffhold": 8,
+    "model_path": "",
+    "render_process": false,
+    "resolution": -1,
+    "sh_degree": 3,
+    "source_path": "",
+    "white_background": true
+  },
+  "name": "base",
+  "optim": {
+    "add_point": false,
+    "batch_size": 1,
+    "coarse_iterations": 3000,
+    "custom_sampler": null,
+    "dataloader": true,
+    "deformation_lr_final": 1.6e-05,
+    "deformation_lr_init": 0.00016,
+    "densification_interval": 100,
+    "densify_from_iter": 500,
+    "densify_grad_threshold_after": 0.0002,
+    "densify_grad_threshold_coarse": 0.0002,
+    "densify_grad_threshold_fine_init": 0.0002,
+    "densify_until_iter": 10000,
+    "feature_lr": 0.0025,
+    "grid_lr_final": 0.00016,
+    "grid_lr_init": 0.0016,
+    "iterations": 15000,
+    "lambda_dssim": 0,
+    "lambda_lpips": 0,
+    "opacity_lr": 0.05,
+    "opacity_reset_interval": 3000,
+    "opacity_threshold_coarse": 0.005,
+    "opacity_threshold_fine_after": 0.005,
+    "opacity_threshold_fine_init": 0.005,
+    "percent_dense": 0.01,
+    "position_lr_delay_mult": 0.01,
+    "position_lr_final": 1.6e-06,
+    "position_lr_init": 0.00016,
+    "position_lr_max_steps": 20000,
+    "pruning_from_iter": 500,
+    "pruning_interval": 100,
+    "rotation_lr": 0.001,
+    "scaling_lr": 0.005,
+    "weight_constraint_after": 0.2,
+    "weight_constraint_init": 1,
+    "weight_decay_iteration": 5000,
+    "zerostamp_init": false
+  },
+  "pipeline_params": {
+    "compute_cov3D_python": false,
+    "convert_SHs_python": false,
+    "debug": false
+  },
+  "prep_motion": {
+    "exclude": [
+      "frame_base"
+    ],
+    "fps": 24.0,
+    "freq": [
+      2,
+      5
+    ],
+    "group": "CONJUNTO_BOMBAS",
+    "groups": 0,
+    "num_frames": 60,
+    "plot": null,
+    "rot_deg_max": 3.0,
+    "rot_surface_mm": [
+      0.5,
+      3.0
+    ],
+    "seed": 0,
+    "trans_amp_mm": [
+      1.0,
+      4.0
+    ]
+  },
+  "prep_split": {
+    "group": "CONJUNTO_BOMBAS",
+    "min_faces": 1,
+    "no_usd": false,
+    "preview": null,
+    "weld_tol": 1e-05
+  },
+  "render": {
+    "configs": null,
+    "iteration": -1,
+    "quiet": false,
+    "skip_test": false,
+    "skip_train": false,
+    "skip_video": false
+  },
+  "seg_eval": {
+    "comparison_png": null,
+    "drop_floaters": false,
+    "recolored_ply": null,
+    "top_n": 15
+  },
+  "seg_extract": {
+    "configs": null,
+    "iteration": -1,
+    "n_times": 60,
+    "out": ""
+  },
+  "segment": {
+    "impl": "rigid",
+    "mbs": {
+      "alpha": 0.05,
+      "checkpoint": "",
+      "n_points": 4000,
+      "n_sub": 256,
+      "n_views": 4,
+      "opacity_thresh": 0.1,
+      "seed": 0
+    },
+    "rigid": {
+      "k": 12,
+      "min_size": 15,
+      "opacity_thresh": 0.1,
+      "preview_png": null,
+      "threshold_mult": 1.0
+    }
+  },
+  "train": {
+    "checkpoint_iterations": [],
+    "configs": "",
+    "debug_from": -1,
+    "detect_anomaly": false,
+    "expname": "",
+    "ip": "127.0.0.1",
+    "port": 6009,
+    "quiet": false,
+    "save_iterations": [
+      14000,
+      20000,
+      30000,
+      45000,
+      60000
+    ],
+    "start_checkpoint": null,
+    "test_iterations": [
+      3000,
+      7000,
+      14000
+    ]
+  }
+}

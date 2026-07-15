@@ -1,0 +1,23 @@
+# Experiment preset: run Option-A (MultiBodySync MotNet) segmentation on the pump01 scene
+# instead of the default Option-B (rigidity-graph) impl — T10's concrete demonstration that
+# swapping `segment.impl` is a pure config switch (`segment.rigid` -> `segment.mbs`), nothing
+# else about the DAG changes: `seg_eval.default` scores whichever backend ran, unmodified.
+#
+# `segment.mbs.checkpoint` has no sensible repo-wide default (there's no vendored pretrained
+# checkpoint, see planning/tasks/T10-wrap-option-a-segmentation.md and
+# submodules/multibody-sync-4dgs/ckpt/.gitignore) -- download one per that task's setup notes
+# (planning/WINDOWS_SETUP.md's "Option-A segmentation (MBS) setup" step) and place it at the
+# path below (or override `segment.mbs.checkpoint` with wherever you actually put it; a relative
+# path here is resolved against the repo root, see pipeline/stages/segment_mbs.py).
+extends: pump01
+name: pump01_segA
+
+segment:
+  impl: mbs
+  mbs:
+    checkpoint: "submodules/multibody-sync-4dgs/ckpt/mbs_full.pth.tar"
+    n_points: 4000
+    n_views: 4
+    n_sub: 256
+    opacity_thresh: 0.1
+    alpha: 0.05

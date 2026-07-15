@@ -1,6 +1,6 @@
 # T05 — DAG scheduler & caching
 
-- Status: todo
+- Status: done (2026-07-13)
 - Phase: 0
 - Depends on: T03, T04
 - Environment: host

@@ -1,6 +1,6 @@
 # T02 — Unified config schema & presets
 
-- Status: todo
+- Status: done
 - Phase: 0
 - Depends on: T01
 - Environment: host

@@ -3,14 +3,14 @@
 - Status: todo
 - Phase: 4
 - Depends on: T05
-- Environment: host (WSL2)
+- Environment: host (Windows)
 
 ## Goal
-Stand up the Layer 2 MCP server on the WSL2 host over **HTTP** (streamable HTTP / SSE) so Claude —
+Stand up the Layer 2 MCP server on the Windows host over **HTTP** (streamable HTTP / SSE) so Claude —
 local or remote — can drive the pipeline. Solves problem #2's access. (Toward Milestone M4.)
 
 ## In scope
-- MCP server skeleton using an HTTP/SSE transport, bound on the WSL2 host, reachable from where
+- MCP server skeleton using an HTTP/SSE transport, bound on the Windows host, reachable from where
   Claude runs.
 - Auth (token/bearer) and a bind/reachability plan (localhost vs. LAN vs. tunnel) — the main
   integration unknown; document how the Claude sandbox connects.
@@ -25,12 +25,12 @@ The full tool/resource set (T14).
 `orchestrator/mcp_server/` with an HTTP MCP server + auth + one working tool; connection docs.
 
 ## Acceptance criteria
-- Claude connects over HTTP and calls `gpu_status`, receiving live GPU info from the WSL2 host.
+- Claude connects over HTTP and calls `gpu_status`, receiving live GPU info from the Windows host.
 - Auth rejects unauthenticated calls; reachability documented and reproducible.
 
 ## Relevant existing files
 Layer 1 `pipeline/api.py`. Decision recorded in INSTRUCTIONS.md (transport = HTTP).
 
 ## Notes / gotchas
-Reachability from the sandbox to the WSL2 host is the crux — settle localhost vs. tunnel early.
+Reachability from the sandbox to the Windows host is the crux — settle localhost vs. tunnel early.
 Whitelist operations; never expose arbitrary shell.

@@ -25,6 +25,12 @@ dependencies = [
     "tqdm>=4.67.3",
 ]
 
+[project.optional-dependencies]
+# Layer 1 orchestrator (see orchestrator/planning/ARCHITECTURE.md). Pure-Python,
+# no torch/CUDA — opt in with `uv sync --extra orchestrator` /
+# `pip install -e .[orchestrator]`; never installed by a plain `uv sync`.
+orchestrator = ["pipeline"]
+
 [[tool.uv.index]]
 name = "pytorch-cu126"
 url = "https://download.pytorch.org/whl/cu126"
@@ -38,12 +44,14 @@ torchaudio = [{ index = "pytorch-cu126" }]
 depth-diff-gaussian-rasterization = { workspace = true, editable = true }
 diff-gaussian-rasterization = { workspace = true, editable = true }
 simple-knn = { workspace = true, editable = true }
+pipeline = { workspace = true, editable = true }
 mmcv = { url = "https://download.openmmlab.com/mmcv/dist/cu121/torch2.4.0/mmcv-2.2.0-cp312-cp312-manylinux1_x86_64.whl" }
 
 [tool.uv.workspace]
 members = [
     "submodules/depth-diff-gaussian-rasterization",
     "submodules/simple-knn",
+    "orchestrator",
 ]
 
 
