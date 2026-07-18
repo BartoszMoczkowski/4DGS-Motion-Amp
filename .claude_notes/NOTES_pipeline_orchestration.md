@@ -1335,3 +1335,839 @@ any file, trust the Read/Grep tools' view over bash's `cat`/`wc`/`tail`, and whe
 an `Edit`'s `old_string` against a Read-tool-sourced quote of the file's true tail, not a
 bash-derived one.
 Related: [[cowork-mount-staleness-bug]], [[pipeline-orchestration-plan]].
+
+### T11 done (2026-07-16) — wrap Isaac stages (prep/capture front end)
+
+**Goal reached (Milestone M3, per ARCHITECTURE.md's phasing):** a preset's auto-planned DAG now
+runs truly end to end from a raw USD asset through amp — `prep_split.default -> prep_motion.default
+-> capture.isaac -> convert.default -> ... -> amp.default`. `capture.isaac` produces the `capture`
+artifact `convert.default` (T07) has declared as its external input since Phase 0, closing that
+loop with zero changes to `convert.default` itself.
+
+- `pipeline/vendored/isaac/{rig,split_mesh,add_motion,omni_capture}.py` — verbatim ports of
+  `omniverse_pipeline/{rig,split_mesh,add_motion,omni_capture}.py`, same copy-in rule as T09/T10's
+  `pipeline/vendored/cuda/*`. `rig.py` is pure numpy (no Isaac Sim dependency) so it's also
+  exercised directly in the sandbox test suite (no container needed) — the one vendored-isaac
+  module that's actually import-safe outside Isaac Sim.
+- `pipeline/stages/isaac_common.py` — mirrors `cuda_common.py`'s shared CLI-exec plumbing, but
+  targets `/isaac-sim/python.sh` (Isaac Sim's own bundled interpreter — the only place
+  `pxr`/`omni.*` are importable) instead of the container's plain `python`. Re-exports
+  `cuda_common`'s generic argparse flag builders rather than duplicating them (env-agnostic), and
+  adds one new one, `star_list_flag`, for `add_motion.py`'s `--exclude` (`nargs="*"`, where an
+  explicit zero-value invocation is meaningfully different from omitting the flag — `list_flag`
+  (`nargs="+"`) can't express that). No `PYTHONPATH` fix needed here (unlike `cuda_common`'s
+  `PYTHONPATH=/workspace`): `omni_capture.py`'s `import rig` is a same-directory import, already
+  resolved via the script's own directory on `sys.path[0]`.
+- `pipeline/stages/{prep_split,prep_motion,capture_isaac}.py` — three new stages, `environment=
+  "isaac"`. `prep_split.default`/`prep_motion.default` are CPU-only (`needs_gpu=False`) despite
+  running in the `isaac` container — no separate small-CPU image exists yet, adding one was ruled
+  out of this "contained task"'s scope (new `Env` literal, new Dockerfile, new container config)
+  for what would only save container-startup weight; see `pipeline.vendored.isaac`'s package
+  docstring. `capture.isaac` genuinely needs the GPU (`needs_gpu=True`) for headless Isaac Sim
+  rendering.
+
+**Real design gap found and fixed while wiring this in (same "found while integrating" pattern as
+T07's `ctx.inputs`, T09's `ctx.paths`/`ctx.containers`):** `ARCHITECTURE.md`'s original stage table
+sketched these as `prep.split`/`prep.motion` — but `pipeline.stages.registry.register`'s
+`"role.impl"` split takes everything before the *first* dot as the role, so those two names would
+have collided into one ambiguous `"prep"` role with two impls (`split`/`motion`), which
+`pipeline.api._auto_stage_plan` would then treat as needing a `resolved_config["prep"]["impl"]`
+selector that doesn't exist — and `_stage_config_for` would fail to slice either stage's own
+config section (there's no top-level `resolved_config["prep"]`, only `prep_split`/`prep_motion`).
+Renamed to `prep_split.default`/`prep_motion.default` instead — each its own single-impl role,
+matching its own top-level `PipelineConfig` section 1:1 (`capture.isaac` needed no such fix: role
+`capture` already has its own section and no second impl to collide with). Updated
+`ARCHITECTURE.md`'s stage table and every docstring that had already assumed the sketched names.
+
+**`capture.isaac`'s config bridge:** unlike the `cuda` stages' single bridge-config-file pattern
+(T09's `write_stage_bridge`), this stage writes a full `--config` YAML from `CaptureConfig` (T02)
+— re-nesting `headless` back under `app` (the one place the pydantic schema flattens the original
+YAML's structure) — then overrides `scene.usd_path`/`output.capture_dir` via `omni_capture.py`'s
+own `--usd`/`--out` CLI flags (already built into that script) with the DAG's real
+`animated_mesh` input / this run's own capture directory, the same "derive from the DAG's artifact
+wiring, not the static config value" pattern `train.default` uses for `source_path`/`model_path`.
+One subtlety: `CaptureFrameConfig.near`/`.far` are `Optional[float] = None`, and
+`omni_capture.py`'s own `cap_cfg.get("near", radius*0.05)` would have that computed fallback
+*shadowed* by an explicit `null` in the YAML (`dict.get` returns the stored `None`, not the
+fallback, when the key is present) — so `_write_capture_config` drops those two keys entirely
+when unset, rather than writing them as `null`.
+
+**`ArtifactKind` gained `"usd"`** (`pipeline/artifacts/models.py`) — `prep_split.default`/
+`prep_motion.default`'s `segmented_mesh`/`animated_mesh` outputs are single USD mesh files, and
+none of the seven existing kinds fit a bare single-file mesh format.
+
+**`pipeline.api.run_pipeline` gained an `external_artifacts` parameter** — a second real gap found
+while wiring this in: previously `run_pipeline` had no way at all to satisfy a fresh auto-planned
+run's *external* inputs (T05's `MissingDependencyError` check) before calling `run_dag`; every
+caller that needed one had to bypass `run_pipeline` and call `run_dag` directly against a
+hand-seeded manifest (`tests/test_stages_cpu.py`'s `_seed_run` helper). Harmless while
+`convert`/`seg_eval` were the DAG's only external-input consumers and only tests ever exercised
+this path — but now that `prep_split.default` needs an external `raw_mesh` (a real CAD asset with
+no in-repo producer) for a preset's *auto-planned* full run to work at all, this became a real
+caller-facing gap. Fixed by promoting the seed-then-`run_dag` sequence `_seed_run` already proved
+out from a test helper into `run_pipeline` itself: `create_run` a fresh manifest, merge in
+`external_artifacts` via `update_manifest` if given, then call `run_dag` as before.
+
+**Verification** (sandbox, no Isaac Sim/GPU/Docker — identical limitation to every T09/T10 GPU
+stage): `tests/test_stages_isaac.py`, 12 new tests, same fake-`exec_in_container` strategy as
+`test_stages_cuda.py`/`test_stages_mbs.py`, plus two things those didn't need: (1) direct,
+no-container unit tests of `pipeline.vendored.isaac.rig`'s pure-numpy camera math (orthonormal
+c2w matrices, ring/dome dispatch); (2) a real `prep_split.default -> prep_motion.default ->
+capture.isaac -> convert.default` chain through `run_dag`, where the fake `exec_in_container`
+plays each vendored Isaac script's part just well enough (writing a placeholder `.usd` file for
+split/motion, a full synthetic Omniverse-capture-shaped directory for `omni_capture.py`, reusing
+`test_stages_cpu.py`'s own fixture shape) that `convert.default` — real, unmocked, in-process host
+logic, unchanged since T07 — actually runs against the result and produces a real
+`multipleview` scene directory. Confirmed cross-run caching end to end, and confirmed changing
+`prep_split.group` re-runs `prep_split`/`prep_motion`/`capture.isaac` (their `usd`-kind,
+single-file artifacts get real content hashes) but leaves `convert.default` cached — a real,
+pre-existing T03/T05 cache-granularity limitation this chain exposes for the first time (nothing
+upstream of `convert.default` was ever a *directory*-kind artifact before T11):
+`pipeline.artifacts.hashing.hash_path` only ever hashes files, never a directory tree (documented
+in that module's own docstring as "the caller's decision"), so `capture`'s `content_hash` stays
+`None` regardless of what actually changed inside it, and `convert.default`'s cache key never sees
+a difference. Not fixed here (out of scope, same "found, not fixed" precedent as T07/T09's own
+notes) — documented in the test with a full explanation for whoever picks up T12+ next. Also
+verified `pipeline.api.run_pipeline`'s new `external_artifacts` parameter end to end (seeding both
+`raw_mesh` and `gt_segmentation` — the latter still required by `run_dag`'s external-input check
+even when `only=` narrows *execution* to just the three Isaac stages, since that check runs over
+the whole auto-planned DAG before `only` gets a chance to narrow anything).
+
+Full suite independently re-verified in a fresh isolated venv (`pip install -e '.[orchestrator]'`
+equivalent + `pytest -q`): **151 passed, 6 skipped** (`test_containers_gpu.py`, no real Docker
+daemon here, as always) — 139 passed pre-T11, 12 new. Hit the sandbox mount-staleness bug on every
+`Edit`-touched file again (6/6 this session: `pipeline/artifacts/models.py`,
+`pipeline/config/models.py`, `pipeline/vendored/__init__.py`, `pipeline/vendored/isaac/__init__.py`,
+and — a new variant — the freshly-`Write`-created `tests/test_stages_isaac.py` after a subsequent
+`Edit` to fix two test bugs came back on bash with the edit entirely missing, not just truncated,
+with a *matching* line count to the pre-edit version) — same rewrite-from-Read-tool-content-via-
+heredoc workaround each time, `ast.parse`-verified after every rewrite. See
+[[cowork-mount-staleness-bug]].
+
+**Not yet done, needs Bartosz's machine** (same honest status every GPU-touching task since T08
+has kept): the actual first real run — Isaac Sim opening a real USD, `split_mesh.py`/
+`add_motion.py` needing `trimesh` manually `pip install`ed into the `isaac` container (not
+preinstalled, unlike `pxr`/usd-core, which Isaac Sim's bundled interpreter already ships),
+`omni_capture.py`'s full headless capture, and — the task's own acceptance criteria — reproducing
+`run_capture.sh`'s `--n-cameras 2 --frames 2` smoke test via `run_stage`, then a full
+`run_pipeline(preset="pump01")` from raw asset through amp. `planning/WINDOWS_SETUP.md` gained a
+new "8. Isaac prep/capture stages setup" step for the `trimesh` install + a note that
+`pump01.yaml`'s `capture.scene.usd_path`/`capture.output.capture_dir` are now just fallback values
+— `capture.isaac` always overrides both from the DAG's real artifact wiring at runtime — plus
+where to obtain the raw fused-mesh asset (`CONJUNTO_BOMBAS.usd`) to pre-seed as `raw_mesh`.
+
+Next unblocked: T12 (resource manager, needs T09, already unblocked since T09) and T13 (MCP server,
+needs T05, already unblocked since T05) are the only two `todo` tasks with no remaining
+dependency; T14 needs T13+T09, T15 needs T09 — both also reachable now. T11 had no downstream
+dependents in the graph itself (`TASKS.md`'s dependency graph shows T11 as a leaf off T08/T09), so
+nothing else was unblocked by finishing it, but it does complete the "runs end-to-end from a raw
+asset" milestone (M3) the whole subproject was ultimately for (problem #1 in
+[[pipeline-orchestration-plan]]).
+Related: [[cowork-mount-staleness-bug]], [[pipeline-orchestration-plan]].
+
+### T11 addendum (2026-07-16) — real-hardware acceptance test added
+
+Bartosz confirmed `test_containers_gpu.py` (T08) passes for real on his machine
+(`PIPELINE_TEST_ISAAC=1`, 6 passed in 5.91s — fast because the `isaac`/`cuda` images and cache
+volumes were already warm from T08's own 2026-07-15 real-hardware verification) and asked for
+T11's own two acceptance criteria to get the same "real test behind a flag" treatment.
+
+Added `tests/test_stages_isaac_gpu.py`, mirroring `test_containers_gpu.py`'s exact pattern (skip
+if no reachable Docker daemon, skip unless `PIPELINE_TEST_ISAAC=1`, since every test here needs
+the `isaac` image regardless): a `trimesh`-importability sanity check (fails fast with a pointer
+to `WINDOWS_SETUP.md` step 8.1 instead of a confusing mid-script `ImportError`), criterion 1
+(`run_capture.sh`'s `--n-cameras 2 --frames 2` smoke test reproduced via `run_stage` against the
+already-existing animated pump asset), and criterion 2 (a full `prep_split.default ->
+prep_motion.default -> capture.isaac -> convert.default -> train.default -> render.default ->
+seg_extract.default -> segment.rigid -> amp.default` run from the raw fused mesh, deliberately
+excluding `seg_eval.default` since it needs an unrelated external `gt_segmentation` artifact not
+part of T11's own criteria, and deliberately trimming `n_cameras`/`num_frames`/`iterations`/
+`coarse_iterations`/`n_times` down to a fast smoke pass rather than a real multi-hour
+reconstruction). Both real-asset tests skip independently with a clear reason if their asset
+(`PIPELINE_TEST_ANIMATED_MESH`/`PIPELINE_TEST_RAW_MESH`, each defaulting to the documented
+`Q:/Omniverse/assets/pump_radnom/...` convention) isn't found on disk.
+
+`planning/WINDOWS_SETUP.md`'s step 8 point 4 now points at this file instead of describing the
+manual override inline. Sandbox-verified only as "collects and skips cleanly" (3 skipped, no
+Docker/`PIPELINE_TEST_ISAAC` here) — full suite still 151 passed, 6 skipped as before (9 skipped
+when `docker` happens to be pip-installed in the sandbox venv, since that satisfies the first
+skip condition and falls through to the second). Not yet run for real; the trimmed
+iteration/frame counts in criterion 2 are first-guess values, not validated against a real
+training run.
+
+### T11 real-hardware fixup (2026-07-16)
+
+First real run of `tests/test_stages_isaac_gpu.py` on Bartosz's Windows + Docker Desktop + GPU
+machine (via the direct file-mount, I read `capture.log`/`prep_split.log` straight out of the
+run directories under the connected repo folder — no need for pasted output). Two real bugs found:
+
+**1. `prep_split.default` failed for real: `ModuleNotFoundError: No module named 'pxr'`.**
+`split_mesh.py`'s `load_geometry()` does a bare `from pxr import Usd, UsdGeom` with no
+`SimulationApp` launch. `isaac_common.py`'s original docstring claimed `pxr` is "wired onto" Isaac
+Sim's bundled interpreter's own `sys.path` — true for some earlier Isaac Sim release this
+assumption was probably written against, false for the actual `nvcr.io/nvidia/isaac-sim:6.0.1`
+image this project pulls. Proof it's a Kit-bootstrap issue, not a broken exec/mount/PYTHONPATH
+problem: the same exec plumbing (`/isaac-sim/python.sh` via `docker exec`) *does* successfully
+import `trimesh` (a real pip-installed package) in the sandbox's own
+`test_trimesh_is_importable_in_the_isaac_container` check, and `omni_capture.py` — which launches
+`isaacsim.SimulationApp` before ever touching `pxr` — successfully opened and traversed the real
+USD stage in the very same log (`[capture] opening .../CONJUNTO_BOMBAS_animated.usd`). So `pxr`
+really is only made importable by Kit's own extension loader running inside a live `SimulationApp`,
+not a static PYTHONPATH `python.sh` sets up for free.
+
+Fix: added `pipeline/stages/_isaac_kit_bootstrap.py` — new orchestrator glue, explicitly *not* a
+vendored/ported copy (the copy-in rule is about `pipeline/vendored/isaac/*.py` staying untouched,
+which it does). It launches a headless, do-nothing `SimulationApp`, then hands off to the real
+target script's own `main()` via `runpy.run_path(..., run_name="__main__")`, with `sys.argv`
+rewritten so the target sees exactly what it would if invoked directly. `isaac_common.py`'s
+`run_isaac_script` now has a `NEEDS_KIT_BOOTSTRAP = frozenset({"split_mesh", "add_motion"})` set
+and inserts the bootstrap into the `cmd` list ahead of the real script for those two keys only —
+`omni_capture` is left alone since it already does this itself and must not be double-wrapped.
+
+**2. `capture.isaac` reported manifest `"success"` but never wrote `cameras_gt.json`.** The real
+`capture.log` showed, right at Kit startup: `PermissionError: [Errno 13] Permission denied:
+'/isaac-sim/.cache/warp'` (from `omni.warp.core`'s kernel-cache init), which cascaded into
+`omni.replicator.core-1.13.27` failing `startup_extension` entirely (`AttributeError: 'NoneType'
+object has no attribute '_register_status_callback'` in the dependent `replicator_yaml`
+extension), and later `omni_capture.py`'s own `rep.writers.get("BasicWriter")` raised
+`WriterRegistryError: No writer with name 'BasicWriter' was found in registry` — a real, fatal
+Python exception inside the script. But Kit's own shutdown path (`SimulationApp.close()` wasn't
+called explicitly, "Shutting down automatically") apparently still yields exit code 0 from the
+container's perspective, so `run_isaac_script`'s only signal (the process exit code) reported
+success. This is the same "container exit 0 ≠ actually worked" caveat already flagged in this
+task's original write-up, now confirmed for real.
+
+Root cause of the permission error: Docker initializes a brand-new *named volume*'s content by
+copying whatever the image already has at that mount path (`/isaac-sim/.cache`) — including its
+ownership. `nvcr.io/nvidia/isaac-sim`'s own image-baked `/isaac-sim/.cache` ends up owned by a UID
+that doesn't match whatever `docker exec`'s default user actually is on this real machine (no
+`--user` override is set anywhere in `pipeline.containers`), so every write into that persisted
+cache volume silently failed the first time it was ever exec'd into.
+
+Fix: `ContainerManager.start()` now calls a new `_fixup_isaac_cache_permissions()` right after
+creating a **fresh** `isaac` container only (not on reuse/restart) — a best-effort
+`chmod -R 0777` (as `user="root"` on the exec) across the three cache-volume mount points
+(`/isaac-sim/.cache`, `/isaac-sim/.nv/ComputeCache`, `/isaac-sim/.local/share/ov/data`). This
+touches the volume's actual on-disk permissions, so it only strictly needs to happen once per
+volume's lifetime — re-running it on every fresh-container creation is just cheap and simple,
+not something that needs extra state to dedupe. Never raises (a failure here just means the
+pre-existing cold-cache-every-time behavior, not a broken pipeline).
+
+**Both fixes are backed by sandbox tests** (`test_containers.py`'s three new
+`test_start_*_isaac_cache_permissions*`/`test_start_never_chmods_for_cuda`/
+`test_start_does_not_rechmod_*` tests; `test_stages_isaac.py`'s cmd-shape assertions updated for
+the bootstrap-wrapped `cmd` list), full suite still green (151 passed, 9 skipped — the 9 being
+`test_containers_gpu.py`'s 6 + `test_stages_isaac_gpu.py`'s 3, both Docker/ISAAC-flag-gated).
+**Neither fix has been verified against real Isaac Sim/GPU hardware** — I have no way to run Isaac
+Sim myself; next step is Bartosz re-running `tests/test_stages_isaac_gpu.py` for real.
+
+**Process note:** the repo folder connected to this session is the same folder the user's local
+`pytest` run writes `runs/<run_id>/logs/*.log` into — I can (and should, going forward) read those
+log files directly via the `Read` tool rather than asking the user to paste them.
+
+### T11 cache-permission fixup didn't actually take (2026-07-16, later same day)
+
+Bartosz re-ran `test_stages_isaac_gpu.py` twice more (`t11-capture-smoke-1784224663`/
+`t11-full-smoke-1784224686` around 19:58, then `t11-capture-smoke-1784225823`/
+`t11-full-smoke-1784225823` around 20:17-20:18) — **same `PermissionError: [Errno 13] Permission
+denied: '/isaac-sim/.cache/warp'` and downstream `WriterRegistryError: No writer with name
+'BasicWriter'` in both `capture.log`s**, i.e. yesterday's `_fixup_isaac_cache_permissions()` fix
+(`pipeline/containers/manager.py`) has not actually fixed anything on the real machine yet.
+
+Root cause, from re-reading `manager.py`'s own `start()`: the chmod fixup only runs in the
+"create a brand-new container" branch (`if container is not None: ... return container.id` short-
+circuits before it for a reused/restarted one). `containers/config.py`'s `container_name()` is
+**deterministic** (`f"pipeline-{env}"` — always `pipeline-isaac`, no run-id in it), and the cache
+volumes (`isaac-cache`/`isaac-compute`/`isaac-ovdata`) are named Docker volumes that outlive
+container recreation by design. So: the `pipeline-isaac` container (and its cache volumes) already
+existed on Bartosz's machine from *before* this fix was written, `start()` has been finding and
+reusing that same container on every single pytest invocation since, and the fixup branch has
+never once executed — the bad on-disk volume permissions from the very first cold run are still
+there and will stay there indefinitely under a reused container.
+
+**This is a real gap in the fix, not a "hasn't propagated yet" thing** — reuse-by-design (the
+whole point of a warm container) directly defeats a fixup that only fires on fresh-create. Two
+ways to unstick it, independent of each other:
+
+1. **No code change, immediate**: on the host, `docker rm -f pipeline-isaac` (and optionally
+   `docker volume rm isaac-cache isaac-compute isaac-ovdata` to also drop the cold-cache warmup,
+   though that's not required — the chmod fixup doesn't need an empty volume, just a fresh
+   container exec'd into it) so the next `start()` call takes the "create new" branch and the
+   existing fixup actually runs.
+2. **Code fix**: make `_fixup_isaac_cache_permissions` run on every `start()` call, not just
+   fresh-create — it's already `chmod -R 0777`, idempotent, and the docstring itself already
+   argues this is "cheap and simple" vs. tracking one-time state. This also protects against the
+   silent-failure case (the `except Exception: pass` in the fixup swallows any exec error with no
+   log), which may be what happened the first time it ran.
+
+Not yet applied either fix — flagging for Bartosz/next session to pick one (or both: manual
+`docker rm` now to unblock today's testing, code fix afterward so this can't recur silently).
+
+### T11 third bug: cross-run cache poisoned by the bogus "success" (2026-07-16, same day)
+
+Bartosz did the manual `docker rm -f pipeline-isaac` (option 1 above), re-ran the suite, and it
+failed *fast* in the exact same shape (`convert.default`: `cameras_gt.json` not found) — meaning
+Docker was never touched again. Checked the four newest runs' manifests
+(`t11-full-smoke-1784228311/332/389/413`): `prep_split.default`/`prep_motion.default`/
+`capture.isaac` all show `status: "skipped"`, still pointing at artifact paths under the very
+first broken run, `t11-full-smoke-1784225823`.
+
+Cause: `pipeline.dag.cache`'s cross-run index (`runs/.cache/index.json`) records a stage's outputs
+under a `cache_key` (config + input hashes + code version) purely from the scheduler seeing
+`status="success"` come back from `Stage.run()` — it has no way to know that `capture.isaac`'s
+original "success" was actually a swallowed Kit crash (the bug just above). Once written, that
+entry makes every future run with the same resolved config treat `capture.isaac` as fresh forever,
+via `pipeline/dag/scheduler.py`'s `get_cached(cache_key, ...)` check — completely independent of
+whatever's fixed in the container itself. The literal poisoned entries were sitting in
+`runs/.cache/index.json`, one for the full-chain config (`n_cameras=3`/`num_frames=4`) and one for
+the capture-smoke config (`n_cameras=2`/`num_frames=2`), each still pointing at
+`t11-full-smoke-1784225823`/`t11-capture-smoke-1784224663`'s own (empty-except-`bg_dome.png`)
+`capture/` directory.
+
+**Both fixes applied this session** (Bartosz confirmed "yes do both"):
+
+1. Deleted `runs/.cache/index.json` outright (needed `mcp__cowork__allow_cowork_file_delete` —
+   the connected-folder delete-protection kicked in first). Safe: it's a pure cache, rebuilt from
+   scratch as stages genuinely succeed; nothing reads it as a source of truth.
+2. `pipeline/stages/capture_isaac.py`'s `CaptureIsaacStage.run()` now checks
+   `capture_dir_host / "cameras_gt.json"` exists right after `run_isaac_script(...)` returns, and
+   raises `IsaacStageError` (imported from `isaac_common`) if not — the same file
+   `test_stages_isaac_gpu.py`'s own criterion-1 test already asserts on, and the last thing
+   `omni_capture.py`'s `main()` writes, so its absence is the cheapest reliable proxy for "Kit
+   silently died after startup." Raising here (rather than returning as if nothing happened) makes
+   `pipeline/dag/scheduler.py`'s `except Exception` path mark the stage `"failed"` and return
+   immediately — `put_cached` is only ever called *after* a stage's `run()` returns normally
+   (see `run_dag`'s loop body), so a stage that fails this check can never poison the cross-run
+   cache again. This directly plugs the hole the previous fixup-permissions fix didn't cover (that
+   one only stopped the *permission* error from recurring; this one stops a *reported* success
+   from ever being wrong regardless of root cause).
+   - Two existing sandbox unit tests (`test_capture_isaac_stage_writes_config_yaml_and_overrides_
+     usd_and_out`, `test_capture_isaac_stage_keeps_explicit_near_far_when_set` in
+     `tests/test_stages_isaac.py`) used a bare `_FakeContainers.exec_in_container` that returned
+     `exit_code=0` with no filesystem side effect at all — would now correctly fail this new check.
+     Updated that shared fake to drop a stub `cameras_gt.json` under `--out` whenever the command
+     is an `omni_capture.py` invocation, mirroring the same file's own (already-existing, more
+     elaborate) `_fake_isaac_exec` helper used by the full-chain `run_dag` test.
+   - Full suite verified green after the change: 151 passed, 9 skipped (unchanged) —
+     `/tmp/t11venv/bin/pytest -q` from `orchestrator/`.
+
+**Not yet done**: `_fixup_isaac_cache_permissions` still only runs on fresh container creation
+(option 2 from the previous entry) — the manual `docker rm` unblocks *this* session, but the
+underlying "reuse bypasses the fixup" gap in `pipeline/containers/manager.py` is still open if the
+container/volume ever gets recreated again. Next real-hardware run (post `docker rm` + cache
+delete + this code fix) is the one that actually proves `capture.isaac` for real — still unverified
+against live Isaac Sim/GPU as of this note.
+
+### T11 fourth bug: `cameras_gt.json` alone wasn't a strong enough success check (2026-07-16, same day)
+
+Bartosz re-ran after the `docker rm` + cache-index delete + `cameras_gt.json` check. Real progress
+this time — **the permission bug is genuinely gone**: `capture.log` now shows `Warp 1.13.0
+initialized` cleanly (no more `/isaac-sim/.cache/warp` `PermissionError`), `omni.replicator.core`
+starts without the `replicator_yaml`/`BasicWriter` cascade, and `omni_capture.py`'s `main()` runs
+all the way through its own timeline-stepping loop and prints `[capture] done -> .../capture` with
+no exception. But both tests still failed — a *new*, different failure:
+
+- `capture.log` also shows `[Error] [omni.hydratexture.plugin] IHydraTexture refResource had no
+  GPU foundation` and four (= `num_frames`) `[Warning] [omni.replicator.core.scripts.orchestrator]
+  Timed out while waiting for pending Replicator writer schedules to drain` — the RTX render
+  products never actually produced frame data, so `BasicWriter` never wrote a single `camNN/`
+  directory. Looks like a renderer/GPU-passthrough problem (Docker Desktop + WSL2 GPU access, a
+  Vulkan/EGL headless-rendering config issue, or similar) rather than anything in this repo's
+  Python — flagging for Bartosz to check on the Docker/driver side; nothing here can diagnose that
+  further without hardware access.
+- Because `cameras_gt.json` and the point-cloud files (`points3D_gt.ply`/`points3D_labels.npy`/
+  `label_names.json`) are written from pure USD stage geometry, not from rendering, they exist
+  fine even when zero frames actually got rendered — so the previous fix's "does `cameras_gt.json`
+  exist" check wasn't a strong enough proxy after all. `capture.isaac` got reported `"success"`
+  again, `convert.default` then failed downstream with a `[WinError 3]` on the missing
+  `.../capture/cam01` directory.
+
+**Fix**: `CaptureIsaacStage.run()` (`pipeline/stages/capture_isaac.py`) now *also* checks that the
+number of `camNN`-prefixed directories under the capture dir matches `rig.n_cameras` — the same
+thing `convert.default` needs and `test_stages_isaac_gpu.py`'s own criterion-1 test already
+asserts (`len(cam_dirs) == n_cameras`) — raising `IsaacStageError` if not, alongside the existing
+`cameras_gt.json` check. Updated `tests/test_stages_isaac.py`'s shared `_FakeContainers` fake to
+also create the right number of empty `camNN/` directories (reads `rig.n_cameras` back out of the
+`--config` YAML the stage itself writes, so it stays correct regardless of what a given test sets
+`n_cameras` to) — full suite re-verified green, 151 passed / 9 skipped. Also deleted
+`runs/.cache/index.json` again (it had re-poisoned itself with this run's bogus "success").
+
+**Still open / not fixable from here**: the actual RTX-rendering failure (`IHydraTexture ... no
+GPU foundation` + writer-drain timeouts). Next real-hardware run will at least *fail loudly and
+correctly* now instead of reporting a false success, which should make root-causing the renderer
+issue itself easier.
+
+### Root cause of the RTX-rendering failure: WSL2 doesn't support Vulkan (2026-07-16, same day)
+
+Bartosz asked why GPU passthrough works fine for the `cuda` container but not `isaac`, given both
+request GPU access identically in `pipeline/containers/config.py`/`manager.py` (same
+`DeviceRequest(count=-1, capabilities=[["gpu"]])`, no isaac-specific capability being dropped
+anywhere in this repo's code). Answer, confirmed via NVIDIA's own developer forum (searched
+2026-07-16): **Vulkan is not supported under WSL2**, full stop — this is an NVIDIA-stated platform
+limitation, not a Docker Desktop flag/config gap:
+
+> "We currently do not support WSL2 and Xvfb. We require Vulkan on Linux." — NVIDIA staff, Isaac
+> Sim forum ([thread](https://forums.developer.nvidia.com/t/isaac-sim-x86-64-headless-docker-wsl2-support/278252))
+>
+> "Vulkan is used by the Hydra Engine for RTX rendering in our Kit SDK. Currently, Vulkan is not
+> supported on WSL." — same thread, follow-up
+
+CUDA compute (`libcuda.so`, what the `cuda` container/PyTorch training needs) passes through
+WSL2's GPU paravirtualization fine — that's the whole reason `test_containers_gpu.py`'s `cuda`
+tests and this project's training/render/amp stages are expected to work. Isaac Sim's Hydra/RTX
+renderer needs actual Vulkan on Linux for render-product/texture creation, which WSL2 doesn't
+provide (or provides only partially/unreliably) — matches this run's specific symptom
+(`IHydraTexture ... no GPU foundation`, RTX render products never producing frames) and a near-
+identical harder failure from a few months back
+([github.com/robotmcp/ros-mcp-server#289](https://github.com/robotmcp/ros-mcp-server/issues/289):
+`VkResult: ERROR_INCOMPATIBLE_DRIVER` / `vkCreateInstance failed. Vulkan 1.1 is not supported` /
+`GPU Foundation is not initialized` — Bartosz's run got further than this before failing, Kit/
+extensions all started fine, but the underlying cause looks like the same WSL2-Vulkan gap).
+
+**This is a hard architectural constraint, not a bug to keep chasing in `pipeline/containers` or
+`capture_isaac.py`.** Docker Desktop on Windows runs Linux containers via a WSL2-backed VM by
+default regardless of whether the orchestrating Python process itself runs natively on Windows or
+inside WSL2 (see `manager.py`'s own "Revised 2026-07-14" docstring note) — so the container
+running Isaac Sim is always subject to this limitation as currently set up. Options going forward,
+not yet decided/actioned:
+
+1. Run the `isaac` container against a real Linux host (bare metal, dual-boot, or a Linux VM with
+   real — not WSL2-paravirtualized — GPU passthrough) — NVIDIA's actually-supported path.
+2. Check whether Isaac Sim's native Windows install (outside Docker/WSL2 entirely) supports the
+   render path `omni_capture.py` needs — would sidestep this whole layer for just `capture.isaac`.
+3. Watch for NVIDIA adding WSL2 Vulkan support later — several forum threads on this are from
+   2026, still open as of this note.
+
+### Native-isaac fix confirmed working; new bug found one stage later — `cuda` image never had a real Python (2026-07-16/17)
+
+Bartosz re-ran `tests/test_stages_isaac_gpu.py` after the native-execution change (option 2 above,
+implemented same session — see the "adjust the project plan" entry). **Real validation: 2 of 3
+tests passed**, including `test_capture_isaac_smoke_reproduces_run_capture_sh` — `capture.isaac`
+genuinely worked against the native Isaac Sim install, and the full-chain test's manifest confirms
+`capture.isaac: success` and `convert.default: success` for real (not skipped/cached). The
+Vulkan/WSL2 fix is validated on real hardware.
+
+The one failure was new and unrelated: `train.default` (a `cuda`-container stage, T09) failed with
+`train exited with code 127`, log: `OCI runtime exec failed: ... exec: "python": executable file
+not found in $PATH`. Root cause, found in the repo-root `Dockerfile`: the venv-creation step was
+commented out —
+```
+# RUN uv venv .venv && \
+#     uv sync --frozen
+```
+— right above the `ENV PATH="/workspace/.venv/bin:$PATH"` line that assumes it exists. So the
+`4dgs-motion-amp-cuda:latest` image this project builds (via `ContainerManager.ensure_image`) has
+never actually had a working Python interpreter on `PATH` at all — nothing installed `torch`/etc.,
+and there's no bare `python`/`python3` symlink either (the base `nvidia/cuda:...-devel` image ships
+no Python, and the Dockerfile only installs `python3-dev`, headers only). This is why `train`/
+`render`/`seg_extract`/`amp`/`segment.mbs` (T09/T10) were all honestly logged as "not yet run for
+real" — this is the *first* real execution of any `cuda`-container script, and it immediately
+surfaced this. `pipeline.stages.cuda_common.run_cuda_script`'s hardcoded `cmd = ["python", ...]`
+is correct *given a working venv* — not a bug in the orchestrator code, the Dockerfile just never
+finished setting one up.
+
+**Fix:** uncommented the two `RUN` lines in `Dockerfile`. `uv sync --frozen` (no `--extra` needed)
+installs the plain `dependencies` group — `torch`/`torchvision`/`diff-gaussian-rasterization`/
+`simple-knn`/etc. — exactly what the vendored `cuda` scripts need; the `orchestrator` extra is
+deliberately never installed inside this container (it's pure-Python DAG code, meant to run on the
+host, not the GPU image). `requires-python = "==3.12.12"` is an exact pin the Ubuntu-22.04 base
+image doesn't ship; `uv venv .venv` (no explicit `--python`) will fetch a matching standalone
+Python via uv's own toolchain management during the build, same as it would locally.
+
+**Bartosz still needs to do a one-time manual step before re-running:** `ContainerManager.
+ensure_image` only builds `cuda` if the image tag doesn't already exist locally
+(`_image_present` check gates the whole `images.build(...)` call) — the exact same "reuse defeats a
+fix" shape as the isaac cache-permission bug above. Since this test run already built and cached
+the broken image *and* created a `pipeline-cuda` container from it, both need removing so the next
+`ensure_image`/`start()` call actually rebuilds from the fixed Dockerfile:
+```
+docker rm -f pipeline-cuda
+docker rmi 4dgs-motion-amp-cuda:latest
+```
+Not fixed in code this session (same as the isaac fixup's "runs only on fresh container creation"
+gap) — worth a follow-up task if this class of bug (a fixed image/Dockerfile not actually getting
+picked up without manual `docker rm`/`docker rmi`) keeps recurring.
+
+### Follow-up: `ensure_image` now auto-detects a stale `cuda` image, no more manual `docker rm`/`rmi` (2026-07-18)
+
+Bartosz asked for the follow-up fix flagged above. `pipeline/containers/manager.py`: added
+`_cuda_build_hash(repo_root)` (sha256 of `Dockerfile` + `pyproject.toml` + `uv.lock`, in that
+order, `b"<missing>"` fallback per file) and a `pipeline.cuda_build_hash` Docker label storing it.
+`ensure_image("cuda")` now compares the *current* hash against the label on whatever image is
+already present (`_cuda_image_up_to_date`) instead of just checking the tag exists, and rebuilds
+automatically on any mismatch — the exact gap the previous entry's manual `docker rm -f
+pipeline-cuda` / `docker rmi 4dgs-motion-amp-cuda:latest` was working around. `isaac` deliberately
+keeps the old simple presence check — it's pulled by pinned tag from NGC, never built locally, so
+there's no local content to hash.
+
+Rebuilding the image alone isn't enough either, though — a *running* `pipeline-cuda` container
+would still be backed by the old image's filesystem underneath it even after the tag gets
+rebuilt. So `start()` also gained `_container_is_stale` (compares the found container's
+`image.id` against the current image's id) and `_recreate_stale_container` (stop + remove); a
+stale container is torn down and recreated fresh instead of being warm-reused, closing the second
+half of the gap in one pass.
+
+This is the third instance this task's seen of the same shape — reuse-by-design (warm containers,
+cached images) silently defeating a one-time fixup — after the isaac cache-permission bug and the
+cross-run cache-poisoning bug above. Unlike those two, this one's now handled generically enough
+(hash-on-disk vs. hash-on-image, not a fixed one-off chmod) that it shouldn't need a fourth
+instance to notice the pattern again.
+
+Verified in the sandbox only (5 new tests in `tests/test_containers.py`, 160 passed/9 skipped
+total, fake Docker client extended to track per-build image ids/labels) — not yet re-verified
+against a real Docker daemon on Bartosz's machine, since the manual `docker rm`/`rmi` workaround it
+replaces was only ever exercised there once, already worked, and there's no pending real-hardware
+run blocked on this specifically. See `planning/tasks/T08-container-manager.md`'s matching
+"Revised (2026-07-18)" entry.
+
+### The staleness fix worked, but the rebuild it triggered failed with no diagnostic info (2026-07-18, same day)
+
+Bartosz re-ran `test_stages_isaac_gpu.py` for real. Confirms the fix above is working exactly as
+intended: `ensure_image` detected the stale label and rebuilt automatically, no manual `docker rm`/
+`rmi` needed this time. But the rebuild itself failed: `train.default` errored with `"failed to
+build '4dgs-motion-amp-cuda:latest': The command '/bin/sh -c uv venv .venv &&     uv sync
+--frozen' returned a non-zero code: 1"`, after 1351s (~22.5 min) — a long enough runtime that it
+plausibly got well into resolving/compiling something (likely `diff-gaussian-rasterization`/
+`simple-knn`'s CUDA-extension builds, the slowest step in `uv sync` here) before failing. No
+`runs/<id>/logs/` entry has the actual `uv sync` output — `docker.errors.BuildError`'s `str()` is
+just that one generic line, and `ensure_image` wasn't capturing the fuller `.build_log` docker-py
+attaches to the exception.
+
+**Fixed in code:** added `ContainerManager._persist_cuda_build_log`, which pulls `exc.build_log`
+(present on a real `BuildError`) and writes it to `runs/.cache/cuda_build.log`, with the path
+appended to the raised `ImageNotAvailableError`'s message. This makes the *next* failure
+diagnosable without a second 22-minute wait — it does **not** explain *today's* failure, since the
+log from this run was never captured in the first place (the fix landed after the fact). 2 new
+tests (162 total, 9 skipped) using a fake `BuildError`-alike with `.build_log` verify the log gets
+written and referenced; a `build_log=None` case confirms the helper never masks the real error if
+docker-py didn't attach one.
+
+**Recommended next step for Bartosz, to get today's actual error without waiting again:** run
+`docker build -f Dockerfile -t 4dgs-motion-amp-cuda:latest .` directly (from the repo root, in a
+terminal on the real machine) — this streams the live `uv sync` output to the terminal
+immediately, same build, much faster feedback than going through another full DAG test run.
+One hypothesis worth checking in that output: the Dockerfile's base image is
+`nvidia/cuda:12.4.1-devel-ubuntu22.04` (CUDA 12.4 toolkit/nvcc), but `pyproject.toml` pins torch to
+the `pytorch-cu126` wheel index (CUDA 12.6) — `diff-gaussian-rasterization`/`simple-knn` are
+`no-build-isolation-package`s compiled from source against whatever nvcc + torch combination ends
+up installed, and a toolkit/wheel CUDA-version mismatch at that step is a plausible (not
+confirmed) cause of a `uv sync --frozen` failure at exactly this stage. Not fixed — needs the real
+build log to confirm before touching the pin.
+
+### Root cause found (2026-07-18): `docker build` has no GPU, so torch's arch-detection crashes on an empty list — not the CUDA-version mismatch hypothesis
+
+Bartosz ran the recommended manual `docker build -f Dockerfile -t 4dgs-motion-amp-cuda:latest .`
+and got the real error immediately: `simple-knn`'s (and, by the same mechanism,
+`diff-gaussian-rasterization`'s) editable-wheel build fails inside
+`torch.utils.cpp_extension._get_cuda_arch_flags`:
+
+```
+IndexError: list index out of range
+  arch_list[-1] += '+PTX'
+```
+
+preceded by the warning `The detected CUDA version (12.4) has a minor version mismatch with the
+version that was used to compile PyTorch (12.6)` — which turned out to be a red herring, not the
+actual cause (torch explicitly says "Most likely this shouldn't be a problem," and it wasn't). The
+real mechanism: `docker build` (unlike `docker run --gpus all`) never has GPU passthrough — no
+`nvidia-smi`, no visible CUDA device — so when `TORCH_CUDA_ARCH_LIST` isn't set,
+`_get_cuda_arch_flags` falls back to querying `torch.cuda.device_count()`, gets `0`, builds an
+empty `arch_list`, and then unconditionally does `arch_list[-1] += '+PTX'` on it — a crash on
+*any* machine building these extensions inside a plain `docker build`, independent of the
+12.4-vs-12.6 toolkit/wheel pairing. This had never been hit before because `train.default` (T09)
+was the *first* real execution of anything needing these compiled extensions — T09/T10 were always
+honestly logged as "not yet run for real" up to this point (see the T09/T10 "done" entries above).
+
+**Fixed:** added `ENV TORCH_CUDA_ARCH_LIST="8.6+PTX"` to the repo-root `Dockerfile`, right before
+the `uv sync --frozen` step — `8.6` is the compute capability of Bartosz's actual GPU (confirmed
+from Isaac Sim capture logs: `NVIDIA GeForce RTX 3090`, 24 GB, `sm_86`), `+PTX` keeps a little
+forward-compatibility margin (JIT-compilable on a newer-but-compatible architecture) at negligible
+extra build cost for two small extensions. This is a one-line, environment-only fix — no changes
+needed to `diff-gaussian-rasterization`/`simple-knn` source or to `pipeline.stages.cuda_common`.
+
+This Dockerfile edit is exactly the scenario the same-day `ensure_image` staleness fix
+(`[[pipeline-orchestration-plan]]`'s "Auto-detect stale cuda image" entry) exists for: the next
+`ensure_image("cuda")` call will see a changed `_cuda_build_hash` and rebuild automatically, no
+manual `docker rm`/`rmi` needed this time. Not yet re-verified end-to-end — Bartosz still needs to
+re-run `test_stages_isaac_gpu.py` (or the manual `docker build`) to confirm this specific fix
+actually gets past the `simple-knn`/`diff-gaussian-rasterization` build step; `train`/`render`/
+`seg_extract`/`amp`'s own logic is still genuinely untested against real hardware beyond this.
+
+### Same error came back after the TORCH_CUDA_ARCH_LIST fix -- train.default failed with the exact "python not found" OCI error again (2026-07-18, same day)
+
+Bartosz re-ran and got `OCI runtime exec failed: exec failed: unable to start container process:
+exec: "python": executable file not found in $PATH` again -- the identical symptom as the very
+first cuda bug (venv commented out), but this time reported *after* the image build itself (no
+`"failed to build"` error surfaced), meaning `ensure_image`/`start()` returned normally and the
+failure happened at `exec` time inside a running container. Two competing explanations, not yet
+distinguished:
+
+1. **Stale-container reuse**: this build attempt (with the `TORCH_CUDA_ARCH_LIST` fix) succeeded
+   and produced a new, working image, but the warm `pipeline-cuda` container from an earlier,
+   still-broken build never actually got recreated -- i.e. a bug in the same-day
+   `_container_is_stale`/`_recreate_stale_container` fix meant to prevent exactly this.
+2. **Still-broken venv**: the build itself completed (exit 0) but still didn't produce a working
+   `python` binary/symlink in `.venv/bin` for some other reason (e.g. a `uv venv`/toolchain quirk),
+   independent of container reuse entirely.
+
+Checked real docker-py's source: `Container.image` is derived from the container's creation-time
+`attrs['ImageID']` (fixed for the container's lifetime, re-read fresh via `container.reload()`)
+rather than the current tag -- so `_container_is_stale`'s comparison logic checks out on
+inspection. That's not the same as confirming it actually worked on the real daemon, though.
+
+**Code hardening (not yet a root-cause fix):** `ensure_image` now persists the build log on a
+*successful* build too, not just a failed one (previously only `_persist_cuda_build_log`'s
+exception path wrote anything) -- a build exiting 0 doesn't guarantee the resulting image actually
+works, and until now a "successful" build's log was invisible entirely. 162 tests total (no
+existing test needed to change -- the fake `images.build()` already returned an empty log
+generator on success; added an autouse fixture to `tests/test_containers.py` so this doesn't leave
+a stray `runs/.cache/cuda_build.log` in the real working tree after every test run).
+
+**Asked Bartosz to run, before any further rebuild** (cheap, seconds, no waiting):
+```
+docker images 4dgs-motion-amp-cuda:latest --format "{{.ID}} {{.CreatedAt}}"
+docker inspect pipeline-cuda --format "{{.Image}}"
+docker exec pipeline-cuda ls -la /workspace/.venv/bin/
+```
+If the image ID and the container's `.Image` don't match -> hypothesis 1 (our staleness-detection
+code has a bug, needs fixing). If they match and `python`/`python3` genuinely aren't in
+`.venv/bin/` -> hypothesis 2 (still a Dockerfile/uv problem, need `runs/.cache/cuda_build.log` from
+the successful build to see what `uv sync` actually did). Not resolved as of this entry.
+
+### Root cause found and fixed (2026-07-18, later same day): the venv was built inside `/workspace`, which gets bind-mounted (and shadowed) by the live host repo at container runtime
+
+Bartosz's diagnostic output ruled out hypothesis 1 cleanly: `docker images` and
+`docker inspect pipeline-cuda --format "{{.Image}}"` both reported the exact same id
+(`853cc64aa964...`) -- the container really was running the just-rebuilt image, `[[pipeline-
+orchestration-plan]]`'s `_container_is_stale` fix worked correctly. But `docker exec pipeline-cuda
+ls -la /workspace/.venv/bin/` came back `No such file or directory` -- not "python missing", the
+whole `.venv` directory doesn't exist inside the running container, despite the build completing
+successfully.
+
+The mechanism: `pipeline/containers/config.py`'s `mounts_for("cuda")` (T06's `container_mounts`)
+bind-mounts the *entire* live host repo directory over `/workspace` at container **runtime** --
+this is deliberate and load-bearing (it's how a stage sees the current `pipeline/vendored/cuda/
+*.py` without an image rebuild every time source changes, per `ARCHITECTURE.md`'s "Vendored stage
+logic"). But a Docker bind mount doesn't *merge* with the underlying image layer at that path --
+it completely replaces it. The Dockerfile's `RUN uv venv .venv && uv sync --frozen` ran inside
+`WORKDIR /workspace`, baking the venv into the image at `/workspace/.venv` -- which the runtime
+bind mount then hides entirely, the instant the container starts. This explains the whole day's
+saga in one shot: even a Dockerfile that builds perfectly was *always* going to produce a
+container with no working `python`, because the build's own output was structurally unreachable
+at runtime. The `diff-gaussian-rasterization`/`simple-knn` CUDA extensions have the exact same
+exposure -- `[tool.uv.sources]` marks them `editable = true`, and an editable install of a
+compiled extension builds its `.so` file in place inside the source tree (here,
+`submodules/{depth-diff-gaussian-rasterization,simple-knn}/...`, also under `/workspace`) -- so
+those would have been silently shadowed too, one stage further into the pipeline than we'd gotten
+to yet.
+
+**Fixed:** moved the entire build -- `WORKDIR`, the `COPY`s of `pyproject.toml`/`uv.lock`/
+`submodules/`, `uv venv`/`uv sync --frozen`, and the resulting `PATH` -- to `/opt/build` instead of
+`/workspace`, then `WORKDIR /workspace` again afterward (unaffected: `pipeline.stages.
+cuda_common`'s `PYTHONPATH=/workspace`, and every `exec()` call's explicit `workdir=` -- those
+correctly refer to the *live* repo mount, which is what they're supposed to see). `/opt/build`
+is never touched by any bind mount, so the venv and the editable-installed extensions' compiled
+`.so` files (whose absolute-path finder was baked in against `/opt/build/submodules/...` at build
+time) both survive into the running container untouched. One-line-conceptually but
+multi-line-in-practice change, confined entirely to the repo-root `Dockerfile` -- no changes to
+`pipeline/containers/config.py`'s mounts (moving *those* off `/workspace` instead was considered
+and rejected, since the live-mount behavior for `pipeline/vendored/cuda/*.py` is exactly what makes
+code changes not require an image rebuild -- the bug was specifically in *what else* got built
+into the same shadowed path, not in the mount itself).
+
+This also means the Dockerfile fixed here is the *fourth* distinct real bug found across today's
+single real-hardware run (venv commented out -> `TORCH_CUDA_ARCH_LIST` missing -> this
+mount-shadowing structural issue), each one only surfacing once the previous one was fixed and the
+build/run got one step further. Sandbox suite still green throughout (162 passed, 9 skipped) --
+this fix is Dockerfile-only, nothing in `orchestrator/pipeline/` changed, so no new tests were
+needed; the `ensure_image` staleness-hash mechanism (`[[pipeline-orchestration-plan]]`) will detect
+this Dockerfile change and rebuild automatically on the next run, same as it did for the previous
+two fixes today. Not yet verified for real -- Bartosz needs to re-run to confirm `train.default`
+(and everything downstream: `render`/`seg_extract`/`amp`) actually completes now that both the venv
+and the compiled extensions should genuinely be reachable at runtime.
+
+### Fifth bug, same real-hardware attempt: `write_bridge` wrote the bridge file in Windows' cp1252 encoding, and `mmengine` choked reading it as UTF-8 inside the Linux container (2026-07-18)
+
+With the venv/mount-shadowing fix in place, `train.default` finally got as far as actually running
+`train.py` inside the container — and immediately hit a new, unrelated crash:
+`UnicodeDecodeError: 'utf-8' codec can't decode byte 0x97 in position 64`, raised from
+`mmengine.Config.fromfile` reading the `--configs` bridge file `pipeline.config.bridge.write_bridge`
+generates.
+
+Root cause: `write_bridge` (`pipeline/config/bridge.py`) called `out_path.write_text(...)` with no
+explicit `encoding=`. On Bartosz's native Windows process, `Path.write_text`'s default falls back
+to `locale.getpreferredencoding(False)` — `cp1252` on his machine, not UTF-8. The bridge file's own
+`_HEADER` constant had an em dash (`—`, U+2014) in its first comment line; cp1252 encodes that as
+the single byte `0x97`. Position 64 in the file is exactly where that em dash sits in `_HEADER`'s
+first line — confirmed by counting characters up to it. `mmengine.Config.fromfile` then reads the
+file *inside the Linux `cuda` container*, where Python's default is UTF-8, and `0x97` alone is not
+a valid UTF-8 start byte — hence the crash. This would have hit on the very first `train.default`
+run regardless of any of today's other four bugs; it only remained hidden because nothing had
+gotten far enough to actually read this file until now.
+
+**Fixed:** `write_bridge` now writes with explicit `encoding="utf-8"`; `_HEADER`'s em dash was
+also swapped for a plain ASCII `--` (belt-and-suspenders — the encoding fix alone is sufficient,
+but there's no reason for a generated artifact to depend on a fancy dash rendering correctly).
+
+**Audited the rest of `orchestrator/pipeline/` for the same bug class** (any `write_text`/
+`read_text`/`open()`/`os.fdopen` call without an explicit `encoding=`, on a file written on Windows
+and potentially read elsewhere, or vice versa) and fixed every hit found, since each one is a
+"works until someone's config/scene name has a non-ASCII character, or until any comment in the
+generated file does" landmine, exactly like this one:
+- `pipeline/artifacts/manifest.py` — `_atomic_write_json` (writes `manifest.json`/
+  `config_snapshot.json`) and `load_manifest`'s read, both now explicit UTF-8.
+- `pipeline/dag/cache.py` — `_atomic_write_json` (writes the cross-run cache index) and
+  `_load_index`'s read, both now explicit UTF-8.
+- `pipeline/config/loader.py` — `load_legacy_capture_yaml`'s read, now explicit UTF-8.
+  (`load_legacy_hyperparams` uses `runpy.run_path`, which always assumes UTF-8 for `.py` source
+  per PEP 3120 regardless of OS locale — not vulnerable, left as-is.)
+- `pipeline/config/resolver.py` — `_load_yaml` (reads preset YAML files), now explicit UTF-8.
+- `pipeline/stages/capture_isaac.py` — the Isaac capture-config YAML write (lower risk in
+  practice, since both the native-Windows writer and the native-Windows Isaac Sim reader share one
+  machine/locale today, but fixed for consistency and in case a scene name ever has a non-ASCII
+  character).
+- `pipeline/stages/echo.py`/`seg_eval.py` — low-risk (currently all-ASCII content) but fixed for
+  consistency with the rest.
+
+Not touched (already binary mode or already had explicit encoding): `containers/manager.py`'s log
+file handles, `isaac_common.py`'s log file handle, `artifacts/hashing.py`'s content-hash reads.
+
+Verified: full suite still green (162 passed, 9 skipped) — none of these changes affect behavior
+in the sandbox (all sandbox-side reads/writes happen to be pure-ASCII content today, which is
+exactly why this bug class went undetected until real, non-ASCII content hit a real Windows
+process). This is the *fifth* distinct real bug found across this one real-hardware attempt at
+`train.default` (venv commented out -> `TORCH_CUDA_ARCH_LIST` missing -> `/workspace`
+mount-shadowing -> this encoding bug), each only surfacing once the previous one was fixed and the
+run got one step further. Not yet verified for real — Bartosz needs to re-run once more to confirm
+`train.default` finally completes.
+
+### Sixth bug, discovered on re-run: the native Isaac Sim python.bat default path was simply wrong (2026-07-18)
+
+Bartosz re-ran the full suite and got two failures, both `capture.isaac`-related: `native Isaac
+Sim python launcher not found at Q:\Omniverse\ISAAC_SIM\IsaacSim\tools\packman\python.bat`. This
+is the default `pipeline.stages.isaac_common.DEFAULT_NATIVE_ISAAC_PYTHON` chosen back on
+2026-07-16 (via `AskUserQuestion`, matching `omni_capture.py`'s own pre-orchestrator docstring
+convention) — it simply doesn't exist on Bartosz's actual machine. He supplied the correct path
+directly: `Q:\Omniverse\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat` (a versioned
+standalone-package install, not the `ISAAC_SIM\IsaacSim\...` layout the original docstring
+assumed).
+
+**Fixed:** `DEFAULT_NATIVE_ISAAC_PYTHON` updated to the corrected path in
+`pipeline/stages/isaac_common.py`; docs referencing the old path updated for consistency
+(`INSTRUCTIONS.md` x2, `TASKS.md`, `WINDOWS_SETUP.md`, `T11-wrap-isaac-stages.md`). No test
+depended on the literal default-path string, so the full suite stayed green (162 passed, 9
+skipped) without any test changes. `PIPELINE_ISAAC_NATIVE_PYTHON` remains the escape hatch for a
+differently-laid-out install, unchanged.
+
+This is unrelated to the day's other five bugs (Dockerfile venv, `TORCH_CUDA_ARCH_LIST`,
+`/workspace` mount-shadowing, the bridge-file encoding bug) — those were all `cuda`-container
+issues; this is `capture.isaac`'s native-execution path, and it's simply a wrong hardcoded default,
+not a design flaw. Not yet re-verified — Bartosz needs to re-run once more.
+
+### Seventh bug, further re-run: `amp.py` still used the removed `mmcv.Config` API (2026-07-18)
+
+With the Isaac path fixed, the `cuda`-container chain ran much further this time —
+`train.default` completed for real (`train_out/cfg_args` written, model trained), `render.default`
+started rendering — before crashing in `amp.default`: `AttributeError: module 'mmcv' has no
+attribute 'Config'` at `pipeline/vendored/cuda/amp.py`'s `mmcv.Config.fromfile(args.configs)`.
+
+Root cause: `train.py`/`render.py`/`seg_extract.py` all call `mmengine.Config.fromfile(...)` for
+`--configs`, but `amp.py` (vendored from `render_amp.py`) still called `mmcv.Config.fromfile(...)`
+— an inconsistency the module's own docstring had actually already *documented*, back when this
+was vendored, as a "kept as-is, existing inconsistency in the reference scripts" quirk (grouped
+with the genuinely-benign `--amp_factors: type=int` quirk from the same T09 pass). That
+classification was wrong: this project's pinned `mmcv==2.2.0` (`pyproject.toml`) removed the
+`Config` class entirely (relocated upstream to `mmengine.config`), so `mmcv.Config.fromfile` isn't
+a preservable behavioral difference — it's a hard crash on every machine, unconditionally.
+`amp.py` is the *last* stage in the `train → render → seg_extract → segment.rigid → seg_eval →
+amp` chain, so it had simply never been executed for real until this run got far enough.
+
+**Fixed:** both occurrences in `pipeline/vendored/cuda/amp.py` (lines ~673/705, one per
+`if __name__ == "__main__":`-adjacent code path) swapped `mmcv.Config.fromfile` →
+`mmengine.Config.fromfile`, matching the other three vendored scripts; module docstring corrected
+to stop calling this a preserved quirk. 162 tests, all still passing (no sandbox test exercises
+this code path directly — it's inside the vendored script's own runtime logic, only exercised via
+a real `cuda`-container exec). This is the seventh distinct real bug surfaced by this same
+real-hardware attempt across two consecutive sessions (Dockerfile venv → `TORCH_CUDA_ARCH_LIST` →
+`/workspace` mount-shadowing → bridge-file encoding → wrong Isaac python path → this
+`mmcv`/`mmengine` API mismatch), each only surfacing once the run got one stage further than
+before — genuinely the deepest into the full pipeline chain it's gotten yet. Not yet re-verified —
+Bartosz needs to re-run once more to see whether `amp.default` (and the full chain) completes.
+
+### Eighth bug, same re-run: `train.py` never actually saved a checkpoint, because of an argument-merge ordering bug (2026-07-18)
+
+Past the `mmcv`/`mmengine` fix, `amp.default` crashed differently: `mmengine.Config.fromfile`
+parsed fine this time (`feature_dim: 32` printed), but then `Scene(...)`'s `searchForMaxIteration`
+raised `FileNotFoundError: ... train_out/point_cloud` — no `point_cloud/` directory existed at
+all. `train.default` itself had reported `exit_code=0` (success) and run for only ~32 seconds — far
+too fast for real training, and with no error logged anywhere.
+
+Traced via the run's own artifacts (`train_default_arguments_bridge.py`,
+`arguments/__init__.py`): the bridge config set `OptimizationParams.iterations = 100` (a smoke-test
+override), but the vendored `train.py`'s `__main__` block did
+``args.save_iterations.append(args.iterations)`` *before* `merge_hparams(args, config)` applied
+that override — at that point `args.iterations` was still argparse's own default, `30_000`
+(`arguments/__init__.py`'s `OptimizationParams.__init__`). So `save_iterations` ended up
+containing the reference script's stock milestones (`[14000, 20000, 30000, 45000, 60000]`) plus a
+stray `30000` — never `100`, the run's *actual* final iteration once the config merge took effect.
+Training genuinely ran its full 100 iterations (governed correctly by the merged `args.iterations`
+everywhere else), but `if iteration in saving_iterations` never matched, so `scene.save(iteration)`
+(which writes `point_cloud/iteration_<N>/point_cloud.ply`) was never called — a completely silent
+failure mode, since `train.py` itself never treats "trained but never checkpointed" as an error.
+
+This wasn't a bug in this project's own code at all — it's in the *reference* `train.py`'s own
+logic, and it only ever mattered for this project's specific usage pattern: the reference script
+assumes `--iterations` is passed directly on the CLI (already final at argparse-parse time,
+matching the interactive `train_pump.sh` workflow this was ported from), whereas this project
+routinely overrides `iterations` *after* parsing, via the `--configs` bridge file
+(`pipeline.config.bridge`) — exactly the mechanism that makes config the single source of truth
+(`INSTRUCTIONS.md`). The original script's assumption simply doesn't hold under that usage.
+
+**Fixed:** moved `args.save_iterations.append(args.iterations)` to *after* the `--configs`
+merge block in `pipeline/vendored/cuda/train.py`, so it always uses the true final iteration
+count. 162 tests still pass (nothing in the sandbox exercises this vendored script's own runtime
+logic — only reachable via a real `cuda`-container exec). This is the eighth distinct real bug
+surfaced by this same real-hardware attempt, and arguably the most consequential one: a
+silent-success failure mode that would have made `train.default` look done while quietly producing
+an unusable model, on *every* run that overrides `iterations` via config (i.e. every normal use of
+this orchestrator) — not just Bartosz's specific smoke-test preset. Not yet re-verified — pending
+another re-run to confirm a real checkpoint gets written and `amp.default` completes.
+
+### Ninth "bug," and the actual milestone: the full pipeline completed end to end for real (2026-07-19)
+
+Bartosz closed some memory-heavy programs (freeing host RAM, consistent with the SIGKILL/137
+diagnosis above being a host-RAM OOM, not VRAM) and re-ran. Result: `1 failed, 2 passed` —
+but the "failure" turned out to be a bug in the *test's own assertion*, not the pipeline. Checked
+the actual run's manifest (`runs/t11-full-smoke-1784412475/manifest.json`) directly: `amp.default`,
+`render.default`, `seg_extract.default`, and `segment.rigid` all `"success"`;
+`prep_split.default`/`prep_motion.default`/`capture.isaac`/`train.default` all `"skipped"` (served
+correctly from the cross-run cache, since their inputs/config hadn't changed since an earlier
+successful run — exactly what T05's caching is for). Overall `manifest.status == "success"`, and
+`amp_video`'s artifact path (`.../train_out/video/render.mp4`) is a real file on disk, confirmed via
+`find`. **This is the first time the entire capture → prep → train → render → seg_extract →
+segment → amp chain has completed for real, producing a genuine amplified video output** — the
+actual milestone this whole day-plus of real-hardware debugging (eight real bugs: Dockerfile venv,
+`TORCH_CUDA_ARCH_LIST`, `/workspace` mount-shadowing, bridge-file encoding, wrong Isaac python
+path, `mmcv`/`mmengine` mismatch, `save_iterations` ordering, plus this SIGKILL/memory episode)
+was actually building toward.
+
+The test itself only *looked* like it failed because `tests/test_stages_isaac_gpu.py`'s
+`test_pump01_prep_through_amp_completes` asserted every stage's status `== "success"` literally,
+which rejects `"skipped"` — even though the very next line up (`manifest.status == "success"`)
+already treats a run with skipped-but-cached early stages as a successful run. This assertion had
+simply never been exercised against a cache-hit scenario before, since every prior real-hardware
+attempt failed at some earlier stage before ever getting far enough, on a fresh-enough run, to hit
+this exact combination (later stages genuinely new work, earlier stages correctly cache-skipped).
+Fixed by accepting both `"success"` and `"skipped"` in that per-stage loop. 163 tests still green
+(this file's own tests auto-skip in the sandbox, `PIPELINE_TEST_ISAAC=1`-gated; syntax-checked and
+the rest of the suite re-verified).
+
+**Also hardened `train.default` itself against this failure mode recurring**, same principle as
+`capture.isaac`'s `cameras_gt.json`/`camNN` check earlier this same task: `pipeline/stages/
+train.py`'s `run()` now checks that `model_host / "point_cloud"` actually exists and is non-empty
+after `run_cuda_script` returns, raising `CudaStageError` (not letting a bare exit-0 report success
+and get cross-run cached) if not. Updated `tests/test_stages_cuda.py`'s two exec-fakes
+(`_FakeContainers`, and the module-level `fake_exec` in the `train -> render` `run_dag` test) to
+stub a `point_cloud/iteration_1/point_cloud.ply` on a simulated successful train call, and added
+`test_train_stage_raises_if_exit_zero_but_no_checkpoint_written` as an explicit regression test.
+163 tests total (up from 162), all green.

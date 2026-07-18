@@ -10,9 +10,20 @@ threshold bug in ``rigidity_graph.py``): ``--amp_factors`` is declared ``type=in
 ``AmpChannelConfig.factor`` (T02) is a ``float`` — a non-integer factor will fail this script's
 own argparse parsing. ``pipeline/stages/amp.py`` fails fast with a clear error before exec if a
 resolved config asks for a non-integer factor, rather than letting this surface as a cryptic
-in-container argparse crash. Also kept as-is: this script imports ``mmcv`` for ``--configs``
-where ``train.py``/``render.py``/``seg_extract.py`` import ``mmengine`` instead — an existing
-inconsistency in the reference scripts, not introduced by this port.
+in-container argparse crash.
+
+**Fixed on T11's real-hardware run (2026-07-18), unlike the quirk above:** this script originally
+used ``mmcv.Config.fromfile(args.configs)`` for ``--configs`` where ``train.py``/``render.py``/
+``seg_extract.py`` already used ``mmengine.Config.fromfile`` instead. Unlike the ``--amp_factors``
+quirk above (a real but survivable behavior difference, worth preserving for parity), this one
+isn't a preservable "quirk" at all — the project's pinned ``mmcv==2.2.0`` (``pyproject.toml``)
+removed the ``Config`` class entirely (relocated to ``mmengine`` upstream), so
+``mmcv.Config.fromfile`` is a hard ``AttributeError: module 'mmcv' has no attribute 'Config'``
+unconditionally, on any machine, every time — not a difference in behavior to keep, a script that
+literally cannot run. Swapped both occurrences to ``mmengine.Config.fromfile``, matching the other
+three vendored scripts (which had evidently already been fixed for this same reason at some
+earlier point — `amp.py`, run last in the chain, had simply never been executed for real until
+now to surface it).
 
 Original header:
 
@@ -670,9 +681,9 @@ def load_config(model_path, config_path, amp_factors, freq_list):
     args = get_combined_args(parser, model_path, config_path)
     print("Rendering " , args.model_path)
     if args.configs:
-        import mmcv
+        import mmengine
         from utils.params_utils import merge_hparams
-        config = mmcv.Config.fromfile(args.configs)
+        config = mmengine.Config.fromfile(args.configs)
         args = merge_hparams(args, config)
     safe_state(args.quiet)
     return AmpConfig(model.extract(args), hyperparam.extract(args), args.iteration, pipeline.extract(args), amp_factors, freq_list)
@@ -702,9 +713,9 @@ if __name__ == "__main__":
     args = get_combined_args(parser)
     print("Rendering " , args.model_path)
     if args.configs:
-        import mmcv
+        import mmengine
         from utils.params_utils import merge_hparams
-        config = mmcv.Config.fromfile(args.configs)
+        config = mmengine.Config.fromfile(args.configs)
         args = merge_hparams(args, config)
 
     safe_state(args.quiet)

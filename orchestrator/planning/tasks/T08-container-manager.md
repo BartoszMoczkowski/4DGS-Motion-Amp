@@ -97,6 +97,92 @@ clean teardown. This closes out every acceptance-criteria line and every box in
 just against the fake-client unit tests. No code changes needed; the runtime-host revision above
 held up under real GPU/Docker conditions.
 
+## Revised (2026-07-18) — stale cuda-image auto-detection (T11's second real-hardware bug)
+
+Found while re-testing T11 on real hardware: the repo `Dockerfile`'s `uv venv .venv && uv sync
+--frozen` lines had been commented out, so the built `cuda` image never had a working Python —
+`train.default` failed with exit code 127 ("python" not found). Fixing the Dockerfile wasn't
+enough on its own: `ensure_image` only ever checked "does the tag exist," so the already-built,
+still-broken image kept being reused silently, requiring a manual `docker rm -f pipeline-cuda` +
+`docker rmi 4dgs-motion-amp-cuda:latest` to force a rebuild — the same "reuse-by-design defeats a
+one-time fixup" shape as the isaac cache-permission bug and the cache-poisoning bug (see
+`.claude_notes/NOTES_pipeline_orchestration.md`).
+
+`manager.py` now closes this gap without a manual step: `_cuda_build_hash(repo_root)` hashes
+`Dockerfile` + `pyproject.toml` + `uv.lock`; `ensure_image("cuda")` stamps that hash as a
+`pipeline.cuda_build_hash` Docker label on every build and compares it against the *current* hash
+on every call, rebuilding automatically on a mismatch instead of just checking presence. `isaac`
+is untouched — it's pulled by pinned tag from NGC, never built locally, so there's nothing local
+to go stale. `start()` also now checks whether an existing named container's image id still
+matches the current image id for that env (`_container_is_stale`); if `ensure_image` just rebuilt
+`cuda`, the old warm container (still running the old image's filesystem) is stopped + removed
+and recreated fresh, rather than reused out from under the rebuild.
+
+Verified: 5 new tests in `tests/test_containers.py` (160 total, 9 skipped) — rebuild-on-stale-hash,
+label stamped correctly on a fresh build, isaac's simple presence check untouched, a stale
+container's replacement on the next `start()`, and no spurious rebuild/recreation when nothing
+changed (extending `_FakeImages`/`_FakeContainer` to track per-build image ids and labels, with a
+`present.add(tag)` shortcut that auto-stamps a matching label so pre-existing tests using it don't
+spuriously look stale). Not yet re-verified against a real Docker daemon on Bartosz's machine —
+the actual `docker rm`/`rmi` workaround this replaces was only ever done manually there once.
+
+## Revised (2026-07-18, same day) — persist the full `cuda` build log on failure
+
+The staleness fix above worked exactly as designed on the next real-hardware run — it triggered an
+automatic rebuild with no manual `docker rm`/`rmi` needed — but the rebuild itself failed after a
+~22-minute `uv sync --frozen`, and all `ensure_image` had to report was docker-py's generic
+`"...returned a non-zero code: 1"`. No indication what inside `uv sync` actually failed, and no log
+to inspect without re-running the (slow) build again.
+
+Added `_persist_cuda_build_log(repo_root, exc)`: real docker-py raises `docker.errors.BuildError`
+on a failed `RUN` step, which carries the *entire* build output on `.build_log` (an iterable of
+`{"stream": ...}`/`{"error": ...}` chunks, same shape the Docker CLI itself prints) even though
+`str(exc)` only surfaces the short final-line reason. `ensure_image`'s except-branch now writes
+that log to `runs/.cache/cuda_build.log` and appends the path to the raised
+`ImageNotAvailableError`'s message. Best-effort — a failure with no `.build_log` (e.g. a daemon
+connection error, not a failed build step) just returns `None` and the original exception still
+propagates untouched.
+
+Verified: 2 new tests (162 total) — a fake `docker.errors.BuildError` stand-in with a `.build_log`
+list confirms the log file gets written and referenced in the exception message; a
+`build_log=None` case confirms the diagnostics helper degrades cleanly without masking the real
+error. Root cause of the actual real-hardware `uv sync` failure is still unknown — this makes the
+*next* occurrence diagnosable, it doesn't retroactively explain today's. Recommended to Bartosz: run
+`docker build -f Dockerfile -t 4dgs-motion-amp-cuda:latest .` manually to see today's live error
+without waiting through another 22-minute automated rebuild; flagged the base image
+(`nvidia/cuda:12.4.1-devel`) vs. the pinned `pytorch-cu126` wheel index as one thing worth checking
+in that output, since `diff-gaussian-rasterization`/`simple-knn` compile CUDA extensions against
+whatever toolkit/torch combination ends up installed.
+
+## Revised (2026-07-18, later same day) -- build log now persisted on success too
+
+That hypothesis was wrong (confirmed via the real build log: an unrelated `torch.utils.
+cpp_extension` arch-detection crash, fixed by adding `TORCH_CUDA_ARCH_LIST` to the Dockerfile --
+see `.claude_notes/NOTES_pipeline_orchestration.md`). After that fix, the exact same "python not
+found" error came back, this time surfacing after the build (not as a build failure), meaning
+either the rebuilt image's container never got recreated (a bug in this file's own
+`_container_is_stale` staleness check) or the build still silently doesn't produce a working venv.
+`_persist_cuda_build_log` (added earlier today for failures) now also runs on a successful build,
+so if this happens again there's a log to inspect either way, not just on an outright build
+failure. No test changes needed (fakes already return an empty log generator on success); added an
+autouse cleanup fixture to `tests/test_containers.py` so this doesn't leave a stray
+`runs/.cache/cuda_build.log` in the real working tree from test runs. 162 tests, all green.
+
+**Root-caused later the same day:** Bartosz's diagnostic commands ruled out a staleness-detection
+bug in this file (`docker images`'s id and `docker inspect pipeline-cuda --format "{{.Image}}"`
+matched exactly, confirming the same-day `_container_is_stale` fix worked correctly) but confirmed
+`/workspace/.venv/bin/` genuinely didn't exist inside the running container. Root cause: this
+file's own `mounts_for("cuda")` bind-mounts the entire live host repo over `/workspace` at
+container runtime, which is exactly where the Dockerfile had been building the venv — a bind mount
+replaces the underlying image layer, it doesn't merge with it, so the build's own output was
+structurally unreachable the moment the container started, independent of whether the build itself
+succeeded. Fixed in the Dockerfile (moved the whole build to `/opt/build`, outside the bind-mounted
+path) — no change needed here in `manager.py`/`config.py`, since the live `/workspace` mount is
+correct and load-bearing for `pipeline/vendored/cuda/*.py` visibility; the bug was in what else got
+built into that same shadowed path. Full detail:
+`.claude_notes/NOTES_pipeline_orchestration.md`'s "Root cause found and fixed (2026-07-18, later
+same day)" entry.
+
 ## Revised (2026-07-14) — runtime host moved off WSL2
 
 Bartosz asked to run/test the orchestrator directly from Windows for now (WSL2/Docker "bundling"

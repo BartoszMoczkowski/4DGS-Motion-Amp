@@ -390,7 +390,7 @@ class ConvertConfig(StrictModel):
 
 
 class PrepSplitConfig(StrictModel):
-    """``split_mesh.py`` flags (stage ``prep.split``)."""
+    """``split_mesh.py`` flags (stage ``prep_split.default``)."""
 
     group: str = "CONJUNTO_BOMBAS"
     min_faces: int = 1
@@ -400,7 +400,7 @@ class PrepSplitConfig(StrictModel):
 
 
 class PrepMotionConfig(StrictModel):
-    """``add_motion.py`` flags (stage ``prep.motion``).
+    """``add_motion.py`` flags (stage ``prep_motion.default``).
 
     ``trans_amp_mm``/``rot_surface_mm`` stay in millimetres here (as authored); the script's
     internal conversion to stage units via the USD's ``metersPerUnit`` is a runtime detail, not

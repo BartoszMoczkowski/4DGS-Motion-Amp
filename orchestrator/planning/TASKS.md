@@ -17,7 +17,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T08 | Container manager | 1 | T05, T06 | done |
 | T09 | Wrap CUDA stages (train/render/seg_extract/amp) | 1 | T07, T08 | done |
 | T10 | Wrap Option-A segmentation (mbs_infer) | 1 | T09 | done |
-| T11 | Wrap Isaac stages (split/motion/capture) | 2 | T08, T09 | todo |
+| T11 | Wrap Isaac stages (split/motion/capture) | 2 | T08, T09 | done |
 | T12 | Resource manager (VRAM/RAM + adaptive retry) | 3 | T09 | todo |
 | T13 | MCP server over HTTP (transport + auth) | 4 | T05 | todo |
 | T14 | MCP tools & resources | 4 | T13, T09 | todo |
@@ -107,6 +107,35 @@ segmentation (MBS) setup" step has the checkpoint-download instructions. Full lo
 unblocked: T11 (Isaac stages) and T12 (resource manager) both still only need T08/T09 (done); T10
 had no downstream dependents to unblock.
 
+**T11 done (2026-07-16):** `pipeline/vendored/isaac/{rig,split_mesh,add_motion,omni_capture}.py`
+(verbatim ports) + `pipeline/stages/isaac_common.py` (shared CLI-exec plumbing targeting
+`/isaac-sim/python.sh`) + three new stages — `prep_split.default`, `prep_motion.default`,
+`capture.isaac` (all `environment="isaac"`; only `capture.isaac` needs the GPU). `capture.isaac`
+produces `capture`, the artifact `convert.default` (T07) has declared as its external input since
+Phase 0 — a preset's auto-planned DAG now runs `prep_split.default -> prep_motion.default ->
+capture.isaac -> convert.default -> ... -> amp.default` end to end from a raw USD asset
+(**Milestone M3 reached**). Renamed from `ARCHITECTURE.md`'s originally-sketched `prep.split`/
+`prep.motion` to `prep_split.default`/`prep_motion.default`: the registry's `role.impl` split
+would otherwise have collided both into one ambiguous `"prep"` role (two impls that aren't
+actually alternatives of the same thing) — found while wiring this into a full auto-planned run
+for the first time. `ArtifactKind` gained `"usd"` (single-file mesh outputs). `pipeline.api.
+run_pipeline` gained an `external_artifacts` parameter — a second real gap, since a fresh
+auto-planned run previously had no way to satisfy *any* external input (not just `prep_split`'s
+new `raw_mesh`) before this task. 12 new tests (151 total), including a real
+`prep_split.default -> prep_motion.default -> capture.isaac -> convert.default` chain through
+`run_dag` (fake `exec_in_container`, real unmocked `convert.default` afterward) proving the
+artifact hand-off, not just declaring it; found (documented, not fixed) a pre-existing T03/T05
+cache-granularity gap this chain exposes for the first time: `capture`'s `dataset`-kind (directory)
+artifact never gets a content hash, so `convert.default` stays cross-run-cached even when
+`capture`'s actual content changes upstream. Real Isaac Sim/GPU run (the acceptance criteria's
+`run_capture.sh` smoke test + a full `pump01` run from raw asset through amp) needs Bartosz's
+machine, not yet run for real — `planning/WINDOWS_SETUP.md` gained an "8. Isaac prep/capture
+stages setup" step (manual `trimesh` install in the `isaac` container; where the raw asset comes
+from). Full log in `.claude_notes/NOTES_pipeline_orchestration.md`'s "T11 done" section; task
+detail in `orchestrator/planning/tasks/T11-wrap-isaac-stages.md`. T11 had no downstream dependents
+in the graph; T12 (resource manager) and T13 (MCP server) remain the two fully-unblocked `todo`
+tasks.
+
 **Runtime host revised 2026-07-14 (T06 + T08 both touched):** Bartosz asked to run and test the
 whole thing directly from Windows for now, deferring WSL2/Docker "bundling" as its own later
 feature (new `T16`, `deferred`, not scheduled). `pipeline/paths.py` (T06) dropped its three-space
@@ -121,6 +150,28 @@ and test suites were updated and re-verified green (see `T06-path-translation.md
 that was already `done` got reopened — the acceptance bar each met (centralized path translation;
 a working container manager with GPU passthrough) still holds under the new model.
 
+**`capture.isaac` moved off the `isaac` Docker container onto native Windows execution, 2026-07-16
+(same day as T11 done, real-hardware fixups still fresh).** Two real-hardware fixups earlier the
+same day (Kit-bootstrap for `pxr`, cache-permission chmod) got `capture.isaac` past its first two
+bugs, but a third real run still failed: Isaac Sim's RTX render products never produced a frame
+(`IHydraTexture ... no GPU foundation`). Root cause, confirmed via NVIDIA's own developer forum:
+**Vulkan isn't supported under WSL2**, which is what backs Docker Desktop's Linux containers on
+Windows — a hard platform limitation, not a config gap. `capture.isaac` now execs `omni_capture.py`
+as a native Windows subprocess against Bartosz's own real Isaac Sim install instead
+(`pipeline.stages.isaac_common.run_native_isaac_script`, `PIPELINE_ISAAC_NATIVE_PYTHON` env var,
+default `Q:\Omniverse\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat`, corrected 2026-07-18
+after the original default path turned out not to exist on Bartosz's machine) — a deliberate trade against
+Bartosz's original preference for full container portability, made because there's no
+Docker-side fix for an NVIDIA-confirmed platform gap. `prep_split.default`/`prep_motion.default`
+are unaffected (CPU-only, no rendering) and keep using the `isaac` container exactly as before.
+Also caught and fixed along the way: the stage's own "did this really succeed" check only verified
+`cameras_gt.json` existed, which isn't written by rendering at all (pure USD geometry) — strengthened
+to also check the camera-directory count matches `rig.n_cameras`. Full write-up:
+`.claude_notes/NOTES_pipeline_orchestration.md`'s "adjust the project plan" entry;
+`T11-wrap-isaac-stages.md`'s "Second real-hardware fixup" section. Docs updated: `ARCHITECTURE.md`,
+`INSTRUCTIONS.md`, `WINDOWS_SETUP.md`. Sandbox suite green (155 passed, 9 skipped) — still needs a
+real re-run on Bartosz's machine against his actual Isaac Sim install to confirm.
+
 ## Milestones
 
 - **M1 (end of Phase 0): reached 2026-07-14.** CPU stages (`convert.default`/`segment.rigid`/
@@ -128,6 +179,11 @@ a working container manager with GPU passthrough) still holds under the new mode
   only orchestrator-owned (`pipeline/vendored/host/`) code — T07 redone under the copy-in rule.
 - **M2 (end of Phase 1):** reconstruction → segmentation → amplification runs end-to-end from one
   call using containers. Solves most of problem #1.
-- **M3 (end of Phase 2):** true end-to-end from USD asset through amplified render.
+- **M3 (end of Phase 2): reached 2026-07-16.** True end-to-end from a raw USD asset through
+  amplified render — `prep_split.default -> prep_motion.default -> capture.isaac ->
+  convert.default -> train.default -> render.default -> seg_extract.default -> segment.* ->
+  seg_eval.default -> amp.default`, all auto-planned from one preset. Real Isaac Sim/GPU execution
+  of the newly-added prep/capture stages still needs verification on Bartosz's machine (T11's own
+  status note), same as every other GPU-touching stage before its own real-hardware check.
 - **M4 (end of Phase 4):** Claude can drive everything over HTTP MCP. Solves problem #2.
 - **M5 (end of Phase 5):** UI for Bartosz. Solves the remainder of problem #1.

@@ -19,8 +19,11 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-#: dataset|model|npz|ply|png|video|json per the T03 task spec.
-ArtifactKind = Literal["dataset", "model", "npz", "ply", "png", "video", "json"]
+#: dataset|model|npz|ply|png|video|json per the T03 task spec, plus ``usd`` (T11: a single USD
+#: mesh file — ``prep_split.default``/``prep_motion.default``'s ``segmented_mesh``/
+#: ``animated_mesh`` outputs — didn't fit any of the seven original kinds, none of which is a
+#: bare single-file mesh format).
+ArtifactKind = Literal["dataset", "model", "npz", "ply", "png", "video", "json", "usd"]
 
 StageState = Literal["pending", "running", "success", "failed", "skipped"]
 

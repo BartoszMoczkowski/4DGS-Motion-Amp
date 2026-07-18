@@ -32,7 +32,7 @@ def load_legacy_capture_yaml(path: str | Path) -> dict[str, Any]:
     ``lighting`` sections; only ``app.headless`` is flattened to ``capture.headless`` (it was the
     only key ever nested under ``app``).
     """
-    with Path(path).open() as f:
+    with Path(path).open(encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
     capture: dict[str, Any] = {}

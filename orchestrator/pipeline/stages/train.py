@@ -14,7 +14,15 @@ from __future__ import annotations
 
 from ..artifacts import Artifact
 from .base import ResourceRequest, Stage, StageContext
-from .cuda_common import bool_flag, flag, list_flag, opt_flag, run_cuda_script, write_stage_bridge
+from .cuda_common import (
+    CudaStageError,
+    bool_flag,
+    flag,
+    list_flag,
+    opt_flag,
+    run_cuda_script,
+    write_stage_bridge,
+)
 from .registry import register
 
 
@@ -69,6 +77,22 @@ class TrainStage(Stage):
         ]
 
         run_cuda_script(ctx, "train", args, log_name="train")
+
+        # A zero exit code alone doesn't mean a checkpoint was actually written -- found on T11's
+        # real-hardware run (2026-07-18): a `save_iterations` ordering bug in the vendored
+        # `train.py` (see its module docstring) meant a run could train its full iteration count,
+        # exit 0, and still never call `scene.save()`, leaving `point_cloud/` empty/missing. Same
+        # principle as `capture.isaac`'s cameras_gt.json/camNN check -- a stage must not report
+        # success (and get cross-run cached, see `pipeline.dag.cache`) without its declared
+        # artifact actually existing.
+        point_cloud_dir = model_host / "point_cloud"
+        if not point_cloud_dir.is_dir() or not any(point_cloud_dir.iterdir()):
+            raise CudaStageError(
+                f"train.default exited 0 but wrote no checkpoint under {point_cloud_dir} (no "
+                f"iteration_<N>/point_cloud.ply) -- see logs/train.log. Often means the trained "
+                f"run's final iteration never landed in the vendored script's own "
+                f"save_iterations list; see pipeline/vendored/cuda/train.py's module docstring."
+            )
 
         return {
             "model": Artifact(

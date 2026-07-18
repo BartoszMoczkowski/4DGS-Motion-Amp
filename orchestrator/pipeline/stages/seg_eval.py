@@ -84,7 +84,7 @@ class SegEvalStage(Stage):
             ],
         }
         summary_path = ctx.run_dir / "seg_eval_result.json"
-        summary_path.write_text(json.dumps(summary, indent=2))
+        summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         ctx.logger.info("wrote %s (ari=%.4f, mean_iou=%.4f)", summary_path, summary["ari"], summary["mean_iou"])
 
         artifacts: dict[str, Artifact] = {

@@ -16,6 +16,20 @@ Shared reference for how Claude and Bartosz work on this subproject. Keep this s
   interface) **plus** config presets (experiments declared as config, not code).
 - **MCP transport:** **HTTP** (streamable HTTP / SSE), for flexibility (local or remote Claude),
   with auth. Not stdio.
+- **`capture.isaac` runs natively, not in the `isaac` Docker container — locked 2026-07-16.**
+  NVIDIA has confirmed Vulkan (what Isaac Sim's Hydra/RTX renderer needs) isn't supported under
+  WSL2, which is what backs Docker Desktop's Linux containers on Windows; real-hardware runs
+  confirmed `omni_capture.py` completes with no exception but the RTX render products never
+  produce a frame. `capture.isaac` now execs `omni_capture.py` as a native Windows subprocess
+  against Bartosz's own real Isaac Sim install (`PIPELINE_ISAAC_NATIVE_PYTHON`, default
+  `Q:\Omniverse\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat`, **corrected 2026-07-18** —
+  the original path didn't exist on his machine) instead — see
+  `pipeline.stages.isaac_common.run_native_isaac_script`'s docstring and
+  `.claude_notes/NOTES_pipeline_orchestration.md`'s "adjust the project plan" entry. `prep_split`/
+  `prep_motion` are unaffected (CPU-only, no rendering) and keep running inside the `isaac`
+  container as before — see the revised "Environments" section below. This was a deliberate
+  trade against Bartosz's original preference for full container independence/portability, made
+  because the Docker/WSL2 path is a hard platform limitation, not a config gap to keep chasing.
 
 ## Ground rules for the work
 
@@ -44,14 +58,22 @@ Shared reference for how Claude and Bartosz work on this subproject. Keep this s
 - **Notes/decisions** during implementation still go to `../.claude_notes/` per project
   convention; architectural changes are reflected back into `ARCHITECTURE.md`.
 
-## Environments (three)
+## Environments (three, one now split by execution mechanism)
 
 - `host` — native Windows Python venv (`.venv`, uv). CPU-only stages. (Revised 2026-07-14 — was a
   WSL2 Python venv; see the locked decision above.)
 - `cuda` — the repo `Dockerfile` image (`nvidia/cuda:12.4.1-devel`, PyTorch cu124). train /
   render / seg_extract / amp / Option-A seg.
-- `isaac` — `nvcr.io/nvidia/isaac-sim:6.0.1`, entry `/isaac-sim/python.sh`. prep_split /
-  prep_motion / capture.
+- `isaac` — logically still one environment (stages keep `environment = "isaac"` for
+  resource-exclusivity purposes — the two GPU images never run concurrently), but **revised
+  2026-07-16**, split by how each stage actually executes:
+  - `prep_split.default` / `prep_motion.default` — still exec inside
+    `nvcr.io/nvidia/isaac-sim:6.0.1` via `/isaac-sim/python.sh` (`ISAAC_PYTHON`), same as before.
+    Only need `pxr`/USD bindings, no rendering, unaffected by the Vulkan/WSL2 limitation.
+  - `capture.isaac` — now a **native Windows subprocess** against Bartosz's real Isaac Sim
+    install (`PIPELINE_ISAAC_NATIVE_PYTHON`, default
+    `Q:\Omniverse\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat`), not the Docker container
+    — see the locked decision above.
 
 ## Definition of "contained task"
 

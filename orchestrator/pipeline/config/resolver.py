@@ -44,7 +44,7 @@ def _preset_path(name: str) -> Path:
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
         raise ValueError(f"{path}: preset file must contain a mapping at the top level")

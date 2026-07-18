@@ -13,9 +13,9 @@ Single source of truth for how the three layers fit together. Expands the origin
 
 | # | Stage (role.impl) | Ported from (reference only) | Env | GPU |
 |---|---|---|---|---|
-| 1 | prep.split | `omniverse_pipeline/split_mesh.py` | isaac/host* | no |
-| 2 | prep.motion | `omniverse_pipeline/add_motion.py` | isaac/host* | no |
-| 3 | capture.isaac | `omniverse_pipeline/omni_capture.py` | isaac | yes |
+| 1 | prep_split.default | `omniverse_pipeline/split_mesh.py` | isaac* | no |
+| 2 | prep_motion.default | `omniverse_pipeline/add_motion.py` | isaac* | no |
+| 3 | capture.isaac | `omniverse_pipeline/omni_capture.py` | isaac† | yes |
 | 4 | convert | `omniverse_pipeline/omni_to_4dgs.py` | host | no |
 | 5 | train | `train.py` | cuda | yes |
 | 6 | render | `render.py` | cuda | yes |
@@ -24,7 +24,25 @@ Single source of truth for how the three layers fit together. Expands the origin
 | 9 | seg_eval | `motion_seg/evaluate_segmentation.py` | host | no |
 | 10 | amp | `render_amp.py` (+ `motion_amp/renderer.py`) | cuda | yes |
 
-\* split/motion are USD/trimesh CPU work; run in `isaac` (has USD) or a small CPU image — decided in T11.
+\* `prep_split`/`prep_motion` are plain USD/trimesh CPU work with no real Isaac Sim runtime
+dependency — decided in T11 to run in the existing `isaac` container anyway (it already has
+`pxr`/usd-core) rather than stand up a separate small CPU image just for these two, which was
+judged out of scope for a single contained task. Named `prep_split.default`/`prep_motion.default`,
+not `prep.split`/`prep.motion` as originally sketched here — see T11's log
+(`.claude_notes/NOTES_pipeline_orchestration.md`) for why the dot-form would have collided both
+into one ambiguous `"prep"` role under the registry's `role.impl` convention.
+
+† **Revised 2026-07-16:** `capture.isaac` keeps `environment = "isaac"` (still the same GPU
+resource class, still mutually exclusive with `cuda` — see below), but no longer actually execs
+inside the `isaac` Docker container. NVIDIA confirmed Vulkan (what Isaac Sim's Hydra/RTX renderer
+needs) isn't supported under WSL2, which backs Docker Desktop's Linux containers on Windows; a
+real-hardware run showed `omni_capture.py` completing with no exception while its RTX render
+products never produced a frame. `capture.isaac` now execs `omni_capture.py` as a **native Windows
+subprocess** against Bartosz's real Isaac Sim install instead
+(`pipeline.stages.isaac_common.run_native_isaac_script`, `PIPELINE_ISAAC_NATIVE_PYTHON` env var) —
+see `INSTRUCTIONS.md`'s locked decision and `.claude_notes/NOTES_pipeline_orchestration.md`'s
+"adjust the project plan" entry. `prep_split`/`prep_motion` are unaffected — CPU-only, no
+rendering — and still exec inside the `isaac` container as before.
 
 The two GPU images never need to run simultaneously → single-GPU **serial** scheduling is fine.
 
@@ -48,8 +66,11 @@ orchestrator/
       host/            <- convert, segment.rigid, seg_eval logic (plain CPU, runs in `host` venv)
       cuda/             <- train/render/seg_extract/amp/segment.mbs logic (runs inside the `cuda`
                             container; the container is external, this code is not)
-      isaac/            <- prep.split/prep.motion/capture.isaac logic (runs inside the `isaac`
-                            container; same rule)
+      isaac/            <- prep_split.default/prep_motion.default/capture.isaac logic. Still one
+                            package (same "copy, don't reimplement" rule) even though, since
+                            2026-07-16, capture.isaac's script runs as a native Windows subprocess
+                            rather than inside the `isaac` container -- see the DAG table's dagger
+                            note above and pipeline/stages/isaac_common.py's module docstring.
 ```
 
 A `host`-environment stage (T07: `convert`/`segment.rigid`/`seg_eval`) imports from
@@ -91,7 +112,10 @@ Components (each maps to a task):
   reuses the existing devcontainer defs for image+mounts; GPU passthrough; warm long-lived
   containers; log streaming; also mounts/bakes in `pipeline/vendored/cuda|isaac` so container
   stages run the orchestrator's own copied-in code, not the reference scripts (see "Vendored stage
-  logic" above).
+  logic" above). **Revised 2026-07-16:** no longer the execution path for every `isaac`-labelled
+  stage — `capture.isaac` runs as a native Windows subprocess instead (WSL2 doesn't support Vulkan,
+  see the DAG table's dagger note); the container manager still owns `prep_split.default`/
+  `prep_motion.default`'s execution and all of `cuda`'s, unchanged.
 - **Resource manager** (T12): pynvml/`nvidia-smi` VRAM+RAM query; serial gating so combined VRAM
   never exceeds free; adaptive knobs (`low_vram_mode`, seg working-set, `rt_subframes`) and
   OOM-retry with reduced memory.

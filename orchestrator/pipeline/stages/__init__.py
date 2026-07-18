@@ -31,13 +31,30 @@ T10 adds :mod:`pipeline.stages.segment_mbs` (``segment.mbs``) — a *second* imp
 ``segment`` role :mod:`pipeline.stages.segment_rigid` (``segment.rigid``, T07) already occupies,
 the concrete demonstration of "add a new idea = register an impl + a preset" (no core edits
 anywhere in this package). Follows T09's ``cuda``-stage shape (MotNet needs the GPU), not T07's.
+
+T11 adds the three ``isaac``-environment stages: :mod:`pipeline.stages.prep_split`
+(``prep_split.default``), :mod:`pipeline.stages.prep_motion` (``prep_motion.default``), and
+:mod:`pipeline.stages.capture_isaac` (``capture.isaac``) — the synthetic-capture front end
+(``planning/tasks/T11-wrap-isaac-stages.md``). Same T09 ``cuda``-stage shape (build a CLI
+invocation, exec it as a separate process inside a container) but targeting the ``isaac``
+container's own bundled interpreter (``/isaac-sim/python.sh``) via
+:mod:`pipeline.stages.isaac_common` instead of ``cuda_common``. ``capture.isaac`` produces the
+``capture`` artifact :mod:`pipeline.stages.convert` (T07) has always declared as its external
+input, closing the loop so a preset's auto-planned DAG now runs end to end from a raw USD asset.
+``prep_split``/``prep_motion`` (not ``prep.split``/``prep.motion`` — see
+:mod:`pipeline.stages.prep_split`'s module docstring) are each their own single-impl role, one per
+top-level config section, avoiding a role-name collision the registry's ``role.impl`` convention
+would otherwise create.
 """
 
 from __future__ import annotations
 
 from . import amp  # noqa: F401  (import for its registration side-effect)
+from . import capture_isaac  # noqa: F401  (import for its registration side-effect)
 from . import convert  # noqa: F401  (import for its registration side-effect)
 from . import echo  # noqa: F401  (import for its registration side-effect)
+from . import prep_motion  # noqa: F401  (import for its registration side-effect)
+from . import prep_split  # noqa: F401  (import for its registration side-effect)
 from . import render  # noqa: F401  (import for its registration side-effect)
 from . import seg_eval  # noqa: F401  (import for its registration side-effect)
 from . import seg_extract  # noqa: F401  (import for its registration side-effect)

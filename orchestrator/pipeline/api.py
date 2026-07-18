@@ -109,6 +109,7 @@ def _stage_config_for(name: str, resolved_config: dict[str, Any]) -> dict[str, A
 def run_pipeline(
     preset: str,
     *,
+    external_artifacts: Optional[dict[str, Any]] = None,
     from_stage: Optional[str] = None,
     to_stage: Optional[str] = None,
     only: Optional[list[str]] = None,
@@ -121,7 +122,24 @@ def run_pipeline(
     for run history/comparison (T15) doesn't cost a real re-execution. Resuming a specific crashed
     run by its own ``run_id`` isn't exposed here yet — use ``run_stage`` to retry one stage of an
     existing run, or call ``pipeline.dag.run_dag`` directly with that ``run_id``.
+
+    ``external_artifacts`` (T11): a real gap found while wiring ``prep_split.default`` in — this function
+    previously had no way to satisfy a DAG's *external* inputs (declared by some stage, produced
+    by none in this run — see ``pipeline.dag.graph.external_inputs``) before T05's own
+    ``MissingDependencyError`` check runs, so every caller that needed one (every test so far) had
+    to bypass this function and call ``pipeline.dag.run_dag`` directly against a hand-seeded
+    manifest (see ``tests/test_stages_cpu.py``'s ``_seed_run`` helper). That was fine while
+    ``convert``/``seg_eval`` were the DAG's only entry points and only tests ever ran them. Now
+    that ``prep_split.default`` (T11) needs an external ``raw_mesh`` (a real asset with no in-repo
+    producer, e.g. an Omniverse CAD export) for a preset's *auto-planned* full run to work at all,
+    this is a real caller-facing gap, not just a test-fixture inconvenience — so
+    :func:`run_pipeline` itself now accepts pre-resolved :class:`~pipeline.artifacts.Artifact`
+    values for any of a run's external inputs (``{"raw_mesh": Artifact(...), "gt_segmentation":
+    Artifact(...)}``, keyed by artifact name) and seeds them into the fresh run's manifest before
+    ``run_dag`` executes — the exact same seed-then-run_dag sequence ``_seed_run`` already proved
+    out, just promoted from a test helper into the real API.
     """
+    from .artifacts import create_run, update_manifest
     from .config import validate_config
     from .dag import run_dag
 
@@ -130,6 +148,14 @@ def run_pipeline(
     stage_names = _auto_stage_plan(resolved)
     stage_configs = {name: _stage_config_for(name, resolved) for name in stage_names}
     run_id = f"{preset}-{uuid.uuid4().hex[:8]}"
+
+    create_run(run_id, preset, resolved, stage_names=stage_names)
+    if external_artifacts:
+        def _seed(m: Any) -> None:
+            m.artifacts.update(external_artifacts)
+
+        update_manifest(run_id, _seed)
+
     manifest = run_dag(
         run_id,
         stage_names,

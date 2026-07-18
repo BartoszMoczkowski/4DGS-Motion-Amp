@@ -91,7 +91,10 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        # Explicit UTF-8 -- written from Bartosz's native Windows process, where `open`'s default
+        # encoding is the OS locale's (cp1252), not UTF-8. Same bug class as
+        # `pipeline.config.bridge.write_bridge`'s 2026-07-18 fix.
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, sort_keys=True)
             f.flush()
             os.fsync(f.fileno())
@@ -109,7 +112,7 @@ def _load_index(runs_root: Optional[Path] = None) -> dict[str, Any]:
     if not path.is_file():
         return {}
     try:
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         # A corrupt cache index is never worth crashing over — treat it as empty (cold cache).
         return {}

@@ -16,8 +16,8 @@ Subpackages (see ``planning/ARCHITECTURE.md``'s "Vendored stage logic"):
 - :mod:`pipeline.vendored.cuda` (T09) — ``train``/``render``/``seg_extract``/``amp`` logic that
   runs inside the ``cuda`` container as a separate process (``segment.mbs`` is T10); T08's repo
   bind-mount is what makes this directory available inside the running container.
-- ``pipeline.vendored.isaac`` (T11) — logic that runs inside the ``isaac`` container
-  (prep.split/prep.motion/capture.isaac); same rule.
+- :mod:`pipeline.vendored.isaac` (T11) — logic that runs inside the ``isaac`` container
+  (``prep_split.default``/``prep_motion.default``/``capture.isaac``); same rule.
 
 The **only** thing this project depends on outside itself is the container *runtime* (the
 ``isaac``/``cuda`` images) — never the script files that happen to live outside ``orchestrator/``.

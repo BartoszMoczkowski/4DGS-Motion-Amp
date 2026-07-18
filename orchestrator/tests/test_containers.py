@@ -1,10 +1,10 @@
-"""T08 — container manager, tested against a fake Docker client (no real daemon needed).
+"""T08 -- container manager, tested against a fake Docker client (no real daemon needed).
 
 Everything GPU/Isaac-specific can only be verified for real on Bartosz's machine, with Docker
 Desktop + GPU support set up (``planning/tasks/T08-container-manager.md``'s acceptance checklist,
 mirrored in ``pipeline/containers/MANUAL_CHECKLIST.md``). What *is* verifiable here in the sandbox
 is this module's own logic: the mount/GPU-kwarg construction, warm-container reuse bookkeeping, exec
-exit-code/log-streaming handling, and label-based listing — exactly the parts that would be wrong
+exit-code/log-streaming handling, and label-based listing -- exactly the parts that would be wrong
 in a way a human skimming the code might not catch, and the parts ``planning/INSTRUCTIONS.md``'s
 "every task ends with verification" rule requires for a CPU-only piece.
 """
@@ -17,9 +17,12 @@ import pytest
 
 from pipeline.containers import config as cfg
 from pipeline.containers.manager import (
+    CUDA_BUILD_HASH_LABEL,
     ContainerManager,
     ContainerNotRunningError,
     ExecResult,
+    ImageNotAvailableError,
+    _cuda_build_hash,
 )
 from pipeline.paths import MountSpec, get_roots
 
@@ -28,38 +31,99 @@ from pipeline.paths import MountSpec, get_roots
 
 
 class _FakeImageRef:
-    def __init__(self, tag: str) -> None:
+    def __init__(self, tag: str, *, id_: str | None = None, labels: dict | None = None) -> None:
         self.tags = [tag]
-        self.id = f"sha256:{tag}"
+        self.id = id_ or f"sha256:{tag}"
+        self.labels = labels or {}
+
+
+class _AutoPresentSet(set):
+    """Backs ``_FakeImages.present`` -- ``.add(tag)`` is the shortcut most pre-existing tests use
+    to mean "this image already exists and is fine, don't build/pull it," bypassing ``build()``/
+    ``pull()`` entirely. Once ``ensure_image`` started comparing a build-hash *label* (T11's
+    stale-cuda-image fix) rather than just checking presence, that shortcut needed to also stamp a
+    matching label -- otherwise every pre-existing test using it would look "stale" under the new
+    check purely as a side effect of not going through the labelled build path, which isn't what
+    those tests are about. Tests that specifically want to exercise staleness detection still set
+    ``fake_client.images.labels[...]`` directly after this, which overrides the auto-stamp.
+    """
+
+    def __init__(self, images: "_FakeImages") -> None:
+        super().__init__()
+        self._images = images
+
+    def add(self, tag: str) -> None:  # type: ignore[override]
+        super().add(tag)
+        self._images.ids.setdefault(tag, f"sha256:{tag}")
+        if tag == cfg.CUDA_IMAGE:
+            self._images.labels.setdefault(
+                tag, {CUDA_BUILD_HASH_LABEL: _cuda_build_hash(get_roots().repo_root_host)}
+            )
+
+
+class _FakeBuildError(Exception):
+    """Stands in for docker-py's real `docker.errors.BuildError` -- same shape that matters here:
+    `str(exc)` is just the short reason, and the full per-line output lives on `.build_log`."""
+
+    def __init__(self, reason: str, build_log: list[dict]) -> None:
+        super().__init__(reason)
+        self.build_log = build_log
 
 
 class _FakeImages:
     def __init__(self) -> None:
-        self.present: set[str] = set()
+        self.present: set[str] = _AutoPresentSet(self)
         self.build_calls: list[dict] = []
         self.pull_calls: list[str] = []
+        self.labels: dict[str, dict] = {}
+        self.ids: dict[str, str] = {}
+        self._build_counter = 0
+        self._next_build_failure: _FakeBuildError | None = None
+
+    def fail_next_build(self, reason: str, build_log: list[dict]) -> None:
+        """Make the next `build()` call raise `_FakeBuildError(reason, build_log)` instead of
+        succeeding -- simulates a real `uv sync`/Dockerfile `RUN` step failing partway through."""
+        self._next_build_failure = _FakeBuildError(reason, build_log)
 
     def get(self, tag: str) -> _FakeImageRef:
         if tag not in self.present:
             raise LookupError(f"no such image: {tag}")
-        return _FakeImageRef(tag)
+        return _FakeImageRef(tag, id_=self.ids.get(tag), labels=self.labels.get(tag))
 
-    def build(self, *, path: str, dockerfile: str, tag: str, rm: bool = True):
-        self.build_calls.append({"path": path, "dockerfile": dockerfile, "tag": tag, "rm": rm})
+    def build(self, *, path: str, dockerfile: str, tag: str, rm: bool = True, labels: dict | None = None):
+        self.build_calls.append(
+            {"path": path, "dockerfile": dockerfile, "tag": tag, "rm": rm, "labels": labels or {}}
+        )
+        if self._next_build_failure is not None:
+            failure, self._next_build_failure = self._next_build_failure, None
+            raise failure
         self.present.add(tag)
-        return _FakeImageRef(tag), iter([])
+        self._build_counter += 1
+        self.ids[tag] = f"sha256:{tag}-build{self._build_counter}"
+        self.labels[tag] = dict(labels or {})
+        return _FakeImageRef(tag, id_=self.ids[tag], labels=self.labels[tag]), iter([])
 
     def pull(self, tag: str):
         self.pull_calls.append(tag)
         self.present.add(tag)
-        return _FakeImageRef(tag)
+        self.ids.setdefault(tag, f"sha256:{tag}")
+        return _FakeImageRef(tag, id_=self.ids.get(tag), labels=self.labels.get(tag))
 
 
 class _FakeContainer:
-    def __init__(self, id_: str, name: str, image: str, labels: dict, status: str = "running") -> None:
+    def __init__(
+        self,
+        id_: str,
+        name: str,
+        image: str,
+        labels: dict,
+        status: str = "running",
+        *,
+        image_id: str | None = None,
+    ) -> None:
         self.id = id_
         self.name = name
-        self.image = _FakeImageRef(image)
+        self.image = _FakeImageRef(image, id_=image_id)
         self.labels = labels
         self.status = status
         self.stop_called = False
@@ -82,14 +146,19 @@ class _FakeContainer:
 
 
 class _FakeContainers:
-    def __init__(self) -> None:
+    def __init__(self, images: _FakeImages) -> None:
+        self._images = images
         self._by_name: dict[str, _FakeContainer] = {}
         self._by_id: dict[str, _FakeContainer] = {}
         self.run_calls: list[dict] = []
         self._next_id = 0
 
     def seed(self, name: str, image: str, *, status: str = "running", labels: dict | None = None) -> _FakeContainer:
-        c = _FakeContainer(f"cid-{name}", name, image, labels or {}, status=status)
+        # Reflect whatever image id is currently on record for `image` (set by `build()`/`pull()`,
+        # or by the `present.add()` shortcut) -- this is what lets `_container_is_stale` tell a
+        # container created from an old build apart from one matching the current image.
+        image_id = self._images.ids.get(image)
+        c = _FakeContainer(f"cid-{name}", name, image, labels or {}, status=status, image_id=image_id)
         self._by_name[name] = c
         self._by_id[c.id] = c
         return c
@@ -122,7 +191,7 @@ class _FakeContainers:
 
 
 class _FakeExecAPI:
-    """Fake for ``client.api`` — the low-level exec_create/exec_start/exec_inspect trio."""
+    """Fake for ``client.api`` -- the low-level exec_create/exec_start/exec_inspect trio."""
 
     def __init__(self) -> None:
         self._next = 0
@@ -135,14 +204,22 @@ class _FakeExecAPI:
         self._pending_chunks = chunks
         self._pending_exit = exit_code
 
-    def exec_create(self, container_id: str, cmd, workdir=None, environment=None):
+    def exec_create(self, container_id: str, cmd, workdir=None, environment=None, user=None):
         self._next += 1
         exec_id = f"exec-{self._next}"
         self.create_calls.append(
-            {"container_id": container_id, "cmd": cmd, "workdir": workdir, "environment": environment}
+            {
+                "container_id": container_id,
+                "cmd": cmd,
+                "workdir": workdir,
+                "environment": environment,
+                "user": user,
+            }
         )
-        self._chunks[exec_id] = self._pending_chunks
-        self._exit_codes[exec_id] = self._pending_exit
+        chunks = getattr(self, "_pending_chunks", [])
+        exit_code = getattr(self, "_pending_exit", 0)
+        self._chunks[exec_id] = chunks
+        self._exit_codes[exec_id] = exit_code
         return {"Id": exec_id}
 
     def exec_start(self, exec_id: str, stream: bool = True):
@@ -155,7 +232,7 @@ class _FakeExecAPI:
 class _FakeClient:
     def __init__(self) -> None:
         self.images = _FakeImages()
-        self.containers = _FakeContainers()
+        self.containers = _FakeContainers(self.images)
         self.api = _FakeExecAPI()
 
 
@@ -167,6 +244,19 @@ def fake_client() -> _FakeClient:
 @pytest.fixture
 def manager(fake_client: _FakeClient) -> ContainerManager:
     return ContainerManager(client=fake_client)
+
+
+@pytest.fixture(autouse=True)
+def _clean_cuda_build_log():
+    """`ensure_image("cuda")` now persists a build log to the *real* repo's `runs/.cache/
+    cuda_build.log` on every build (success or failure, T11 2026-07-18) -- these tests build
+    against the real `get_roots().repo_root_host` (same pattern the existing `path == str(
+    get_roots().repo_root_host)` assertions already rely on), so without this they'd leave a stray
+    log file behind in the actual working tree after every test run."""
+    log_path = get_roots().repo_root_host / "runs" / ".cache" / "cuda_build.log"
+    log_path.unlink(missing_ok=True)
+    yield
+    log_path.unlink(missing_ok=True)
 
 
 # --- config.py: pure, no Docker involved --------------------------------------------------
@@ -242,6 +332,121 @@ def test_ensure_image_is_idempotent(manager, fake_client):
     assert len(fake_client.images.build_calls) == 1  # second call was just a cheap `.get`
 
 
+# --- ensure_image / start: stale-image detection (T11 fix, 2026-07-18) ----------------------
+#
+# Found on T11's second real-hardware run: the Dockerfile's `uv sync` lines were commented out, so
+# the built `cuda` image never had a working Python. Fixing the Dockerfile wasn't enough on its
+# own -- `ensure_image` only checked "does the tag exist," so the already-built, still-broken
+# image kept being reused until a manual `docker rm`/`rmi`. These tests cover the fix: a build-hash
+# label on the image (`_cuda_build_hash`) that triggers an automatic rebuild when it no longer
+# matches, and `start()` recreating (rather than reusing) a container whose image has since moved.
+
+
+def test_ensure_image_rebuilds_cuda_when_build_hash_stale(manager, fake_client):
+    manager.ensure_image("cuda")
+    assert len(fake_client.images.build_calls) == 1
+
+    # Simulate a Dockerfile/pyproject.toml/uv.lock edit landing after the image was built -- the
+    # stored label no longer matches what `_cuda_build_hash` computes from what's on disk now.
+    fake_client.images.labels[cfg.CUDA_IMAGE] = {CUDA_BUILD_HASH_LABEL: "stale-hash"}
+
+    manager.ensure_image("cuda")
+
+    assert len(fake_client.images.build_calls) == 2  # rebuilt automatically, no manual docker rm/rmi
+
+
+def test_ensure_image_stamps_the_current_build_hash_on_a_fresh_build(manager, fake_client):
+    manager.ensure_image("cuda")
+
+    call = fake_client.images.build_calls[0]
+    expected = _cuda_build_hash(get_roots().repo_root_host)
+    assert call["labels"] == {CUDA_BUILD_HASH_LABEL: expected}
+
+
+def test_ensure_image_isaac_has_no_staleness_check(manager, fake_client):
+    """`isaac` is pulled by pinned tag from NGC, never built locally -- there's no local build
+    hash to compare, so it stays on the simple "does the tag exist" check."""
+    manager.ensure_image("isaac")
+    manager.ensure_image("isaac")
+
+    assert len(fake_client.images.pull_calls) == 1
+
+
+# --- ensure_image: build-failure diagnostics (T11 fix, 2026-07-18) --------------------------
+#
+# Found on T11's third real-hardware run: a rebuild triggered by the new staleness check above
+# failed after a ~22-minute `uv sync` with nothing to go on but docker-py's generic
+# `"...returned a non-zero code: 1"` -- no indication what actually failed inside the build. These
+# tests cover `_persist_cuda_build_log`, which pulls the full log off `docker.errors.BuildError`'s
+# `.build_log` attribute (real docker-py always populates this on a failed `RUN` step) and writes
+# it to `runs/.cache/cuda_build.log` so a failure is diagnosable without re-running the build.
+
+
+def test_ensure_image_persists_full_build_log_on_failure(manager, fake_client):
+    fake_client.images.fail_next_build(
+        "The command '/bin/sh -c uv venv .venv &&     uv sync --frozen' returned a non-zero code: 1",
+        build_log=[
+            {"stream": "Step 5/8 : RUN uv venv .venv \\&\\& uv sync --frozen\n"},
+            {"stream": "Resolved 42 packages\n"},
+            {"stream": "error: failed to build `diff-gaussian-rasterization`\n"},
+            {"error": "The command '/bin/sh -c uv venv .venv &&     uv sync --frozen' returned a non-zero code: 1"},
+        ],
+    )
+
+    with pytest.raises(ImageNotAvailableError) as excinfo:
+        manager.ensure_image("cuda")
+
+    log_path = get_roots().repo_root_host / "runs" / ".cache" / "cuda_build.log"
+    assert "full build log" in str(excinfo.value)
+    assert log_path.is_file()
+    content = log_path.read_text(encoding="utf-8")
+    assert "failed to build `diff-gaussian-rasterization`" in content
+    log_path.unlink()  # don't leak into the real repo's runs/.cache across test runs
+
+
+def test_ensure_image_failure_without_build_log_still_raises_cleanly(manager, fake_client):
+    """A failure with no `.build_log` (e.g. a connection error, not a failed `RUN` step) must not
+    crash the diagnostics helper itself -- `_persist_cuda_build_log` returns `None` and the
+    original exception still propagates as `ImageNotAvailableError`."""
+    fake_client.images.fail_next_build("could not connect to Docker daemon", build_log=None)
+
+    with pytest.raises(ImageNotAvailableError) as excinfo:
+        manager.ensure_image("cuda")
+
+    assert "full build log" not in str(excinfo.value)
+
+
+def test_start_recreates_a_container_built_from_a_stale_cuda_image(manager, fake_client):
+    manager.ensure_image("cuda")
+    first_id = manager.start("cuda")
+    existing = fake_client.containers.get("pipeline-cuda")
+    assert len(fake_client.containers.run_calls) == 1
+
+    # A Dockerfile fix lands and gets picked up on the next ensure_image -- the running container
+    # is still backed by the old (stale) image underneath it.
+    fake_client.images.labels[cfg.CUDA_IMAGE] = {CUDA_BUILD_HASH_LABEL: "stale-hash"}
+
+    second_id = manager.start("cuda")
+
+    assert existing.stop_called is True
+    assert existing.remove_called is True
+    assert len(fake_client.containers.run_calls) == 2  # old container replaced, not reused
+    # (the fake mints container ids from the deterministic name, so `second_id == first_id` here
+    # is a fake-only artifact -- what matters, and what's asserted above, is that a *new*
+    # `containers.run()` call happened and the stale one was stopped/removed first.)
+    assert second_id == first_id
+
+
+def test_start_reuses_a_container_when_the_image_has_not_changed(manager, fake_client):
+    manager.ensure_image("cuda")
+    first_id = manager.start("cuda")
+
+    second_id = manager.start("cuda")
+
+    assert second_id == first_id
+    assert len(fake_client.containers.run_calls) == 1  # no spurious recreation
+
+
 # --- start: warm-container reuse -------------------------------------------------------------
 
 
@@ -285,6 +490,42 @@ def test_start_restarts_a_stopped_container_instead_of_recreating(manager, fake_
     assert container_id == existing.id
 
 
+def test_start_fixes_up_isaac_cache_permissions_only_on_fresh_creation(manager, fake_client):
+    """T11 real-hardware finding (2026-07-16): a brand-new ``isaac-cache`` volume isn't writable by
+    whatever UID ``exec`` runs as -- ``start()`` chmods the cache-volume mount points right after
+    creating a fresh ``isaac`` container, but must not do this (or anything else) for ``cuda``, and
+    must not repeat it for an already-running/just-restarted container (see
+    :meth:`ContainerManager._fixup_isaac_cache_permissions`'s own docstring)."""
+    manager.start("isaac")
+
+    chmod_calls = [c for c in fake_client.api.create_calls if c["cmd"][0] == "chmod"]
+    assert len(chmod_calls) == 1
+    assert chmod_calls[0]["user"] == "root"
+    assert chmod_calls[0]["cmd"][1:3] == ["-R", "0777"]
+    assert set(chmod_calls[0]["cmd"][3:]) == {
+        "/isaac-sim/.cache",
+        "/isaac-sim/.nv/ComputeCache",
+        "/isaac-sim/.local/share/ov/data",
+    }
+
+
+def test_start_never_chmods_for_cuda(manager, fake_client):
+    manager.start("cuda")
+
+    assert [c for c in fake_client.api.create_calls if c["cmd"][0] == "chmod"] == []
+
+
+def test_start_does_not_rechmod_an_already_running_isaac_container(manager, fake_client):
+    fake_client.containers.seed(
+        "pipeline-isaac", cfg.ISAAC_IMAGE, status="running", labels={"pipeline.managed": "true"}
+    )
+    fake_client.images.present.add(cfg.ISAAC_IMAGE)
+
+    manager.start("isaac")
+
+    assert [c for c in fake_client.api.create_calls if c["cmd"][0] == "chmod"] == []
+
+
 # --- exec ------------------------------------------------------------------------------------
 
 
@@ -321,7 +562,7 @@ def test_exec_reports_nonzero_exit_without_raising(manager, fake_client, tmp_pat
 
 def test_exec_passes_extra_environment_through_to_exec_create(manager, fake_client, tmp_path):
     """T09: `pipeline.stages.cuda_common.run_cuda_script` sets `PYTHONPATH=/workspace` for every
-    vendored `pipeline/vendored/cuda/*.py` call — this is the plumbing that carries it down to
+    vendored `pipeline/vendored/cuda/*.py` call -- this is the plumbing that carries it down to
     docker-py's `exec_create`."""
     fake_client.containers.seed(
         "pipeline-cuda", cfg.CUDA_IMAGE, status="running", labels={"pipeline.managed": "true"}

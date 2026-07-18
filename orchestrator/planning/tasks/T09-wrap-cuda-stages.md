@@ -101,3 +101,93 @@ retrained). 33 new tests (146 total across the suite), all green. Real GPU/conta
 caching behavior against the *real* Docker daemon) needs Bartosz's Windows + Docker Desktop + GPU
 machine — not yet run for real, same as T08 before its 2026-07-15 GPU verification pass. Full log
 in `.claude_notes/NOTES_pipeline_orchestration.md`.
+
+## Real-hardware finding (2026-07-16/18) — `cuda` image build was broken, twice, before `train.default` ever ran
+
+`train.default` was the first stage in this task to actually execute on real hardware, and it
+surfaced two build-time bugs in the repo-root `Dockerfile` (not this task's own code) back to
+back: (1) the venv-creation step was commented out entirely (fixed by uncommenting it — see
+`.claude_notes/NOTES_pipeline_orchestration.md`'s "cuda image never had a real Python" entry); (2)
+once that was fixed and rebuilt, `diff-gaussian-rasterization`/`simple-knn`'s CUDA-extension builds
+crashed with `IndexError: list index out of range` inside `torch.utils.cpp_extension`, because
+`docker build` has no GPU passthrough and `TORCH_CUDA_ARCH_LIST` wasn't set — fixed by adding
+`ENV TORCH_CUDA_ARCH_LIST="8.6+PTX"` (Bartosz's RTX 3090's compute capability) to the Dockerfile.
+See that same notes file's "Root cause found (2026-07-18)" entry for the full traceback and
+mechanism. Neither bug is in `pipeline/vendored/cuda/`, `cuda_common.py`, or this task's stage
+wiring — both are one-line Dockerfile/build-environment gaps that simply had never been exercised
+before this task's first real run.
+
+**Third bug, same day:** after both fixes above, the *exact same* "python not found" error came
+back — this time surfacing after a genuinely successful build, not a build failure. Root cause:
+the Dockerfile built the venv (and, by the same mechanism, `diff-gaussian-rasterization`/
+`simple-knn`'s editable-installed compiled extensions) inside `/workspace`, which
+`pipeline/containers/config.py` bind-mounts over with the *live* host repo at container runtime —
+a bind mount replaces the underlying image layer entirely rather than merging with it, so anything
+the build wrote to `/workspace` was invisible the instant the container started, no matter how
+correctly the image built. Fixed by moving the entire build to `/opt/build` in the Dockerfile
+(`WORKDIR`, the dependency `COPY`s, `uv venv`/`uv sync`, the resulting `PATH`), then switching back
+to `WORKDIR /workspace` for everything downstream — full detail in
+`.claude_notes/NOTES_pipeline_orchestration.md`'s "Root cause found and fixed (2026-07-18, later
+same day)" entry. Three real, distinct build/runtime-environment bugs in total from this task's
+very first real execution, each only surfacing once the previous one was fixed. Still not yet
+confirmed past this point — Bartosz needs to re-run to see whether `train.default` (and everything
+downstream) actually completes now that the image builds cleanly *and* what it builds is reachable
+at runtime.
+
+**Fourth bug, same run, this time in `pipeline.config.bridge` (T09's own code, not the Dockerfile):**
+with the mount-shadowing fix in place, `train.py` finally ran for real and immediately crashed with
+`UnicodeDecodeError: 'utf-8' codec can't decode byte 0x97` reading its `--configs` bridge file.
+`write_bridge` wrote that file without an explicit encoding, so on Bartosz's native Windows process
+it defaulted to cp1252; an em dash in the file's own generated header became an invalid UTF-8 byte
+once read inside the Linux `cuda` container. Fixed by writing (and, in an audit of the rest of
+`pipeline/`, several other read/write call sites) with explicit `encoding="utf-8"` — full detail in
+`.claude_notes/NOTES_pipeline_orchestration.md`'s "Fifth bug, same real-hardware attempt" entry.
+Four real bugs total from this task's first real execution now (Dockerfile venv, `TORCH_CUDA_ARCH_
+LIST`, mount shadowing, this encoding bug) — still waiting on a real run that gets past all of them
+at once.
+
+**Fifth bug, next re-run, deepest into the chain yet:** `train.default` completed for real this
+time and `render.default` started rendering before `amp.default` crashed with `AttributeError:
+module 'mmcv' has no attribute 'Config'`. `pipeline/vendored/cuda/amp.py` (the `render_amp.py`
+port) still called `mmcv.Config.fromfile(...)` where `train.py`/`render.py`/`seg_extract.py` all
+already call `mmengine.Config.fromfile(...)` — the module's own docstring had wrongly filed this
+under "kept as-is, pre-existing reference-script inconsistency," but the pinned `mmcv==2.2.0`
+genuinely removed `Config` (moved to `mmengine`), so this was a guaranteed crash, not a
+preservable quirk. Fixed both occurrences in `amp.py`, corrected the docstring. Full detail:
+`.claude_notes/NOTES_pipeline_orchestration.md`'s "Seventh bug, further re-run" entry (numbered
+across the whole real-hardware saga, not just this task). Five real bugs now from this task's
+first real execution, each surfacing only once the run got one stage further than the last.
+
+**Sixth bug, same re-run, arguably the most important one:** past the `mmcv` fix, `amp.default`
+crashed differently — `FileNotFoundError` on a missing `train_out/point_cloud` directory.
+`train.default` had reported success (exit 0) but never actually saved a checkpoint. Root cause,
+traced via the run's own bridge file and `arguments/__init__.py`: the vendored `train.py`'s
+`args.save_iterations.append(args.iterations)` ran *before* the `--configs` merge applied this
+project's `iterations` override (e.g. `100` for a smoke test), so it appended the stale pre-merge
+argparse default (`30_000`) instead — meaning the actual final training iteration was never in
+`save_iterations`, and `scene.save()` never fired. This is a **silent-success failure mode that
+would hit every normal run** overriding `iterations` via config (which is the whole point of the
+bridge mechanism) — not specific to any one preset. Fixed by moving the append to after the
+`merge_hparams` call. Full detail: `.claude_notes/NOTES_pipeline_orchestration.md`'s "Eighth bug,
+same re-run" entry. Six real bugs total from this task's first real execution now.
+
+Also hardened `TrainStage.run` itself against this exact failure mode recurring, same principle as
+`capture.isaac`'s `cameras_gt.json`/`camNN` check: it now verifies `model_host / "point_cloud"`
+actually exists and is non-empty before reporting success, raising `CudaStageError` otherwise
+rather than letting a bare exit-0 get cross-run cached. `tests/test_stages_cuda.py`'s two
+train-exec fakes updated to stub a checkpoint on simulated success; new regression test
+`test_train_stage_raises_if_exit_zero_but_no_checkpoint_written`. 163 tests total, all green.
+
+## Verified end-to-end on real hardware (2026-07-19)
+
+After closing some memory-heavy programs (the exit-137 crash a run earlier was consistent with a
+host-RAM OOM, not GPU VRAM — see `.claude_notes/NOTES_pipeline_orchestration.md`'s SIGKILL
+discussion), Bartosz re-ran the full chain and it completed genuinely end to end:
+`train.default`/`render.default`/`seg_extract.default`/`amp.default` all reported real `"success"`
+(not skipped), with a real `amp_video` (`render.mp4`) on disk. This is the first time any of these
+four stages has actually run to completion on real hardware — T09 had been `done` since
+2026-07-15 on sandbox verification alone (fake `exec_in_container`, no real Docker/GPU), and it
+took six additional real bugs found across 2026-07-18/19 (see this file's own entries above, plus
+`T08-container-manager.md`'s Dockerfile-side fixes) before a real run actually got through all
+four stages in one pass. See `T11-wrap-isaac-stages.md`'s "Milestone M3 actually reached" entry for
+the full-chain framing.

@@ -29,7 +29,7 @@ class EchoStage(Stage):
         message = ctx.config.get("message", "hello")
         out_path = ctx.run_dir / "echo.json"
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps({"message": message}))
+        out_path.write_text(json.dumps({"message": message}), encoding="utf-8")
         ctx.logger.info("EchoStage wrote %s", out_path)
 
         return {

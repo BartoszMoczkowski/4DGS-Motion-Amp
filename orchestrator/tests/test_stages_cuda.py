@@ -47,16 +47,31 @@ def _setup_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 class _FakeContainers:
     """Stands in for `ctx.containers` (the real `pipeline.containers` module, since T09's
     scheduler wiring) — records every `exec_in_container` call and returns a canned result,
-    exactly like T08's `test_containers.py` fakes the Docker SDK one layer down."""
+    exactly like T08's `test_containers.py` fakes the Docker SDK one layer down.
 
-    def __init__(self, exit_code: int = 0) -> None:
+    ``write_checkpoint`` (default ``True``): a successful ``train.py`` call also stubs a
+    ``point_cloud/iteration_1/point_cloud.ply`` under the exec'd ``--model_path`` -- mirrors what a
+    real, correctly-behaving train run writes, since `TrainStage.run` now checks for it (T11 fix,
+    2026-07-18, see ``pipeline/stages/train.py``'s docstring). Set ``False`` to exercise the
+    missing-checkpoint error path instead.
+    """
+
+    def __init__(self, exit_code: int = 0, *, write_checkpoint: bool = True) -> None:
         self.calls: list[dict] = []
         self.exit_code = exit_code
+        self.write_checkpoint = write_checkpoint
 
     def exec_in_container(self, env, cmd, *, log_path=None, workdir=None, environment=None):
         self.calls.append(
             {"env": env, "cmd": cmd, "log_path": log_path, "workdir": workdir, "environment": environment}
         )
+        if self.exit_code == 0 and self.write_checkpoint and any(str(c).endswith("train.py") for c in cmd):
+            import pipeline.paths as paths_mod
+
+            model_host = paths_mod.to_host(_flag_value(cmd, "model_path"))
+            ckpt_dir = model_host / "point_cloud" / "iteration_1"
+            ckpt_dir.mkdir(parents=True, exist_ok=True)
+            (ckpt_dir / "point_cloud.ply").write_text("stub")
         return ExecResult(exit_code=self.exit_code, log_path=log_path)
 
 
@@ -331,6 +346,28 @@ def test_train_stage_raises_on_nonzero_exit(tmp_path, monkeypatch):
         TrainStage().run(ctx)
 
 
+def test_train_stage_raises_if_exit_zero_but_no_checkpoint_written(tmp_path, monkeypatch):
+    """T11 real-hardware finding (2026-07-18): a `save_iterations` ordering bug in the vendored
+    `train.py` (fixed separately, see its module docstring) let a run exit 0 having trained its
+    full iteration count but never called `scene.save()` -- no `point_cloud/` ever got written, and
+    `train.default` had no way to notice. This regression-tests the guard added for that: exit 0
+    alone must not be enough to report success."""
+    repo_root = _setup_roots(tmp_path, monkeypatch)
+    scene_dir = repo_root / "runs" / "r1" / "scene"
+    scene_dir.mkdir(parents=True)
+
+    cfg = PipelineConfig().model_dump()
+    train_cfg = _stage_config_for("train.default", cfg)
+    inputs = {
+        "scene": Artifact(name="scene", kind="dataset", path=str(scene_dir), producing_stage="convert.default")
+    }
+    ctx, fake = _ctx(repo_root, stage_name="train.default", config=train_cfg, inputs=inputs)
+    fake.write_checkpoint = False  # exit 0, but no point_cloud/ -- the exact bug found for real
+
+    with pytest.raises(Exception, match="point_cloud"):
+        TrainStage().run(ctx)
+
+
 # --- end-to-end through run_dag: train -> render, with cross-run caching -----------------------
 
 
@@ -353,6 +390,13 @@ def test_train_then_render_via_run_dag_with_caching(tmp_path, monkeypatch):
             model_host = paths_mod.to_host(cmd[cmd.index("--model_path") + 1])
             Path(model_host).mkdir(parents=True, exist_ok=True)
             (Path(model_host) / "cfg_args").write_text("Namespace()")
+            if any(str(c).endswith("train.py") for c in cmd):
+                # TrainStage now checks for a real checkpoint (T11 fix, 2026-07-18) -- stub one so
+                # this fake still represents a *successful* train run, same as _FakeContainers
+                # above.
+                ckpt_dir = Path(model_host) / "point_cloud" / "iteration_1"
+                ckpt_dir.mkdir(parents=True, exist_ok=True)
+                (ckpt_dir / "point_cloud.ply").write_text("stub")
         return ExecResult(exit_code=0, log_path=log_path)
 
     monkeypatch.setattr(containers_mod, "exec_in_container", fake_exec)

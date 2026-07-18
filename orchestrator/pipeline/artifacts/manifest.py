@@ -109,7 +109,12 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
+        # Explicit UTF-8 -- these files (manifest.json, config_snapshot.json) get written from
+        # Bartosz's native Windows process but may be read back from inside a Linux container (or
+        # by any other locale); without this, `open`'s default falls back to the OS locale's
+        # preferred encoding (cp1252 on Windows), which silently mis-encodes any non-ASCII
+        # character. Same bug class as `pipeline.config.bridge.write_bridge`'s 2026-07-18 fix.
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, sort_keys=True)
             f.flush()
             os.fsync(f.fileno())
@@ -146,7 +151,7 @@ def load_manifest(run_id: str, *, runs_root: Optional[Path] = None) -> RunManife
     if not path.exists():
         raise FileNotFoundError(f"no manifest at {path}")
     try:
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         raise ManifestCorruptError(path, exc) from exc
     try:

@@ -14,6 +14,20 @@
 including its own argparse ``if __name__ == "__main__":`` entry point — this file is executed as
 a separate process inside the ``cuda`` container (``pipeline/stages/train.py`` builds the CLI
 invocation), never imported by the orchestrator's own host process.
+
+**Fixed on T11's real-hardware run (2026-07-18):** the original script did
+``args.save_iterations.append(args.iterations)`` *before* applying ``--configs``'s
+``merge_hparams`` override -- harmless for the reference script's own CLI-only workflow (where
+``--iterations`` is passed directly on the command line and already final at parse time), but
+wrong for this project's config-bridge-driven one, where ``OptimizationParams.iterations`` is
+routinely overridden *after* parsing via the bridge file (e.g. a fast smoke-test run setting
+``iterations: 100`` in config while argparse's own default is ``30_000`` --
+``arguments/__init__.py``). The append picked up the stale pre-merge default, so the actual final
+iteration was never in ``save_iterations`` and no checkpoint/``point_cloud`` ever got written --
+``amp.default``/``render.default`` then failed downstream with ``FileNotFoundError`` on the
+missing ``point_cloud`` directory, with no error at all from ``train.default`` itself (exit code
+0). Moved the append to *after* the ``--configs`` merge so it always uses the true final
+``iterations`` value.
 """
 import copy
 import os
@@ -734,7 +748,6 @@ if __name__ == "__main__":
     parser.add_argument("--configs", type=str, default="")
 
     args = parser.parse_args(sys.argv[1:])
-    args.save_iterations.append(args.iterations)
     if args.configs:
         import mmcv
 
@@ -742,6 +755,10 @@ if __name__ == "__main__":
 
         config = mmengine.Config.fromfile(args.configs)
         args = merge_hparams(args, config)
+    # Appended *after* any --configs merge (T11 fix, 2026-07-18 -- see module docstring): must use
+    # the true final `iterations`, not the pre-merge argparse default, or the actual last training
+    # iteration is never in `save_iterations` and no checkpoint ever gets written.
+    args.save_iterations.append(args.iterations)
     print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)

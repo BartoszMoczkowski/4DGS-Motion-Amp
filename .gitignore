@@ -16,3 +16,4 @@ viseron/config/postgresql/
 viseron/segments/
 viseron/snapshots/
 viseron/thumbnails/
+runs/
