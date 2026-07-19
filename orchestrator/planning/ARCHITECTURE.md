@@ -139,9 +139,14 @@ the Claude sandbox has no CUDA/Isaac/Docker.
 
 ## Layer 3 — UI (deprioritized)
 
-Thin layer over the **same** Layer 1 API (T15). Streamlit first (reuse `ampUI.py`'s amp-param
-panel): pick/edit preset, launch run, watch stage progress + logs + GPU, browse artifacts/previews,
-compare runs.
+Thin layer over the **same** Layer 1 API (T15, done 2026-07-19). Streamlit (`orchestrator/ui/`),
+folding in `ampUI.py`'s amp-param panel: pick/edit preset, launch run, watch stage progress + logs
++ GPU, browse artifacts/previews, compare runs. **Talks to Layer 1 by direct in-process import**
+(`pipeline`/`mcp_server`), not the T14 HTTP server — this UI only ever runs on the same machine as
+Layer 1 itself, unlike a possibly-remote MCP client, so there's no reason to hop through the
+network+auth boundary; see `ui/README.md`. Reuses `mcp_server.jobs`'s background-thread run
+wrapper and `mcp_server.artifact_view`'s per-kind artifact summaries directly (neither imports the
+`mcp` package) rather than duplicating that logic a second time.
 
 ## Phasing → tasks
 

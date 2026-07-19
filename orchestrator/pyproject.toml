@@ -23,13 +23,17 @@ dependencies = [
 # base dependency, so importing/testing `pipeline` (Layer 1) alone never needs to pull in `mcp`
 # (and its starlette/uvicorn/httpx-sse/... transitive deps) at all.
 mcp = ["mcp>=1.28"]
+# T15: Layer 3 (ui/) — the Streamlit app. Also opt-in, same reasoning as `mcp` above; `ui/`'s
+# `layer1_client.py` imports `mcp_server.jobs`/`mcp_server.artifact_view` directly (neither needs
+# the `mcp` package itself — see that module's docstring), so this extra does not imply `mcp`.
+ui = ["streamlit>=1.38"]
 
 [build-system]
 requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["pipeline*", "mcp_server*"]
+include = ["pipeline*", "mcp_server*", "ui*"]
 
 [tool.setuptools.package-data]
 pipeline = ["config/presets/*.yaml"]

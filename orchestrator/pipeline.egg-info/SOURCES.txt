@@ -86,6 +86,7 @@ tests/test_containers_gpu.py
 tests/test_dag.py
 tests/test_import.py
 tests/test_mcp_server.py
+tests/test_mcp_tools.py
 tests/test_paths.py
 tests/test_resources.py
 tests/test_stages.py
@@ -94,3 +95,6 @@ tests/test_stages_cuda.py
 tests/test_stages_isaac.py
 tests/test_stages_isaac_gpu.py
 tests/test_stages_mbs.py
+ui/__init__.py
+ui/app.py
+ui/layer1_client.py

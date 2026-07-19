@@ -9,3 +9,6 @@ psutil>=5.9
 
 [mcp]
 mcp>=1.28
+
+[ui]
+streamlit>=1.38

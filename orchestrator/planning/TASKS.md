@@ -21,7 +21,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T12 | Resource manager (VRAM/RAM + adaptive retry) | 3 | T09 | done |
 | T13 | MCP server over HTTP (transport + auth) | 4 | T05 | done |
 | T14 | MCP tools & resources | 4 | T13, T09 | done |
-| T15 | UI (Streamlit over Layer 1 API) | 5 | T09 | todo |
+| T15 | UI (Streamlit over Layer 1 API) | 5 | T09 | done |
 | T16 | WSL2/Linux-distro bundling (deferred) | 6 | T08 | deferred |
 | T17 | MCP job/cancel hardening (real cancel, concurrency guard, typed preview) | 4 | T14 | todo |
 
@@ -251,6 +251,27 @@ container-cancellation open question is resolved (stop the whole container via
 per-`exec`-level cancellation noted as a possible later improvement, not in scope now. No code
 changed yet — still `todo`, just no longer blocked on a design decision.
 
+**T15 done (2026-07-19), Milestone M5 reached.** `orchestrator/ui/{app.py,layer1_client.py,
+README.md}` — a single-file Streamlit app (five tabs: Presets, Launch & Monitor, Runs & Artifacts,
+Compare Runs, GPU/Containers) over one thin adapter module. Transport decision: direct in-process
+import of `pipeline`/`mcp_server`, not the T14 HTTP server — documented in `ui/README.md` (this UI
+only ever runs on the same machine as Layer 1, unlike a possibly-remote MCP client). Discovered
+`mcp_server.jobs`/`mcp_server.artifact_view` are both `mcp`-package-free, so `layer1_client.py`
+reuses them directly (background-thread run launching, per-kind artifact summaries) instead of
+duplicating that logic — the UI and Claude-over-MCP see identical shapes. Folded in `ampUI.py`'s
+amp-parameter panel (per-channel factor/freq cutoffs, method picker), pre-filled from
+`validate_config` instead of `ampUI.py`'s own folder-scanning; "save as new preset" writes a new
+preset YAML (config, not code). New `ui` extra on both `pyproject.toml`s (streamlit only). Verified:
+`ast.parse` both files; fresh isolated venv exercising `layer1_client.py`'s full surface against
+real preset data + a hand-seeded run (all correct); full suite still 232 passed/9 skipped, no
+regression; `streamlit run` boots cleanly (real uvicorn, HTTP 200, no traceback). No automated test
+suite for the UI itself (Streamlit apps need a browser session to meaningfully test) — real
+interactive verification (launching a GPU run, viewing previews, comparing runs) needs Bartosz's
+machine, not yet done. Full log: `.claude_notes/NOTES_pipeline_orchestration.md`'s "T15 done" entry;
+`orchestrator/planning/tasks/T15-ui.md`'s "Implementation notes" section. **Every task in
+`TASKS.md` is now `done` except the deferred T16 and the still-open T17 (unrelated hardening,
+not blocking anything).**
+
 ## Milestones
 
 - **M1 (end of Phase 0): reached 2026-07-14.** CPU stages (`convert.default`/`segment.rigid`/
@@ -270,4 +291,7 @@ changed yet — still `todo`, just no longer blocked on a design decision.
   verified end-to-end against seeded data over real HTTP + auth. Real hardware/network
   reachability from wherever Claude's session actually runs is the one piece still needing
   Bartosz's own confirmation, same gap T13 already flagged.
-- **M5 (end of Phase 5):** UI for Bartosz. Solves the remainder of problem #1.
+- **M5 (end of Phase 5): reached 2026-07-19.** UI for Bartosz — a thin Streamlit panel over Layer
+  1's own API (direct import, no HTTP hop), folding in `ampUI.py`'s amp-parameter panel. Solves the
+  remainder of problem #1. Real interactive verification (launching a run, previews, comparing
+  runs) still needs Bartosz's own machine, same gap every other real-hardware task has carried.

@@ -13,3 +13,5 @@ Requires-Dist: Pillow>=10.0
 Requires-Dist: psutil>=5.9
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.28; extra == "mcp"
+Provides-Extra: ui
+Requires-Dist: streamlit>=1.38; extra == "ui"

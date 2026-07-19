@@ -33,6 +33,10 @@ orchestrator = ["pipeline"]
 # Layer 2 (T13/T14) — MCP server over HTTP, on top of Layer 1. Separate extra so a Layer-1-only
 # install (running/testing the DAG engine itself) doesn't need `mcp`/starlette/uvicorn at all.
 orchestrator-mcp = ["pipeline[mcp]"]
+# Layer 3 (T15) — Streamlit UI, on top of Layer 1 (imports `pipeline`/`mcp_server` directly, no
+# HTTP hop — see orchestrator/ui/README.md). Separate extra for the same reason as
+# `orchestrator-mcp`: a Layer-1-only install never needs `streamlit` pulled in.
+orchestrator-ui = ["pipeline[ui]"]
 
 [[tool.uv.index]]
 name = "pytorch-cu126"

@@ -2548,3 +2548,82 @@ finer-grained per-`exec` cancellation as a possible *later* improvement rather t
 itself needs to build. Updated the task spec's "In scope"/"Acceptance criteria"/"Notes" sections
 accordingly. Still no code written — T17 remains `todo`, just no longer blocked on this design
 question.
+
+## T15 done (2026-07-19) — the Streamlit UI, Milestone M5 reached
+
+Built `orchestrator/ui/{app.py,layer1_client.py,README.md,__init__.py}`: a single-file Streamlit
+app with five tabs (Presets, Launch & Monitor, Runs & Artifacts, Compare Runs, GPU/Containers) over
+one thin adapter module (`layer1_client.py`) every view calls through — the task's own "no pipeline
+logic lives in the UI" rule made literal: `app.py` never imports `pipeline`/`mcp_server` itself
+except for one `Artifact(...)` construction in the external-artifacts launch field, everything else
+goes through `layer1_client`.
+
+**Transport decision (the task spec's own "pick one and document"):** direct in-process import of
+`pipeline`/`mcp_server`, not the T14 HTTP/MCP server. Reasoning, written up in `ui/README.md`: this
+UI's whole reason to exist is as a panel for Bartosz on the *same* Windows machine that already
+runs Docker Desktop/the GPU (`ARCHITECTURE.md`'s Layer 3 note); unlike an MCP client, which might be
+remote, there's no reason for a same-machine UI to hop through a network + bearer-token boundary to
+reach code running in the same process space it could just import.
+
+**A genuinely useful discovery while wiring this up:** `mcp_server/jobs.py` (T14's background-
+thread run wrapper) and `mcp_server/artifact_view.py` (T14's per-kind artifact summarizer) neither
+one imports the `mcp` package at module scope — both are pure-Python, read-only/threading helpers
+that happen to live under `mcp_server/` for organizational reasons, not because they need FastMCP.
+`layer1_client.py` imports both directly instead of reimplementing "run this on a background thread
+so it doesn't block the caller" or "summarize this artifact by kind" a second time — the UI and
+Claude (over MCP) now see byte-identical run-status/`job_error`/artifact-summary shapes, guaranteed
+by sharing the same code rather than two implementations that could drift. This only required
+adding a new opt-in `ui` extra to `orchestrator/pyproject.toml` (`streamlit` only) — no new
+dependency on `mcp` itself, verified by grepping both reused modules' imports before relying on this.
+
+**Amp-parameter panel** (the task's explicit ask to reuse `ampUI.py`): ported the per-channel
+factor/freq-low/freq-high number-input layout and method dropdown in spirit — same `AMP_CHANNELS`
+order and `AMP_METHOD_ALIASES` label mapping T02's schema already defined for exactly this purpose
+— pre-filled from `validate_config(preset)` rather than `ampUI.py`'s own hardcoded
+`./output`/`./arguments` folder-scanning, which T02's config-preset model already obsoletes.
+"Save as new preset" writes a new `pipeline/config/presets/<name>.yaml` (`extends: <selected
+preset>` plus the edited `amp:` section) — this is config data, not pipeline logic, so it doesn't
+violate the "no logic in the UI" rule; it mirrors what a human editing a preset YAML by hand would
+do. One real Streamlit gotcha found and fixed while building this: every amp-editor widget key must
+be namespaced by the currently-selected preset name (`f"amp_factor_{preset}_{ch}"`, not just
+`f"amp_factor_{ch}"`) — Streamlit ignores a widget's `value=` argument on every rerun once its
+`key` already exists in `session_state`, so without the preset in the key, switching the Preset
+dropdown would keep showing the *previous* preset's amp values instead of the newly-resolved ones.
+
+**Launching a run never blocks the Streamlit script thread:** `layer1_client.start_pipeline_run`/
+`start_stage_run` delegate straight to `mcp_server.jobs`'s existing background-thread wrapper
+(above) — `pipeline.api.run_pipeline` is a synchronous, blocking call (T05/T09 never needed
+otherwise), and training alone can run for hours; Streamlit has no separate request thread the way
+an HTTP server does, so calling it directly would freeze the whole app for every user, not just one
+request. Monitoring polls `pipeline.api.get_status` plus `mcp_server.jobs.job_error` (same two-tier
+failure-visibility split T14 built: a normal stage failure shows up in that stage's own record, a
+failure *before* any stage ran surfaces via `job_error` instead) — reading the manifest from a
+different thread than the one running the DAG was already a supported pattern predating this task.
+
+**Verification:** `ast.parse` on both new files (clean); built a fresh isolated venv
+(`pip install -e '.[ui,mcp]'`) and exercised `layer1_client.py`'s entire surface directly against
+real preset data and a hand-seeded run (`pipeline.artifacts.create_run`/`record_stage_result`,
+mirroring `tests/test_stages_cpu.py`'s own `_seed_run` helper pattern) — preset listing/validation,
+save-and-round-trip a new preset variant (then cleaned up the test artifact, which needed
+`allow_cowork_file_delete` since the connected workspace folder blocks deletion by default),
+`get_status`/`list_runs`/`list_artifacts`/`tail_logs`/`read_artifact_summary`/
+`artifact_preview_info`/`cancel_run`/`gpu_status` all confirmed correct against real data, no
+mocking needed since none of this touches GPU/Docker/Isaac. Full existing suite
+(`pytest -q`) still 232 passed/9 skipped — no regression from the new `ui/` package alongside
+everything else. `streamlit run ui/app.py --server.headless true` boots a real uvicorn server,
+serves HTTP 200, and logs no traceback — about as much as this sandbox (no browser, no
+GPU/Docker/Isaac) can confirm. No automated test suite was added under `orchestrator/tests/` for
+the UI itself: a Streamlit script needs a live browser session to meaningfully unit-test, the same
+reason `ampUI.py` itself was never covered by tests either — `layer1_client.py` (the only module
+with any real logic, as opposed to widget layout) got the direct smoke-test coverage instead.
+
+**Real interactive verification is still open**, same honest status every other real-hardware task
+in this project has carried until Bartosz tried it himself: clicking through the tabs, launching an
+actual GPU run from the UI, seeing a real preview image/video, and comparing two real runs side by
+side all need his Windows + Docker Desktop + GPU machine.
+
+**With T15 done, every task in `TASKS.md` is `done` except the deferred T16 (WSL2/Linux-distro
+bundling, not scheduled) and the still-open T17 (MCP job/cancel hardening — unrelated to this task,
+not blocking anything). Milestone M5 reached — all five milestones in the original plan are now
+either reached or (M5) reached with the same "pending Bartosz's real-hardware confirmation" caveat
+every prior milestone carried until he tried it.**
