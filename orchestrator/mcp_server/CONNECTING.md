@@ -81,10 +81,16 @@ which this repo controls:
    rather than binding this server itself to `0.0.0.0` *and* tunnelling it, so there's exactly one
    process actually exposed to the internet, and it's one built for that job.
 
+## Tools & resources
+
+T13 verified only the transport/auth + one connectivity-proof tool (`gpu_status`). T14 added the
+full control + read surface — see `TOOLS.md` for the complete tool/resource reference (written for
+Claude to read directly, not just this file's own human audience).
+
 ## Security notes
 
-- Whitelisted operations only — T14 will add tools for the real pipeline actions, never a generic
-  shell/exec tool (see `ARCHITECTURE.md`'s Layer 2 bullet and `INSTRUCTIONS.md`'s ground rules).
+- Whitelisted operations only (T14's full tool set — `TOOLS.md`) — never a generic shell/exec tool
+  (see `ARCHITECTURE.md`'s Layer 2 bullet and `INSTRUCTIONS.md`'s ground rules).
 - The bearer check (`mcp_server/auth.py`) uses `hmac.compare_digest` (constant-time) specifically
   so a wrong guess can't be distinguished from a near-miss by response timing.
 - Plain HTTP (no TLS) is fine for options 1–2 above; anything crossing an untrusted network

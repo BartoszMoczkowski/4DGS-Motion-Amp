@@ -20,9 +20,10 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T11 | Wrap Isaac stages (split/motion/capture) | 2 | T08, T09 | done |
 | T12 | Resource manager (VRAM/RAM + adaptive retry) | 3 | T09 | done |
 | T13 | MCP server over HTTP (transport + auth) | 4 | T05 | done |
-| T14 | MCP tools & resources | 4 | T13, T09 | todo |
+| T14 | MCP tools & resources | 4 | T13, T09 | done |
 | T15 | UI (Streamlit over Layer 1 API) | 5 | T09 | todo |
 | T16 | WSL2/Linux-distro bundling (deferred) | 6 | T08 | deferred |
+| T17 | MCP job/cancel hardening (real cancel, concurrency guard, typed preview) | 4 | T14 | todo |
 
 ## Dependency graph
 
@@ -210,6 +211,46 @@ log in `.claude_notes/NOTES_pipeline_orchestration.md`'s "T13 done" entry; task 
 MCP tool/resource set) is now unblocked (needs T13 + T09, both done); T15 (UI) remains unblocked
 too, needing only T09.
 
+**T14 done (2026-07-19):** the full MCP tool/resource set on top of T13's transport skeleton — 15
+tools (`list_presets`/`validate_config`/`list_runs`/`list_artifacts`/`run_pipeline`/`run_stage`/
+`get_run_status`/`tail_logs`/`cancel_run`/`read_artifact`/`get_preview`/`gpu_status`/
+`list_containers`/`start_container`/`stop_container`) + 3 resource templates
+(`run://{run_id}/manifest`, `run://{run_id}/log/{stage}`, `run://{run_id}/artifact/{artifact_name}`)
+on `mcp_server/server.py`. New `mcp_server/jobs.py` turns `run_pipeline`/`run_stage` into
+fire-and-forget background threads (a small, real `pipeline.api.run_pipeline(run_id=...)` addition
+was needed so a `run_id` can be generated and returned *before* the blocking call actually finishes
+— see `pipeline.api.new_run_id`); a background failure before any stage runs (e.g. a DAG's external
+inputs never supplied) is captured into a `job_error` field on `get_run_status` rather than
+vanishing silently. New `mcp_server/artifact_view.py` does the per-kind result shaping the
+acceptance criteria asks for (json/npz/dataset-directory/ply summaries; png inlined as an image,
+video returned as a path + resource pointer, never raw bytes in a tool response). `cancel_run` is
+honest about `pipeline.api.cancel` still being unimplemented (T12's scope note) rather than
+surfacing an opaque error. 20 new tests (`tests/test_mcp_tools.py`, 200 passed/9 skipped total,
+same pre-existing unrelated `test_containers.py` permission errors as every prior task) — real
+server, real HTTP, real MCP client, seeded synthetic run data (no GPU/Docker/Isaac touched for the
+read/discovery tools); `run_pipeline` against the real `base` preset genuinely exercises the async-
+return-immediately + `job_error` path via its own `MissingDependencyError` (missing `raw_mesh`),
+without needing any real hardware. New `mcp_server/TOOLS.md` is the task's required "usage doc for
+Claude." **Milestone M4 reached** — real hardware/network reachability confirmation is the only
+remaining gap, same status T13 already flagged. Full log in
+`.claude_notes/NOTES_pipeline_orchestration.md`'s "T14 done" entry; task detail in
+`orchestrator/planning/tasks/T14-mcp-tools-and-resources.md`'s "Implementation notes" section. Only
+T15 (UI) and the deferred T16 remain un-started.
+
+**T17 opened (2026-07-19):** packages three gaps T14's own implementation notes named but
+deliberately didn't fix — `cancel_run` can't actually stop anything (`pipeline.api.cancel` still
+`NotImplementedError`), `run_pipeline`/`run_stage` have no guard against two jobs racing the same
+`run_id`, and `get_preview`'s video branch returns untyped/unstructured output. See
+`orchestrator/planning/tasks/T17-mcp-job-and-cancel-hardening.md`. Depends only on T14 (done);
+fully unblocked, not yet started.
+
+**Cancellation approach locked (2026-07-19), same day:** Bartosz tested stopping a container
+directly and confirmed it's fast enough to use as the real `cancel_run` mechanism — T17's
+container-cancellation open question is resolved (stop the whole container via
+`ContainerManager.stop`, accepting the dropped-warm-state trade-off), with a finer-grained
+per-`exec`-level cancellation noted as a possible later improvement, not in scope now. No code
+changed yet — still `todo`, just no longer blocked on a design decision.
+
 ## Milestones
 
 - **M1 (end of Phase 0): reached 2026-07-14.** CPU stages (`convert.default`/`segment.rigid`/
@@ -223,8 +264,10 @@ too, needing only T09.
   seg_eval.default -> amp.default`, all auto-planned from one preset. Real Isaac Sim/GPU execution
   of the newly-added prep/capture stages still needs verification on Bartosz's machine (T11's own
   status note), same as every other GPU-touching stage before its own real-hardware check.
-- **M4 (end of Phase 4):** Claude can drive everything over HTTP MCP. Solves problem #2. T13
-  (2026-07-19) reached the connectivity proof — real HTTP transport + auth + one tool, verified in
-  the sandbox — but M4 itself needs T14's full tool/resource set before Claude can actually drive
-  a run this way.
+- **M4 (end of Phase 4): reached 2026-07-19.** Claude can drive everything over HTTP MCP. Solves
+  problem #2. T13 reached the connectivity proof (real HTTP transport + auth + one tool); T14
+  (same day) filled in the full tool/resource set — run/status/logs/artifacts/previews/containers,
+  verified end-to-end against seeded data over real HTTP + auth. Real hardware/network
+  reachability from wherever Claude's session actually runs is the one piece still needing
+  Bartosz's own confirmation, same gap T13 already flagged.
 - **M5 (end of Phase 5):** UI for Bartosz. Solves the remainder of problem #1.

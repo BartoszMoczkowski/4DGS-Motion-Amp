@@ -109,9 +109,22 @@ def _stage_config_for(name: str, resolved_config: dict[str, Any]) -> dict[str, A
 
 # --- run lifecycle ----------------------------------------------------------
 
+def new_run_id(preset: str) -> str:
+    """Generate a fresh, human-legible run id for ``preset`` (``"<preset>-<8 hex chars>"``).
+
+    Factored out of :func:`run_pipeline` (T14) so a caller that needs the id *before* a run
+    actually starts executing — e.g. ``mcp_server.jobs``, whose whole job is handing a ``run_id``
+    back to Claude immediately while the real (possibly hours-long) execution continues on a
+    background thread — can generate one with the exact same scheme rather than reimplementing it
+    and risking the two drifting apart.
+    """
+    return f"{preset}-{uuid.uuid4().hex[:8]}"
+
+
 def run_pipeline(
     preset: str,
     *,
+    run_id: Optional[str] = None,
     external_artifacts: Optional[dict[str, Any]] = None,
     from_stage: Optional[str] = None,
     to_stage: Optional[str] = None,
@@ -119,6 +132,11 @@ def run_pipeline(
     force: bool = False,
 ) -> str:
     """Run (or resume) the full DAG for ``preset``. Returns a ``run_id``.
+
+    ``run_id`` (T14): normally left ``None`` and generated here via :func:`new_run_id`. A caller
+    that needs to know the id *before* this (synchronous, blocking) call returns — concretely,
+    ``mcp_server.jobs``'s async-job wrapper, which must hand a ``run_id`` back over MCP right away
+    and run this on a background thread — can pass one in explicitly instead.
 
     Every call starts a *new* run (a fresh ``run_id``): cross-run caching (``pipeline.dag.cache``)
     means an unchanged stage still gets skipped even though it's a different run, so re-running
@@ -150,7 +168,7 @@ def run_pipeline(
     resolved = config.model_dump()
     stage_names = _auto_stage_plan(resolved)
     stage_configs = {name: _stage_config_for(name, resolved) for name in stage_names}
-    run_id = f"{preset}-{uuid.uuid4().hex[:8]}"
+    run_id = run_id or new_run_id(preset)
 
     create_run(run_id, preset, resolved, stage_names=stage_names)
     if external_artifacts:

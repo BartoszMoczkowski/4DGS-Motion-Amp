@@ -2411,3 +2411,140 @@ unrelated sandbox-permission errors T12's log already documented (a real leftove
 `runs/.cache/cuda_build.log` from Bartosz's own real-hardware runs the sandbox can't delete);
 that instability was already present before this task and isn't caused by anything added here.
 T14 (full MCP tool/resource set) is now unblocked (needs T13 + T09, both done).
+
+## T14 done (2026-07-19) — full MCP tool/resource set, Milestone M4 reached
+
+Filled in everything T13 deliberately left out: 15 tools + 3 resource templates on top of the same
+`FastMCP`/auth skeleton, no changes needed to `config.py`/`auth.py`/the app-wiring itself.
+
+**Tools added to `mcp_server/server.py`'s `build_mcp()`:** `list_presets`/`validate_config`
+(thin `pipeline.api` delegation), `list_runs`/`list_artifacts` (same), `run_pipeline`/`run_stage`
+(async — see below), `get_run_status` (delegates to `pipeline.api.get_status` plus a new
+`job_error` field), `tail_logs` (reads `pipeline.artifacts.stage_log_path` directly, last N
+lines), `cancel_run` (honest best-effort, see below), `read_artifact`/`get_preview` (new
+`mcp_server/artifact_view.py`, see below), `list_containers`/`start_container`/`stop_container`
+(thin `pipeline.api` delegation, same shape as `gpu_status`). Resources:
+`run://{run_id}/manifest`, `run://{run_id}/log/{stage}`, `run://{run_id}/artifact/{artifact_name}`
+— the same underlying reads, for a client that prefers fetching over calling a tool.
+
+**New `mcp_server/jobs.py` — the async-job problem.** `pipeline.api.run_pipeline`/`run_stage` are
+synchronous, blocking calls; `ARCHITECTURE.md`'s Layer 2 section requires them to return a
+`run_id` immediately instead (a stage can run for hours). The one real wrinkle: `run_pipeline`'s
+`run_id` is generated *inside* the function and only returned once the whole (blocking) call
+finishes — no good for "return it immediately." Fixed with a small, real Layer 1 change:
+`pipeline.api.run_pipeline` gained an optional `run_id=` kwarg (falls back to the same scheme,
+now factored into its own `new_run_id(preset)` function so a caller needing the id early doesn't
+have to reimplement/risk-drift-from it). `mcp_server.jobs.start_pipeline_run`/`start_stage_run`
+validate synchronously first (`pipeline.config.validate_config`/`pipeline.artifacts.get_manifest`
+— fails the MCP call immediately on a bad preset/unknown run_id, before any thread exists), then
+spawn a daemon thread running the real (blocking) call and return the id right away.
+
+A background thread has no caller to propagate an exception to — normally fine, since a real
+per-stage failure already lands in the manifest (`run_dag`'s own try/except around each stage,
+T05), which `get_run_status` already reads. But a failure *before* `run_dag`'s per-stage loop even
+starts (its own `MissingDependencyError` for a DAG whose external inputs were never supplied, or
+`run_stage`'s equivalent) has nowhere in the manifest to land — invisible without something
+catching it. Small `_jobs: dict[str, _Job]` registry (module-level, `threading.Lock`-guarded,
+mirrors `pipeline.artifacts.manifest`'s own `_manifest_locks` "never cleared, negligible" reasoning)
+catches exactly this and exposes it as `job_error(run_id)`; `get_run_status` includes it as a
+`job_error` key, `None` in the overwhelming common case.
+
+**New `mcp_server/artifact_view.py` — result shaping.** `read_artifact_summary(artifact)`: json →
+parsed content (dropped above a 64KB inline cap — fetch the resource for the full thing instead),
+npz → per-key `shape`/`dtype`/`min`/`max`/`mean`/`nan_count` via a *local* numpy import (never raw
+arrays — a real `.npz` output like `trajectories.npz` is exactly the "big blob" the task's own
+acceptance criteria says never to dump wholesale), dataset/model → a shallow one-level directory
+listing capped at 200 entries (a stage's own directory-shaped outputs, e.g. a checkpoint dir, are
+now at least somewhat inspectable without downloading the whole thing), ply → vertex/face counts
+parsed from the text header only (bounded read, never touches vertex/face data). `preview_kind`/
+`get_preview`: png → `mcp.server.fastmcp.Image(path=...)`, which reads the file and inlines it as
+a real base64 image content block (small enough to always do this); video → deliberately **not**
+inlined (no standard MCP video content type, and a clip can be enormous) — returns
+`{"kind": "video", "path", "size_bytes", "resource_uri": "run://.../artifact/..."}` instead, so a
+client that actually wants the bytes can fetch the matching resource separately. Anything else
+(`json`/`npz`/`ply`/`dataset`/`model`/`usd`) raises `ArtifactNotPreviewableError` — use
+`read_artifact` for those.
+
+**`cancel_run`** intentionally doesn't try to implement real cancellation — `pipeline.api.cancel`
+is still `NotImplementedError` (T12 explicitly scoped this out, nothing since has picked it up).
+Confirms the run exists (a genuine 404 if not — not swallowed), then catches the
+`NotImplementedError` and reports the gap in the tool's own return value
+(`{"cancelled": false, "reason": "..."}`) — matches this whole project's running theme of
+surfacing an honest known-gap rather than a generic/opaque error, or worse, silently pretending it
+worked.
+
+**Tests (`tests/test_mcp_tools.py`, 20 new, all passing — 200 passed/9 skipped total, the same
+pre-existing unrelated `test_containers.py` sandbox-permission errors documented in every prior
+task's own log entry, confirmed by re-checking the actual traceback: still the leftover
+`runs/.cache/cuda_build.log` from Bartosz's real-hardware runs, unrelated to anything T14
+touched).** Same "there's nothing to fake" reasoning as T13's own suite for every read/discovery
+tool and both resources — real server, real HTTP, real MCP client, seeded synthetic run data (real
+json/npz/png/"video" files + a directory artifact written directly via `pipeline.artifacts`,
+mirroring `tests/test_stages_cpu.py`'s `_seed_run` pattern, under an isolated
+`PIPELINE_RUNS_ROOT`). For `run_pipeline`: called against the real `base` preset with no
+`external_artifacts` — its auto-planned DAG needs `raw_mesh` (declared by `prep_split.default`),
+so `run_dag` raises `MissingDependencyError` before any stage runs, entirely without touching
+Docker/GPU/native Isaac — proves the return-immediately + `job_error`-capture path for real, not
+against a fake. `list_containers` (no reachable Docker daemon in this sandbox) is asserted to fail
+as a clean MCP tool error rather than crashing/hanging the server — the container-manager logic
+itself is already covered by T08's own suite, unchanged here.
+
+One real gotcha while writing the tests: `get_preview`'s video branch returns a plain dict with no
+declared return-type annotation (the function can return either an `Image` or a dict — a shape
+FastMCP can't express as one structured JSON schema), so that call comes back as unstructured
+`TextContent` (JSON text) rather than populating `result.structuredContent` the way every
+dict-returning tool with a `-> dict[str, Any]` annotation does. Not a bug — just something the test
+had to parse (`json.loads(result.content[0].text)`) instead of assuming `structuredContent` like
+every other tool test does.
+
+**Docs:** new `mcp_server/TOOLS.md` — the task's required "usage doc for Claude" (flow, full tool
+table, resource list, the async-job/`job_error` behavior, result-shaping rationale). Updated
+`mcp_server/CONNECTING.md` (points to `TOOLS.md`, de-stales the "T14 will add tools" line),
+`mcp_server/__init__.py`'s package docstring, `planning/tasks/T14-mcp-tools-and-resources.md`
+(status → done, full implementation-notes section), `planning/TASKS.md` (status board + a new log
+entry + M4 milestone marked reached).
+
+No sandbox-mount staleness hit this session (every new/edited file round-tripped correctly through
+`ast.parse` and the actual pytest run) — see [[cowork-mount-staleness-bug]] for the general pattern
+whenever it recurs on a future task.
+
+**Acceptance criteria status:** the literal "Claude drives a real run... over HTTP" sequence is
+verified end-to-end against seeded data in the sandbox (`run_pipeline`-style manifest state →
+`get_run_status`/`tail_logs` → `get_preview` a segmentation PNG → `read_artifact` a manifest/npz);
+running this against a real GPU/container run still needs Bartosz's own machine — same honest
+"not yet verified for real" status every other real-hardware-dependent task in this project has
+carried until someone actually ran it there. Only T15 (UI, deprioritized) and the deferred T16
+remain un-started.
+
+## T17 opened (2026-07-19) — packaging T14's own named follow-ups
+
+Bartosz asked to package "the things in key design points that need resolving" into a new task
+rather than leave them as prose in a chat summary. New
+`orchestrator/planning/tasks/T17-mcp-job-and-cancel-hardening.md` (status `todo`, depends on T14
+only — fully unblocked) covers exactly the three gaps T14's own implementation notes named but
+deliberately didn't fix, no new ones invented:
+
+1. **Real cancellation** — `pipeline.api.cancel` is still `NotImplementedError`; `cancel_run`
+   just reports that honestly today. T17 scopes actually stopping something (manifest
+   `status="cancelled"` + no further scheduling at minimum; a real container-exec stop is the
+   harder open question — Docker has no clean "kill just this exec," only "stop the whole
+   container," which is a real trade-off to confirm with Bartosz before implementing, not assume).
+2. **No concurrent-job guard** — `mcp_server/jobs.py` currently documents "don't start two jobs
+   against the same `run_id`" as the caller's own responsibility. T17 adds an explicit rejection
+   instead of leaving it as undefined-behavior-if-misused.
+3. **`get_preview`'s untyped video-branch return** — currently unstructured (`TextContent`, no
+   `structuredContent`) since the function has no single resolvable return-type annotation across
+   its `Image`/dict branches. T17 gives it a real typed return.
+
+TASKS.md board/log updated (T17 row, todo); no code touched this session — this was pure
+task-packaging, not implementation. Next session picking this up should read the T17 spec's own
+"Notes / gotchas" section first — the container-cancellation blast-radius question needs Bartosz's
+input before writing any code, not just an engineering guess.
+
+**Cancellation approach locked, same day:** Bartosz tested stopping a container directly and
+confirmed it's fast — so T17's real `cancel_run` mechanism is now decided: stop the whole
+container (`ContainerManager.stop`), accept the dropped-warm-state trade-off, and note a
+finer-grained per-`exec` cancellation as a possible *later* improvement rather than something T17
+itself needs to build. Updated the task spec's "In scope"/"Acceptance criteria"/"Notes" sections
+accordingly. Still no code written — T17 remains `todo`, just no longer blocked on this design
+question.
