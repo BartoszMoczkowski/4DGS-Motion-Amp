@@ -19,7 +19,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T10 | Wrap Option-A segmentation (mbs_infer) | 1 | T09 | done |
 | T11 | Wrap Isaac stages (split/motion/capture) | 2 | T08, T09 | done |
 | T12 | Resource manager (VRAM/RAM + adaptive retry) | 3 | T09 | done |
-| T13 | MCP server over HTTP (transport + auth) | 4 | T05 | todo |
+| T13 | MCP server over HTTP (transport + auth) | 4 | T05 | done |
 | T14 | MCP tools & resources | 4 | T13, T09 | todo |
 | T15 | UI (Streamlit over Layer 1 API) | 5 | T09 | todo |
 | T16 | WSL2/Linux-distro bundling (deferred) | 6 | T08 | deferred |
@@ -188,6 +188,28 @@ to stop this sandbox's own incidental RAM from wrongly gating T09/T10/T11's fake
 VRAM/RAM gating, peak-mem accuracy, and OOM-retry's actual recovery all still need verification on
 Bartosz's machine. Only T13 (MCP server) and T15 (UI) remain un-started, plus the deferred T16.
 
+**T13 done (2026-07-19):** `orchestrator/mcp_server/` — the Layer 2 HTTP MCP server skeleton:
+`config.py` (env-driven settings, no default bearer token — fails fast if unset), `auth.py` (a
+plain-ASGI, not `BaseHTTPMiddleware`, bearer-token gate — `BaseHTTPMiddleware` would buffer and
+break streamable-HTTP/SSE's streaming responses), `server.py` (FastMCP app + one `gpu_status` tool
+delegating to `pipeline.api.gpu_status`, wrapped in the auth gate), `__main__.py` for `python -m
+mcp_server`. New opt-in `mcp` extra on `orchestrator/pyproject.toml` (kept out of `pipeline`'s base
+deps) and a matching `orchestrator-mcp` extra on the root `pyproject.toml`. 8 new tests (194 passed/
+9 skipped in one run — the whole-suite total fluctuates run to run in `test_containers.py`'s
+pre-existing, unrelated sandbox-permission errors, not this task's own tests, which pass
+deterministically) run the **real** server over a real loopback HTTP connection with the real MCP
+Python client — no mocking needed, since `gpu_status` has no GPU/Docker/native dependency this
+sandbox lacks; confirms unauthenticated/wrong-token/wrong-scheme requests all 401 and a valid
+client gets this machine's real live RAM reading back through the full stack. `mcp_server/
+CONNECTING.md` + `WINDOWS_SETUP.md` step 9 document bind options (localhost/LAN/tunnel) and token
+setup. Genuinely open, matching every other real-hardware task's honest status: starting the
+server for real and confirming reachability from wherever Bartosz's Claude client actually runs —
+the task's own flagged "main integration unknown," not resolvable from inside this session. Full
+log in `.claude_notes/NOTES_pipeline_orchestration.md`'s "T13 done" entry; task detail in
+`orchestrator/planning/tasks/T13-mcp-server-http.md`'s "Implementation notes" section. T14 (full
+MCP tool/resource set) is now unblocked (needs T13 + T09, both done); T15 (UI) remains unblocked
+too, needing only T09.
+
 ## Milestones
 
 - **M1 (end of Phase 0): reached 2026-07-14.** CPU stages (`convert.default`/`segment.rigid`/
@@ -201,5 +223,8 @@ Bartosz's machine. Only T13 (MCP server) and T15 (UI) remain un-started, plus th
   seg_eval.default -> amp.default`, all auto-planned from one preset. Real Isaac Sim/GPU execution
   of the newly-added prep/capture stages still needs verification on Bartosz's machine (T11's own
   status note), same as every other GPU-touching stage before its own real-hardware check.
-- **M4 (end of Phase 4):** Claude can drive everything over HTTP MCP. Solves problem #2.
+- **M4 (end of Phase 4):** Claude can drive everything over HTTP MCP. Solves problem #2. T13
+  (2026-07-19) reached the connectivity proof — real HTTP transport + auth + one tool, verified in
+  the sandbox — but M4 itself needs T14's full tool/resource set before Claude can actually drive
+  a run this way.
 - **M5 (end of Phase 5):** UI for Bartosz. Solves the remainder of problem #1.

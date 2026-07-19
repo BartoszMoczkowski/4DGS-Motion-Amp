@@ -2318,3 +2318,96 @@ skip with "set PIPELINE_TEST_GPU=1..."; flag set but no reachable Docker (still 
 sandbox) -> falls through to the pre-existing "no reachable Docker daemon" reason. Full suite
 still 171 passed/9 skipped. `test_stages_isaac_gpu.py` needed no change — it already required
 `PIPELINE_TEST_ISAAC=1` on its own.
+
+### T13 done (2026-07-19) — MCP server over HTTP (transport + auth)
+
+`orchestrator/mcp_server/` — Layer 2, the thin server that lets Claude drive `pipeline.api`
+without needing this sandbox's own CUDA/Isaac/Docker. T13's scope is deliberately narrow: the
+transport/auth skeleton plus exactly one tool (`gpu_status`) as an end-to-end connectivity proof —
+the full tool/resource set is T14.
+
+`config.py` — `ServerSettings` (host/port/token) read from `PIPELINE_MCP_HOST`/`PIPELINE_MCP_PORT`/
+`PIPELINE_MCP_TOKEN`. The token has **no default** — `load_settings()` raises `MissingTokenError`
+if it's unset, the same "no sensible default, fail loud" rule T10's `SegmentMbsConfig.checkpoint`
+established (a server that could silently start with an empty/baked-in token would be one
+accidental deploy away from an unauthenticated pipeline-control endpoint).
+
+`auth.py` — `BearerAuthMiddleware`, a **plain ASGI** middleware (`__call__(scope, receive, send)`),
+deliberately not Starlette's `BaseHTTPMiddleware`. `BaseHTTPMiddleware` buffers an entire response
+before it can forward it, which breaks a streaming response — and MCP's streamable-HTTP
+transport's server-initiated `GET` responses (and SSE mode generally) are exactly that. A
+pass-through ASGI wrapper only inspects the request headers, then either 401s or hands the
+untouched `scope`/`receive`/`send` straight through — never buffers or re-emits a body itself.
+Non-`http` scopes (`lifespan`) pass through unconditionally, since FastMCP's session manager needs
+its `lifespan` to run for the app to start/stop cleanly and there's no per-request header to check
+there anyway. The token comparison uses `hmac.compare_digest` (constant-time), so a near-miss
+guess can't be distinguished from a wildly-wrong one by response timing.
+
+`server.py` — `build_mcp()` builds a `FastMCP("4dgs-pipeline", stateless_http=True)` instance and
+registers `gpu_status` (a thin wrapper calling `pipeline.api.gpu_status`, T12); `build_app()` wraps
+`mcp.streamable_http_app()` in `BearerAuthMiddleware`; `main()` is the `python -m mcp_server` entry
+point, reading settings from the environment and printing the listening URL before handing off to
+`uvicorn.run`. `stateless_http=True` chosen because this server has no per-session state of its own
+(`gpu_status` reads live machine state on every call) — statelessness means a process restart never
+strands a client mid-session, and the async model note for T14 (long jobs must return a `run_id`
+immediately, never block the request) doesn't apply to this one fast, synchronous tool.
+
+Packaging: `orchestrator/pyproject.toml` gained an opt-in `mcp = ["mcp>=1.28"]` extra (the official
+Python MCP SDK — confirmed available via `pip index versions mcp`, currently 1.28.1) and added
+`mcp_server*` to `packages.find.include`, kept separate from `pipeline`'s base dependencies so
+importing/testing Layer 1 alone never pulls in `mcp`/starlette/uvicorn/httpx-sse at all. Root
+`pyproject.toml` gained a matching `orchestrator-mcp = ["pipeline[mcp]"]` extra alongside the
+existing `orchestrator` one (Layer 1 only).
+
+Tests (`tests/test_mcp_server.py`, 8 new): unlike T09-T11's fake-`exec_in_container` strategy
+(necessary there because the real dependency is a GPU/Docker/native install this sandbox lacks),
+there's nothing to fake here — `gpu_status` has no such dependency, and the transport itself is
+exactly what needs proving. So these tests spin up the **real** app (`mcp_server.server.build_app`)
+via real `uvicorn` on a real loopback TCP port in a background thread, and talk to it with the
+**real** MCP Python client (`mcp.client.streamable_http.streamablehttp_client` +
+`mcp.ClientSession`) — not mocks of either side. Covers: `load_settings()`'s fail-fast/defaults;
+missing-header/wrong-token/wrong-scheme requests all get a real `401` over the wire; a correctly
+authenticated client can `initialize()`, `list_tools()` (confirms `gpu_status` is registered), and
+`call_tool("gpu_status", {})`, getting back `result.structuredContent` — the literal acceptance
+criteria ("Claude connects over HTTP and calls `gpu_status`... auth rejects unauthenticated
+calls"), not an approximation of it.
+
+One real surprise while writing the connectivity-proof test: assumed `payload == {"gpu": None,
+"ram": None}` (reasoning that T12's `conftest.py` autouse fixture forces "no real telemetry" in
+every test), but the real call came back with a genuine live RAM reading
+(`{"ram": {"total_mb": ~4105, ...}}`). Root cause: that autouse fixture patches
+`pipeline.resources.gating`'s and `.monitor`'s own `_query` module reference specifically (per its
+own docstring) — it was never meant to blanket every possible caller of `pipeline.resources.query`,
+and `pipeline.api.gpu_status` -> `pipeline.resources.gpu_status` calls `query_gpu_memory`/
+`query_ram` directly, a path that fixture doesn't touch. Not a bug — `psutil` genuinely works in
+this sandbox and reports its real (small, ~4GB) RAM — but it did mean the test's assumption was
+wrong, not the code; fixed the assertion to check the real shape/types instead of assuming a canned
+`None`, which if anything makes the test a *stronger* proof (it demonstrates the full
+Claude -> HTTP -> auth -> MCP tool -> `pipeline.api` -> `pipeline.resources` chain produced live
+data, not that some hardcoded value got echoed back).
+
+One environment-only wrinkle, not a real bug: this dev sandbox sets `ALL_PROXY=socks5h://...`
+(and friends) for its own network egress allowlisting; `httpx` builds a transport for *every*
+proxy env var at client-construction time regardless of `NO_PROXY` (which does list `127.0.0.1`),
+and the sandbox lacks the optional `socksio` dependency that SOCKS scheme needs — so the very first
+test attempt failed on `ImportError: ... socksio ... not installed` before ever reaching the
+loopback connection. Fixed by constructing every test's own `httpx.Client`/`AsyncClient` (both the
+raw-auth-check requests and `streamablehttp_client`'s `httpx_client_factory=`) with
+`trust_env=False` — skips reading any proxy env var at all; harmless on a real deployment machine
+with no such proxy configured.
+
+Docs: `mcp_server/CONNECTING.md` — bind options (localhost/LAN/tunnel) with an honest split of
+what's verified in the sandbox (the server + auth + transport, over real loopback HTTP) vs. what
+still needs Bartosz's own machine (starting it for real; which reachability option his actual
+Claude client setup needs, and whether a tunnel's public hostname is even reachable from a hosted
+Cowork sandbox — this repo can't see or control either of those, and says so plainly rather than
+guessing). Plus a new step 9 in `planning/WINDOWS_SETUP.md` pointing to it (`uv sync --extra
+orchestrator-mcp`, token generation, `python -m mcp_server`).
+
+Full suite: `tests/test_mcp_server.py`'s own 8 tests pass consistently and deterministically
+across repeated runs. The whole-suite total fluctuates run to run (seen both 194 passed/9 skipped/
+27 errors and 188 passed/9 skipped/32 errors) — but only in `test_containers.py`'s pre-existing,
+unrelated sandbox-permission errors T12's log already documented (a real leftover
+`runs/.cache/cuda_build.log` from Bartosz's own real-hardware runs the sandbox can't delete);
+that instability was already present before this task and isn't caused by anything added here.
+T14 (full MCP tool/resource set) is now unblocked (needs T13 + T09, both done).

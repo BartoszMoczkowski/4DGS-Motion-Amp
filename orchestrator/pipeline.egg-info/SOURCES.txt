@@ -1,5 +1,10 @@
 README.md
 pyproject.toml
+mcp_server/__init__.py
+mcp_server/__main__.py
+mcp_server/auth.py
+mcp_server/config.py
+mcp_server/server.py
 pipeline/__init__.py
 pipeline/api.py
 pipeline/paths.py
@@ -78,6 +83,7 @@ tests/test_containers.py
 tests/test_containers_gpu.py
 tests/test_dag.py
 tests/test_import.py
+tests/test_mcp_server.py
 tests/test_paths.py
 tests/test_resources.py
 tests/test_stages.py

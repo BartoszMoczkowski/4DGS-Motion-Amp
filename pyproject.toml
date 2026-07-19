@@ -30,6 +30,9 @@ dependencies = [
 # no torch/CUDA — opt in with `uv sync --extra orchestrator` /
 # `pip install -e .[orchestrator]`; never installed by a plain `uv sync`.
 orchestrator = ["pipeline"]
+# Layer 2 (T13/T14) — MCP server over HTTP, on top of Layer 1. Separate extra so a Layer-1-only
+# install (running/testing the DAG engine itself) doesn't need `mcp`/starlette/uvicorn at all.
+orchestrator-mcp = ["pipeline[mcp]"]
 
 [[tool.uv.index]]
 name = "pytorch-cu126"

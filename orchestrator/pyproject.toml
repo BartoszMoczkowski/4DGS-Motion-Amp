@@ -18,12 +18,18 @@ dependencies = [
     "psutil>=5.9",
 ]
 
+[project.optional-dependencies]
+# T13: Layer 2 (mcp_server/) — the HTTP/SSE MCP transport + auth. Kept as an opt-in extra, not a
+# base dependency, so importing/testing `pipeline` (Layer 1) alone never needs to pull in `mcp`
+# (and its starlette/uvicorn/httpx-sse/... transitive deps) at all.
+mcp = ["mcp>=1.28"]
+
 [build-system]
 requires = ["setuptools>=61.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["pipeline*"]
+include = ["pipeline*", "mcp_server*"]
 
 [tool.setuptools.package-data]
 pipeline = ["config/presets/*.yaml"]

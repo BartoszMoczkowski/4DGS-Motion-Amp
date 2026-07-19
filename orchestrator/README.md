@@ -21,8 +21,8 @@ orchestrator/
     WSL_SETUP.md          <- superseded by WINDOWS_SETUP.md; kept as a pointer + history
     tasks/
       T01-*.md ... T16-*.md   <- one self-contained spec per task
-  pipeline/              <- (future) the Layer 1 package code
-  mcp_server/            <- (future) the Layer 2 server code
+  pipeline/              <- the Layer 1 package code (done, T01-T12)
+  mcp_server/            <- the Layer 2 server code (T13 done; T14 adds the full tool set)
   ui/                    <- (future) the Layer 3 UI code
 ```
 
@@ -53,6 +53,13 @@ T08's GPU/Isaac behavior **verified for real on Bartosz's machine (2026-07-15)**
 `tests/test_containers_gpu.py` checks passed (cuda build + GPU passthrough, Isaac pull +
 non-interactive EULA, mount resolution, warm-reuse, Isaac cache persistence, clean teardown) —
 `pipeline/containers/MANUAL_CHECKLIST.md` is now fully checked off.
+
+T01–T12 all done, including a real-hardware milestone: the full `prep_split -> prep_motion ->
+capture.isaac -> convert -> train -> render -> seg_extract -> segment.rigid -> amp` chain completed
+end-to-end on Bartosz's machine (2026-07-19). **T13 done (2026-07-19)**: `mcp_server/` — the Layer
+2 HTTP MCP server (bearer-token auth, one `gpu_status` tool as a connectivity proof), verified over
+a real loopback HTTP connection in the sandbox; see `mcp_server/CONNECTING.md` for bind options and
+what's still open pending Bartosz's own machine. T14 (full MCP tool set) and T15 (UI) are next.
 
 Full history (including T07's brief reopen/redo under the "copy the logic in, don't call the
 original script" rule) in `.claude_notes/NOTES_pipeline_orchestration.md`.

@@ -244,6 +244,21 @@ matter for `prep_split.default`/`prep_motion.default`.
      `.claude_notes/NOTES_pipeline_orchestration.md`'s "adjust the project plan" entry for the full
      write-up (including the original diagnosis of the Vulkan/WSL2 failure).
 
+## 9. MCP server (Layer 2) setup
+
+Needed once T13's `mcp_server/` is what Claude actually talks to, instead of Bartosz driving
+`pipeline.api` by hand. No GPU/Docker/Isaac involved in this step at all — the server itself is
+plain native-Windows Python.
+
+1. `uv sync --extra orchestrator-mcp` (separate from step 5's `orchestrator` extra — pulls in
+   `mcp` + its HTTP-server deps on top of `pipeline`).
+2. Generate a bearer token once and keep it somewhere safe (a password manager, not a repo file):
+   `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
+3. `$env:PIPELINE_MCP_TOKEN = "<token>"` then `python -m mcp_server` — logs the URL it's listening
+   on (`http://127.0.0.1:8765/mcp` by default).
+4. Pick a bind option (localhost / LAN / tunnel) and wire up whatever's actually going to connect
+   — full detail, trade-offs, and what's verified vs. still open in `mcp_server/CONNECTING.md`.
+
 ## Troubleshooting quick-reference
 
 - `docker run --gpus all ... nvidia-smi` fails → fix step 1 before anything else; nothing else
