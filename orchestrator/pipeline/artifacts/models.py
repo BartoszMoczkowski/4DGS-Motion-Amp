@@ -65,8 +65,11 @@ class Artifact(StrictModel):
 class StageRecord(StrictModel):
     """Per-stage entry inside a run manifest.
 
-    ``peak_vram_mb``/``peak_ram_mb`` are nullable on purpose — out of scope for T03 ("how peak-
-    mem is measured" is T12's job); every stage record leaves them ``None`` until T12 lands.
+    ``peak_vram_mb``/``peak_ram_mb`` were nullable placeholders until T12 (the resource manager)
+    landed — ``pipeline.dag.scheduler`` now fills them from ``pipeline.resources.ResourceMonitor``
+    on every real (non-cached) stage execution; still ``None`` when that dimension couldn't be
+    measured on this machine (no GPU / no working ``pynvml``+``nvidia-smi``/``psutil`` — see
+    ``pipeline.resources.query``) or for a ``"skipped"`` (cache-hit) stage, which never actually ran.
 
     ``cache_key`` is nullable for the same reason (T03 predates the scheduler): T05's DAG
     scheduler sets it on every ``success``/``skipped`` result — hash(resolved stage config +
@@ -74,6 +77,11 @@ class StageRecord(StrictModel):
     ``cache_key`` (in this run's manifest, or T05's cross-run cache index) to decide whether a
     later call can skip re-running it. ``None`` for stages a pre-T05 manifest recorded, or for a
     stage that hasn't run yet.
+
+    ``oom_fallback`` (T12): set only when ``pipeline.resources.run_with_oom_retry`` actually
+    retried this stage after an apparent CUDA OOM and the retry succeeded — ``{"reason":
+    "cuda_oom", "changed": {...the reduced-memory config keys that changed...}}``. ``None`` for
+    every stage that never needed a retry (the overwhelming common case).
     """
 
     status: StageState = "pending"
@@ -87,6 +95,7 @@ class StageRecord(StrictModel):
     artifacts: list[str] = Field(default_factory=list)
     error: Optional[str] = None
     cache_key: Optional[str] = None
+    oom_fallback: Optional[dict[str, Any]] = None
 
 
 class RunManifest(StrictModel):

@@ -13,8 +13,11 @@ the one bit of glue that does: turning a resolved preset into the ordered stage-
 ``run_dag`` executes (see ``_auto_stage_plan`` below), and — since T07 — slicing that resolved
 config into the specific section each stage actually wants (see ``_stage_config_for`` below).
 ``list_containers``/``start_container``/``stop_container`` now delegate to ``pipeline.containers``
-(T08). ``cancel``/``gpu_status`` remain stubs (T12 — the resource manager, not this module, owns
-gating/cancellation). All delegated calls use a lazy import inside the function so this module's
+(T08). ``gpu_status`` now delegates to ``pipeline.resources`` (T12 — VRAM/RAM query, serial
+gating, adaptive knobs, and OOM-retry are all wired into ``pipeline.dag.scheduler`` directly,
+rather than through this module). ``cancel`` remains a stub — cancelling an in-flight run is
+explicitly out of scope for T12 (see ``planning/tasks/T12-resource-manager.md``'s scope), not yet
+scheduled to any task. All delegated calls use a lazy import inside the function so this module's
 own top-level imports stay light. Nothing in this module imports torch/CUDA/docker/pynvml at
 module scope — it must import cleanly on a CPU-only host with no GPU and no Docker daemon running.
 """
@@ -264,8 +267,15 @@ def validate_config(preset: str) -> dict[str, Any]:
 # --- resources / containers ---------------------------------------------------
 
 def gpu_status() -> dict[str, Any]:
-    """Current VRAM/RAM usage and free headroom."""
-    raise NotImplementedError
+    """Current VRAM/RAM usage and free headroom (T12).
+
+    Delegates to :func:`pipeline.resources.gpu_status` — ``None`` sub-dicts mean that dimension
+    couldn't be measured on this machine (no GPU / no working ``pynvml``+``nvidia-smi``/
+    ``psutil``), not an error; see that module's docstring.
+    """
+    from .resources import gpu_status as _gpu_status
+
+    return _gpu_status()
 
 
 def list_containers() -> list[dict[str, Any]]:

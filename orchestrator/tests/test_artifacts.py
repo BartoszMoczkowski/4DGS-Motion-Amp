@@ -173,6 +173,70 @@ def test_concurrent_writes_never_produce_a_torn_file(tmp_path):
     load_manifest("run006", runs_root=tmp_path)  # sanity: still valid after the storm
 
 
+def test_replace_with_retry_recovers_from_transient_permission_error(tmp_path, monkeypatch):
+    """Direct unit test for the 2026-07-19 Windows fix -- `test_concurrent_writes_never_produce_a_
+    torn_file` failed for real on Bartosz's machine with a raw `PermissionError(13, 'Access is
+    denied')` from `os.replace` (Windows's mandatory file locking can transiently deny a rename
+    over a path another thread has open, unlike POSIX). This sandbox can't reproduce the real race
+    (Linux `os.replace` doesn't have this failure mode), so this fakes `os.replace` itself to
+    exercise the retry loop deterministically."""
+    from pipeline.artifacts import manifest as manifest_mod
+
+    calls = {"n": 0}
+    real_replace = manifest_mod.os.replace
+
+    def flaky_replace(src, dst):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(13, "Access is denied")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(manifest_mod.os, "replace", flaky_replace)
+    monkeypatch.setattr(manifest_mod.time, "sleep", lambda s: None)  # don't actually wait in tests
+
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("hello")
+    manifest_mod._replace_with_retry(str(src), dst)
+
+    assert calls["n"] == 3
+    assert dst.read_text() == "hello"
+    assert not src.exists()
+
+
+def test_replace_with_retry_reraises_after_exhausting_attempts(tmp_path, monkeypatch):
+    from pipeline.artifacts import manifest as manifest_mod
+
+    def always_denied(src, dst):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(manifest_mod.os, "replace", always_denied)
+    monkeypatch.setattr(manifest_mod.time, "sleep", lambda s: None)
+
+    src = tmp_path / "src.txt"
+    dst = tmp_path / "dst.txt"
+    src.write_text("hello")
+    with pytest.raises(PermissionError):
+        manifest_mod._replace_with_retry(str(src), dst)
+
+
+def test_lock_for_is_identical_per_path_and_distinct_across_paths(tmp_path):
+    """2026-07-19 follow-up fix: `_replace_with_retry` alone wasn't enough under real concurrent
+    load on Windows (both writers and readers hit transient sharing-violation `PermissionError`s
+    faster than the retry budget could absorb) -- `save_manifest`/`load_manifest` now serialize
+    through a per-path lock instead, which deterministically prevents this process's own threads
+    from ever having the same manifest path open at once. This is the direct unit test for that
+    registry's own correctness (same lock object for the same path, so callers actually block on
+    each other; distinct objects for different paths, so unrelated runs never contend)."""
+    from pipeline.artifacts import manifest as manifest_mod
+
+    a = tmp_path / "runs" / "run1" / "manifest.json"
+    b = tmp_path / "runs" / "run2" / "manifest.json"
+
+    assert manifest_mod._lock_for(a) is manifest_mod._lock_for(a)
+    assert manifest_mod._lock_for(a) is not manifest_mod._lock_for(b)
+
+
 def test_hash_path_fast_stable_and_changes_with_content(tmp_path):
     from pipeline.artifacts import hash_path
 
@@ -284,8 +348,9 @@ def test_api_wiring_delegates_to_artifacts(tmp_path, monkeypatch):
     fetched = api.get_artifact("run009", "scene.npz")
     assert fetched["path"] == "/tmp/scene.npz"
 
-    # unaffected stubs still raise NotImplementedError (T08/T12 scope, untouched by T03).
-    # run_pipeline/run_stage were wired for real in T05 (see tests/test_dag.py), so they're no
-    # longer part of this "still a stub" check.
+    # `cancel` is the one stub left untouched by T03/T05/T08/T12 — out of scope for every task
+    # scheduled so far (see tests/test_import.py). `run_pipeline`/`run_stage` were wired for real
+    # in T05 (tests/test_dag.py); `gpu_status` in T12 (tests/test_resources.py) — neither is part
+    # of this "still a stub" check anymore.
     with pytest.raises(NotImplementedError):
-        api.gpu_status()
+        api.cancel("run009")

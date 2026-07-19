@@ -45,7 +45,16 @@ CUDA_EXTRA_ENV: dict[str, str] = {"PYTHONPATH": "/workspace"}
 
 
 class CudaStageError(RuntimeError):
-    """A vendored CUDA script exited non-zero. ``log_path`` (if any) has the full output."""
+    """A vendored CUDA script exited non-zero. ``log_path`` (if any) has the full output.
+
+    ``log_path`` is a real constructor attribute (not just embedded in the message string) so
+    T12's ``pipeline.resources.oom_retry.is_oom_error`` can read the captured output straight off
+    the exception to check for a CUDA-OOM signature, without re-parsing it out of ``str(exc)``.
+    """
+
+    def __init__(self, message: str, *, log_path: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.log_path = log_path
 
 
 # --- CLI-flag builders (mirroring argparse's own store_true/nargs='+'/optional conventions) ----
@@ -136,5 +145,6 @@ def run_cuda_script(
     ctx.logger.info("cuda exec finished: exit_code=%s log=%s", result.exit_code, result.log_path)
     if not result.ok:
         raise CudaStageError(
-            f"{script_key} exited with code {result.exit_code}; see log at {result.log_path}"
+            f"{script_key} exited with code {result.exit_code}; see log at {result.log_path}",
+            log_path=result.log_path,
         )

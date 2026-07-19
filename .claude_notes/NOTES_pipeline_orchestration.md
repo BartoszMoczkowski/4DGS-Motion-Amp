@@ -2171,3 +2171,150 @@ and get cross-run cached) if not. Updated `tests/test_stages_cuda.py`'s two exec
 stub a `point_cloud/iteration_1/point_cloud.ply` on a simulated successful train call, and added
 `test_train_stage_raises_if_exit_zero_but_no_checkpoint_written` as an explicit regression test.
 163 tests total (up from 162), all green.
+
+### T12 done (2026-07-19) — resource manager (VRAM/RAM + adaptive retry)
+
+`orchestrator/pipeline/resources/` — the last Phase-3 task, unblocked since T09 — filled in for
+real: `query.py` (VRAM via `pynvml` first, `nvidia-smi` CLI fallback; system RAM via `psutil`'s
+`available` figure — all three imported lazily *inside* functions, never at module scope, same
+"stays importable with no GPU/psutil installed" convention as `pipeline.containers.manager`'s
+`docker` import; `tests/test_import.py`'s `test_no_heavy_imports_at_module_scope` now covers
+`psutil` alongside `torch`/`docker`/`pynvml`), `gating.py` (`check_headroom`/
+`InsufficientResourcesError` — the one gating hook T05's scheduler docstring always said T12 would
+slot into, right before a stage runs; fails **open** whenever a dimension can't be measured, and
+is a total no-op for a stage with the `ResourceRequest()` default), `adaptive.py` (pure "given this
+much free memory, what should `low_vram_mode`/segmentation working-set/`rt_subframes` be" linear-
+ramp calculations, floored/capped, never scaling *up* past what a preset already asked for),
+`monitor.py` (`ResourceMonitor` — a background-thread poller measuring peak VRAM/RAM *above its
+own start-time baseline* across one stage's execution, filling the `StageRecord.peak_vram_mb`/
+`peak_ram_mb` fields T03 left nullable specifically for this task), and `oom_retry.py`
+(`run_with_oom_retry` — catches a stage failure, checks `is_oom_error` by scanning the *log file*
+the failing exception's own `log_path` attribute points at for CUDA-OOM marker text, and retries
+exactly once with `reduced_memory_config`'s stage-specific reduced-memory fallback if one exists
+for that stage name — `amp.*` forces `low_vram_mode`, `segment.mbs` halves its working-set/FPS-
+subsample size, `capture.isaac` halves `rt_subframes`; `train`/`render`/`seg_extract` have no known
+safe knob yet, so a real OOM there still re-raises immediately rather than guessing).
+
+Wiring: `CudaStageError`/`IsaacStageError` (`pipeline.stages.cuda_common`/`isaac_common`) gained a
+real `log_path` constructor attribute (previously only embedded in the message string) so
+`is_oom_error` can read a failing stage's captured output directly, including `capture.isaac`'s own
+two "exited 0 but didn't really work" checks (T11). `StageRecord` (`pipeline.artifacts.models`)
+gained `oom_fallback: Optional[dict]` (backward-compatible, same pattern as T05's `cache_key`
+addition); `record_stage_result` (`pipeline.artifacts.manifest`) gained matching
+`peak_vram_mb`/`peak_ram_mb`/`oom_fallback` kwargs, each only written when not `None` (the
+`cache_key` "only set if given" pattern, so a caller unaware of these fields never clobbers a
+previous value). `pipeline.dag.scheduler.run_dag`'s per-stage loop — exactly where its own T05-era
+docstring said this would land — now: (1) calls `check_headroom` right before a real (non-cached)
+stage, recording a clean `"failed"` manifest entry with a clear message on
+`InsufficientResourcesError` rather than crashing; (2) wraps execution in a `ResourceMonitor`;
+(3) calls `run_with_oom_retry` instead of a bare `stage_cls().run(ctx)`, threading `oom_fallback`
+through to `record_stage_result` on success. `pipeline.api.gpu_status()` now delegates to
+`pipeline.resources.gpu_status()` (the one `api.py` stub actually in T12's scope — `cancel` stays
+a stub, cancellation is explicitly out of scope for this task).
+
+New dependency: `psutil>=5.9` added to `orchestrator/pyproject.toml` (cross-platform RAM query;
+`pynvml`/`docker` were already T01-era dependencies, never actually installed/exercised for real
+until now).
+
+**A real sandbox-testing wrinkle, not a code bug**: this sandbox is a genuine (if small, ~4GB) VM
+with its own incidental system RAM that has nothing to do with what a stage needs on Bartosz's
+real machine — every T09/T10/T11 integration test that runs a `cuda`/`isaac` stage through
+`run_dag` does so against a *fake* `exec_in_container` (no real GPU/Docker work ever happens), so
+gating those tests against *this* sandbox's real ~3.5GB-free RAM would fail them for a reason with
+zero bearing on the scheduler/stage logic under test — several did, the first time the full suite
+ran with real gating wired in. Fixed with a new `tests/conftest.py` autouse fixture that forces
+`pipeline.resources.query.query_gpu_memory`/`query_ram` to return `None` (the same "can't measure,
+don't block" value real telemetry returns on a GPU-less machine) for every test by default;
+`tests/test_resources.py` monkeypatches its own canned values back in per-test to actually exercise
+gating/monitoring. This only worked cleanly because `gating.py`/`monitor.py` import
+`pipeline.resources.query` *as a module* (`from . import query as _query`), mirroring
+`pipeline.dag.scheduler`'s own `from .. import containers as _containers` convention, rather than
+importing the two functions by name — a name-import would have bound a stale reference the
+fixture's `monkeypatch.setattr` couldn't reach.
+
+47 new tests (`tests/test_resources.py`'s 36 unit tests covering query/gating/adaptive/monitor/
+oom_retry directly, plus 2 new integration tests appended to `tests/test_dag.py` proving the
+gating-fails-cleanly and peak-mem+oom_fallback-recorded behaviors through a real `run_dag` call) —
+210 total collected, 178 passed/skipped clean (169 passed, 9 skipped — the pre-existing real-GPU-
+gated tests, unchanged). The other 32 (`tests/test_containers.py`, entirely pre-existing, untouched
+by this task) error at fixture setup on a `PermissionError` unlinking the *real* repo's
+`runs/.cache/cuda_build.log` — a genuine leftover file from Bartosz's actual 2026-07-16→19
+real-hardware runs (confirmed via `runs/`'s own directory listing: dozens of real `t11-*-smoke-*`
+run directories), not creatable/deletable from this sandbox session for the same reason
+[[cowork-mount-staleness-bug]] documents elsewhere — unrelated to `pipeline.resources` or anything
+this task touched; `test_containers.py`'s own `_clean_cuda_build_log` fixture (from T11,
+2026-07-18) already deliberately targets the real repo root by its own docstring's design.
+
+Real VRAM/RAM gating, peak-mem accuracy, and the OOM-retry's actual memory-reduction effectiveness
+all still need verification on Bartosz's real machine — nothing here can be confirmed against a
+genuine CUDA OOM or real GPU headroom from this sandbox. **T12 marked done** — resource-manager
+scope (query/gate/adapt/monitor/retry, filling T03's nullable peak-mem fields) is complete and
+sandbox-verified; only T13 (MCP server) and T15 (UI) remain un-started, plus the deferred T16.
+
+### T03 bug found running the full suite for real on Windows (2026-07-19): `os.replace` can transiently deny a rename under concurrent readers
+
+Bartosz ran the whole suite for real (33 min total — mostly `test_containers_gpu.py`'s real `cuda`
+image build/GPU checks, expected and unrelated) and hit one genuine failure:
+`test_concurrent_writes_never_produce_a_torn_file` (T03, `tests/test_artifacts.py` — many threads
+hammering `save_manifest`/`load_manifest` against the same `manifest.json`) raised a raw
+`PermissionError(13, 'Access is denied')` from a writer thread. Root cause: `_atomic_write_json`'s
+`os.replace(tmp_name, path)` is atomic on both platforms, but Windows enforces mandatory file
+locking — `MoveFileEx` (what `os.replace` uses there) can be transiently *denied* while another
+thread has `path` open for reading, unlike POSIX, where a rename succeeds regardless of open file
+handles. Invisible in the sandbox's Linux runs (every task through T11 exercised this code path
+without ever hitting it) — only surfaced the first time this specific test ran on real Windows
+hardware, same pattern as every other "sandbox-clean, Windows-only" bug this project has hit
+(cp1252 encoding, `/workspace` mount-shadowing, etc.).
+
+Fixed with `pipeline.artifacts.manifest._replace_with_retry`: retries `os.replace` up to 10 times
+with a 20ms backoff on `PermissionError`, re-raising the last one if every attempt fails (a
+genuinely stuck lock — antivirus, a leaked handle — should still surface as an error, not hang or
+silently drop a write). POSIX essentially never raises `PermissionError` here, so the loop exits
+on the first attempt there — a no-op in practice on Linux/the sandbox. Two new unit tests
+(`test_replace_with_retry_recovers_from_transient_permission_error`/
+`test_replace_with_retry_reraises_after_exhausting_attempts`, faking `os.replace` itself since the
+sandbox can't reproduce the real Windows race) plus the original concurrency test, all green.
+
+**Follow-up, same day: the retry alone wasn't enough — replaced with a per-path lock.** Bartosz
+re-ran and the test still failed, now with a *mix* of raw `PermissionError`s (contention outlasting
+the retry budget) and `ManifestCorruptError`s (the *reader* side — `load_manifest`'s existing
+`except OSError` wraps a transient `PermissionError` from `path.read_text()` the same way, which
+`_replace_with_retry` never covered at all) — under this test's real load (4 writers x 50
+iterations racing 4 continuously-looping readers), a fixed retry count is inherently racy: there's
+always some contention level high enough to exhaust it. Replaced the probabilistic fix with a
+deterministic one: `_lock_for(path)` (a process-wide `dict[str, threading.Lock]`, one lock per
+resolved manifest path) now guards `save_manifest`'s full write and `load_manifest`'s full read —
+serializing this *process's own* concurrent access means no two of this module's own threads ever
+have the same manifest path open at the same instant, so the Windows sharing-violation race simply
+can't occur between them, regardless of load. `_replace_with_retry` stays (bumped to 25 attempts/
+50ms) as a fallback for a handle held by something *outside* this process (antivirus, a second
+orchestrator instance) that a Python-level lock can't see. New
+`test_lock_for_is_identical_per_path_and_distinct_across_paths` unit-tests the registry itself
+(same lock object for the same path, distinct objects across paths). 172 tests green in the
+sandbox (up from 171). Still pending Bartosz's next full-suite run to confirm this actually holds
+under the real Windows race that found both bugs.
+
+Separately, the ~20-minute test around #30 is `test_containers_gpu.py::test_cuda_image_builds_and_
+gpu_is_visible` doing a real `ensure_image("cuda")` build — expected and already documented (T11's
+"~22-minute `uv sync --frozen`" finding from 2026-07-18); T12 didn't touch the repo-root
+`Dockerfile`/`pyproject.toml`/`uv.lock` the build-hash check keys off of (only `orchestrator/
+pyproject.toml`, a different file), so this wasn't a new rebuild trigger — just the known slow
+first build (or a rebuild from some other real change on his machine since the last run).
+
+**Follow-up, same day: `test_containers_gpu.py` gated behind an explicit `PIPELINE_TEST_GPU=1` opt-in, not just Docker reachability.** Bartosz asked for the slow real-build/GPU checks to be
+kept out of a normal full-suite run. Root cause of why they weren't already: this file's only
+gate was "is a Docker daemon reachable" — fine in the sandbox (never true there) but *always* true
+on Bartosz's own machine, so a plain `pytest -q` over the whole repo silently ran real Docker/GPU
+checks (including a potential ~20-minute `cuda` rebuild) as part of what should've been a fast,
+everyday pass — exactly what T11's own `test_stages_isaac_gpu.py` already avoided by requiring
+`PIPELINE_TEST_ISAAC=1` explicitly, a pattern this file hadn't adopted for itself. Fixed by adding
+`_RUN_GPU = os.environ.get("PIPELINE_TEST_GPU") == "1"`, combined with the Docker-reachability
+check into one short-circuited `_skip_reason()` function (not two independently-evaluated
+`skipif` marks, which would still call `_docker_reachable()`'s real socket probe unconditionally
+regardless of the flag) so a bare `pytest -q` never even attempts to reach Docker. Updated
+`planning/WINDOWS_SETUP.md`'s step 6 and `pipeline/containers/MANUAL_CHECKLIST.md`'s invocation
+instructions to include the new flag. Verified both skip paths in the sandbox: no flag -> instant
+skip with "set PIPELINE_TEST_GPU=1..."; flag set but no reachable Docker (still true in the
+sandbox) -> falls through to the pre-existing "no reachable Docker daemon" reason. Full suite
+still 171 passed/9 skipped. `test_stages_isaac_gpu.py` needed no change — it already required
+`PIPELINE_TEST_ISAAC=1` on its own.

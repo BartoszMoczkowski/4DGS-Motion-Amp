@@ -12,13 +12,15 @@ criteria.
 
 **Prefer running `tests/test_containers_gpu.py` instead of typing these snippets by hand** — it's
 an automated `pytest` file covering every step below (asserts pass/fail instead of "eyeball the
-output"), and auto-skips harmlessly anywhere Docker isn't reachable (so it's safe to leave in the
-normal suite):
+output"). **Requires `PIPELINE_TEST_GPU=1` explicitly** (2026-07-19 — Docker-reachability alone
+isn't a safe default gate on a real machine, where it's always true; without this flag every test
+in the file skips instantly instead of silently running a real, potentially 20+ minute `cuda`
+image build as part of a normal full-suite `pytest -q`):
 
 ```bash
 cd orchestrator
-pytest -q -s tests/test_containers_gpu.py                     # everything except Isaac
-PIPELINE_TEST_ISAAC=1 pytest -q -s tests/test_containers_gpu.py  # + the Isaac pull/EULA/cache checks
+PIPELINE_TEST_GPU=1 pytest -q -s tests/test_containers_gpu.py                     # everything except Isaac
+PIPELINE_TEST_GPU=1 PIPELINE_TEST_ISAAC=1 pytest -q -s tests/test_containers_gpu.py  # + the Isaac pull/EULA/cache checks
 ```
 
 The manual steps below are the same checks spelled out by hand, useful if you want to poke at

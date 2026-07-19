@@ -31,6 +31,11 @@ pipeline/dag/cache.py
 pipeline/dag/graph.py
 pipeline/dag/scheduler.py
 pipeline/resources/__init__.py
+pipeline/resources/adaptive.py
+pipeline/resources/gating.py
+pipeline/resources/monitor.py
+pipeline/resources/oom_retry.py
+pipeline/resources/query.py
 pipeline/stages/__init__.py
 pipeline/stages/_isaac_kit_bootstrap.py
 pipeline/stages/amp.py
@@ -74,6 +79,7 @@ tests/test_containers_gpu.py
 tests/test_dag.py
 tests/test_import.py
 tests/test_paths.py
+tests/test_resources.py
 tests/test_stages.py
 tests/test_stages_cpu.py
 tests/test_stages_cuda.py

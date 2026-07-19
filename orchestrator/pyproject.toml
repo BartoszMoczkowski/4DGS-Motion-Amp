@@ -14,6 +14,8 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "Pillow>=10.0",
+    # T12: cross-platform system-RAM query (pynvml above already covers VRAM).
+    "psutil>=5.9",
 ]
 
 [build-system]

@@ -149,14 +149,16 @@ class CaptureIsaacStage(Stage):
             raise IsaacStageError(
                 f"omni_capture exited 0 but never wrote {gt_path} -- Isaac Sim likely hit a "
                 f"fatal in-process error after Kit startup (it can exit 0 even after an "
-                f"unhandled exception in main()); see log at {log_path}"
+                f"unhandled exception in main()); see log at {log_path}",
+                log_path=str(log_path),
             )
         if n_cameras is not None and len(cam_dirs) != int(n_cameras):
             raise IsaacStageError(
                 f"omni_capture exited 0 and wrote {gt_path}, but only {len(cam_dirs)}/{n_cameras} "
                 f"'camNN' output directories exist under {capture_dir_host} -- the Replicator "
                 f"writer likely never actually rendered any frames (e.g. a GPU-passthrough/"
-                f"renderer problem, not just a startup crash); see log at {log_path}"
+                f"renderer problem, not just a startup crash); see log at {log_path}",
+                log_path=str(log_path),
             )
 
         return {

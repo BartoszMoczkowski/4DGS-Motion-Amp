@@ -18,7 +18,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T09 | Wrap CUDA stages (train/render/seg_extract/amp) | 1 | T07, T08 | done |
 | T10 | Wrap Option-A segmentation (mbs_infer) | 1 | T09 | done |
 | T11 | Wrap Isaac stages (split/motion/capture) | 2 | T08, T09 | done |
-| T12 | Resource manager (VRAM/RAM + adaptive retry) | 3 | T09 | todo |
+| T12 | Resource manager (VRAM/RAM + adaptive retry) | 3 | T09 | done |
 | T13 | MCP server over HTTP (transport + auth) | 4 | T05 | todo |
 | T14 | MCP tools & resources | 4 | T13, T09 | todo |
 | T15 | UI (Streamlit over Layer 1 API) | 5 | T09 | todo |
@@ -171,6 +171,22 @@ to also check the camera-directory count matches `rig.n_cameras`. Full write-up:
 `T11-wrap-isaac-stages.md`'s "Second real-hardware fixup" section. Docs updated: `ARCHITECTURE.md`,
 `INSTRUCTIONS.md`, `WINDOWS_SETUP.md`. Sandbox suite green (155 passed, 9 skipped) — still needs a
 real re-run on Bartosz's machine against his actual Isaac Sim install to confirm.
+
+**T12 done (2026-07-19):** `pipeline/resources/{query,gating,adaptive,monitor,oom_retry}.py` —
+VRAM (`pynvml`/`nvidia-smi`) + RAM (`psutil`) query, a pre-flight gate wired into
+`pipeline.dag.scheduler.run_dag`'s per-stage loop (fails a too-large stage cleanly rather than
+crashing), adaptive knobs (`low_vram_mode`/segmentation working-set/`rt_subframes`/
+`opacity_thresh`) as pure headroom-to-value calculations, a `ResourceMonitor` filling T03's
+nullable `peak_vram_mb`/`peak_ram_mb` manifest fields, and `run_with_oom_retry` (one reduced-memory
+retry on an apparent CUDA OOM, recorded in a new `StageRecord.oom_fallback` field). `pipeline.api.
+gpu_status()` now delegates to it; new `psutil>=5.9` dependency. 47 new tests (210 total
+collected), 178 passed/skipped clean in an isolated venv — a pre-existing, unrelated sandbox
+permission issue blocks `test_containers.py`'s 32 tests (a real leftover file from Bartosz's own
+real-hardware runs, not a T12 regression — see `.claude_notes/NOTES_pipeline_orchestration.md`'s
+"T12 done" entry for the full write-up, including a new `tests/conftest.py` autouse fixture needed
+to stop this sandbox's own incidental RAM from wrongly gating T09/T10/T11's fake-exec tests). Real
+VRAM/RAM gating, peak-mem accuracy, and OOM-retry's actual recovery all still need verification on
+Bartosz's machine. Only T13 (MCP server) and T15 (UI) remain un-started, plus the deferred T16.
 
 ## Milestones
 

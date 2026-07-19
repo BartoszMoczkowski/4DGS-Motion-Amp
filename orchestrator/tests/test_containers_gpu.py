@@ -1,23 +1,29 @@
 """GPU/Isaac integration tests — the runnable counterpart to
 ``pipeline/containers/MANUAL_CHECKLIST.md``.
 
-These talk to a *real* Docker daemon (and, for the Isaac tests, actually pull/run the multi-GB
-Isaac Sim image), so they can't run in the sandbox and aren't part of the normal `pytest -q` suite
-in spirit — they auto-skip the moment no Docker daemon is reachable. Run them for real on
+These talk to a *real* Docker daemon and can trigger a real, potentially slow `cuda` image build
+(a from-scratch `uv sync --frozen` has taken ~20+ minutes on Bartosz's machine — see
+`.claude_notes/NOTES_pipeline_orchestration.md`'s 2026-07-18 entries) or, for the Isaac tests,
+actually pull/run the multi-GB Isaac Sim image. **Gated behind an explicit opt-in env var, not
+just Docker reachability** (2026-07-19 — found the hard way: on a real machine Docker is *always*
+reachable, so a bare `pytest -q` over the whole repo silently ran this file's real build/GPU
+checks as part of what was meant to be a normal, fast, everyday test pass). Run them for real on
 Bartosz's machine, with Docker Desktop + GPU support set up (see `planning/WINDOWS_SETUP.md`),
 from the `pipeline` package's venv:
 
     cd orchestrator
-    pytest -q -s tests/test_containers_gpu.py
+    $env:PIPELINE_TEST_GPU = "1"; pytest -q -s tests/test_containers_gpu.py
 
 That covers everything except the Isaac-specific checks (image pull is ~10GB+ and slow the first
 time). To also run those:
 
-    PIPELINE_TEST_ISAAC=1 pytest -q -s tests/test_containers_gpu.py
+    $env:PIPELINE_TEST_GPU = "1"; $env:PIPELINE_TEST_ISAAC = "1"; pytest -q -s tests/test_containers_gpu.py
 
-Use ``-s`` so the printed timings (warm-reuse, Isaac cache-persistence) are visible — those two
-are reported rather than hard-asserted, since "fast enough" isn't a portable threshold across
-machines.
+Neither flag set (the default for a plain `pytest -q` run, including one over the whole repo) —
+every test in this file skips immediately, cheaply, regardless of whether Docker happens to be
+reachable. Use ``-s`` so the printed timings (warm-reuse, Isaac cache-persistence) are visible —
+those two are reported rather than hard-asserted, since "fast enough" isn't a portable threshold
+across machines.
 
 Every managed container is stopped and removed at the end (module-scoped autouse fixture), even
 if a test fails partway through, so a bad run doesn't leave containers/GPU memory behind.
@@ -51,13 +57,30 @@ def _docker_reachable() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _docker_reachable(),
-    reason=(
-        "no reachable Docker daemon — these are real-GPU/real-Docker integration tests for "
-        "Bartosz's Windows + Docker Desktop machine, not the sandbox/CI"
-    ),
-)
+_RUN_GPU = os.environ.get("PIPELINE_TEST_GPU") == "1"
+
+
+def _skip_reason() -> "str | None":
+    """``None`` if this file's tests should run, else the (single) reason they're skipped.
+
+    Deliberately short-circuits on ``_RUN_GPU`` *before* ever calling ``_docker_reachable()`` (a
+    real socket probe against the Docker daemon) — a plain ``pytest -q`` run with the flag unset
+    must never even attempt to reach Docker, just skip immediately. Two separate ``skipif`` marks
+    evaluated eagerly at import time (an earlier version of this file) would have called
+    ``_docker_reachable()`` unconditionally regardless of ``_RUN_GPU``, defeating the point.
+    """
+    if not _RUN_GPU:
+        return "set PIPELINE_TEST_GPU=1 to run these (real Docker build/GPU checks, can be slow)"
+    if not _docker_reachable():
+        return (
+            "no reachable Docker daemon — these are real-GPU/real-Docker integration tests for "
+            "Bartosz's Windows + Docker Desktop machine, not the sandbox/CI"
+        )
+    return None
+
+
+_SKIP_REASON = _skip_reason()
+pytestmark = pytest.mark.skipif(_SKIP_REASON is not None, reason=_SKIP_REASON or "")
 
 _RUN_ISAAC = os.environ.get("PIPELINE_TEST_ISAAC") == "1"
 isaac_only = pytest.mark.skipif(

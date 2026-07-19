@@ -351,3 +351,100 @@ def test_api_run_stage_missing_run_raises_file_not_found(tmp_path, monkeypatch):
 
     with pytest.raises(FileNotFoundError):
         api.run_stage("does-not-exist", "test.echo")
+
+
+# --- T12: resource-manager wiring, exercised end to end through run_dag ------------------------
+
+
+def test_gating_fails_a_too_large_stage_cleanly_via_run_dag(tmp_path, monkeypatch):
+    """A stage whose declared `ResourceRequest` exceeds currently-free VRAM never even starts —
+    `run_dag` records a clean "failed" manifest entry with a clear message (the acceptance
+    criterion's "...or fails cleanly with a clear message"), not a crash."""
+    from pipeline.artifacts import Artifact
+    from pipeline.dag import run_dag
+    from pipeline.resources import query as query_mod
+    from pipeline.resources.query import GpuMemoryInfo as _GpuMemoryInfo
+
+    # Small currently-free VRAM (tests/conftest.py's autouse fixture defaults both queries to
+    # `None`/unmeasurable -- override just the GPU one here for this test).
+
+    monkeypatch.setattr(query_mod, "query_gpu_memory", lambda: _GpuMemoryInfo(total_mb=8000.0, free_mb=1000.0))
+
+    from pipeline.stages import Stage, list_stages, register
+    from pipeline.stages.base import ResourceRequest
+
+    if "test.t12gate" not in list_stages():
+        @register("test.t12gate")
+        class GateStage(Stage):
+            outputs = ("g",)
+            resources = ResourceRequest(needs_gpu=True, vram_gb=10.0)
+
+            def run(self, ctx):
+                return {"g": Artifact(name="g", kind="json", path="g", producing_stage=ctx.stage_name)}
+
+    m = run_dag("run_gate", ["test.t12gate"], {}, preset="toy", runs_root=tmp_path)
+    assert m.status == "failed"
+    assert m.stages["test.t12gate"].status == "failed"
+    assert "VRAM" in m.stages["test.t12gate"].error
+    assert "10.0" in m.stages["test.t12gate"].error
+
+
+def test_peak_mem_and_oom_fallback_recorded_via_run_dag(tmp_path, monkeypatch):
+    """Peak VRAM (`ResourceMonitor`, via `pipeline.resources.query`) and a successful OOM retry
+    (`run_with_oom_retry`) both land in the manifest's `StageRecord` -- the two nullable T03 fields
+    T12 was scoped to fill, plus the new `oom_fallback` field, wired all the way through the real
+    scheduler loop (not just unit-tested against `oom_retry`/`monitor` directly, see
+    tests/test_resources.py)."""
+    from pipeline.artifacts import Artifact
+    from pipeline.dag import run_dag
+    from pipeline.resources import oom_retry as oom_retry_mod
+    from pipeline.resources import query as query_mod
+    from pipeline.resources.query import GpuMemoryInfo as _GpuMemoryInfo
+
+    # Deterministic peak-mem: baseline (ResourceMonitor.start) then a higher sample (stop's
+    # catch-up read) -- same trick tests/test_resources.py's own monitor test uses.
+    used_values = iter([1000.0, 5000.0])
+
+    def fake_gpu():
+        v = next(used_values, 5000.0)
+        return _GpuMemoryInfo(total_mb=20_000.0, free_mb=20_000.0 - v)
+
+    monkeypatch.setattr(query_mod, "query_gpu_memory", fake_gpu)
+
+    # Force the OOM-retry path deterministically for this one toy stage name, rather than relying
+    # on real log-file marker text or a stage-name-pattern match (`reduced_memory_config` only
+    # knows about `amp`/`segment.mbs`/`capture.isaac` today) -- this test is about the scheduler's
+    # own wiring (does it call the retry machinery and record what it returns?), not re-testing
+    # `is_oom_error`/`reduced_memory_config` themselves (tests/test_resources.py already does).
+    calls = {"n": 0}
+    real_is_oom_error = oom_retry_mod.is_oom_error
+
+    def fake_is_oom_error(exc):
+        return getattr(exc, "_toy_oom", False) or real_is_oom_error(exc)
+
+    monkeypatch.setattr(oom_retry_mod, "is_oom_error", fake_is_oom_error)
+    monkeypatch.setattr(
+        oom_retry_mod, "reduced_memory_config", lambda name, cfg: {**cfg, "retried": True} if name == "test.t12oom" and not cfg.get("retried") else None
+    )
+
+    from pipeline.stages import Stage, list_stages, register
+
+    if "test.t12oom" not in list_stages():
+        @register("test.t12oom")
+        class OomOnceStage(Stage):
+            outputs = ("o",)
+
+            def run(self, ctx):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    exc = RuntimeError("simulated OOM")
+                    exc._toy_oom = True
+                    raise exc
+                return {"o": Artifact(name="o", kind="json", path="o", producing_stage=ctx.stage_name)}
+
+    m = run_dag("run_oom", ["test.t12oom"], {}, preset="toy", runs_root=tmp_path)
+    rec = m.stages["test.t12oom"]
+    assert rec.status == "success"
+    assert calls["n"] == 2  # first call OOM'd, second (retried) succeeded
+    assert rec.oom_fallback == {"reason": "cuda_oom", "changed": {"retried": True}}
+    assert rec.peak_vram_mb == pytest.approx(4000.0)  # 5000 - 1000 baseline

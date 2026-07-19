@@ -87,12 +87,16 @@ pytest -q
 
 ## 6. Run the real GPU/Isaac checks
 
-Now that Docker + GPU + NGC + submodules + assets are all in place:
+Now that Docker + GPU + NGC + submodules + assets are all in place. **These need
+`PIPELINE_TEST_GPU=1` explicitly set** (2026-07-19 — plain Docker-reachability isn't a safe
+default gate on a real machine, where it's always true; without this flag, a normal `pytest -q`
+run over the whole repo skips this file instantly instead of silently triggering a real, possibly
+20+ minute `cuda` image build):
 
 ```powershell
 cd orchestrator
-pytest -q -s tests/test_containers_gpu.py                        # cuda build, GPU, mounts, warm-reuse, teardown
-$env:PIPELINE_TEST_ISAAC = "1"; pytest -q -s tests/test_containers_gpu.py   # + isaac pull/EULA/cache (slow first run, ~10GB+ pull)
+$env:PIPELINE_TEST_GPU = "1"; pytest -q -s tests/test_containers_gpu.py   # cuda build, GPU, mounts, warm-reuse, teardown
+$env:PIPELINE_TEST_GPU = "1"; $env:PIPELINE_TEST_ISAAC = "1"; pytest -q -s tests/test_containers_gpu.py   # + isaac pull/EULA/cache (slow first run, ~10GB+ pull)
 ```
 
 If something fails, `pipeline/containers/MANUAL_CHECKLIST.md` has the same 6 checks spelled out

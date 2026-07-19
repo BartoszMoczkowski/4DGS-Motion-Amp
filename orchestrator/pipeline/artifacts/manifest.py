@@ -11,6 +11,8 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -105,6 +107,93 @@ def create_run(
     return manifest
 
 
+#: Belt-and-suspenders retry for a transient `PermissionError` on `os.replace` -- see
+#: `_replace_with_retry`'s docstring. Real protection against *this process's own* concurrent
+#: readers/writers now comes from `_lock_for`'s per-path lock (below); this only remains to cover
+#: a handle held by something outside this process (antivirus, a second orchestrator instance, an
+#: editor with the file open) that a Python-level lock can't see.
+_REPLACE_RETRIES = 25
+_REPLACE_RETRY_DELAY_S = 0.05
+
+
+def _replace_with_retry(src: str, dst: Path) -> None:
+    """``os.replace(src, dst)``, retrying briefly on a transient ``PermissionError``.
+
+    **Found on Bartosz's real Windows machine (2026-07-19)**:
+    ``test_concurrent_writes_never_produce_a_torn_file`` (multiple threads hammering
+    ``save_manifest``/``load_manifest`` against the same ``manifest.json``) failed with a raw
+    ``PermissionError(13, 'Access is denied')`` from this call -- invisible in the sandbox's Linux
+    runs, where ``os.replace`` renames over an open file regardless of who else has it open.
+    Windows enforces mandatory file locking: ``MoveFileEx`` (what ``os.replace`` uses there) can
+    be transiently denied while another thread has ``dst`` open, even though nothing is actually
+    wrong -- the rename becomes valid again the instant that other handle's read completes, which
+    is typically sub-millisecond for a small JSON file. Retrying a few times with a short sleep is
+    the standard cross-platform mitigation for this exact behavior (POSIX essentially never raises
+    ``PermissionError`` here, so the loop exits on the first attempt there; this is a Windows-only
+    code path in practice). Re-raises the last ``PermissionError`` if every attempt fails --a
+    genuinely locked file (e.g. antivirus, a stuck handle) should still surface as an error, not
+    hang or silently drop the write.
+
+    **Follow-up (2026-07-19, same day):** the retry alone wasn't enough under this test's real
+    stress load (4 writers x 50 iterations racing 4 continuously-looping readers) -- on Bartosz's
+    machine it still failed, both as a raw ``PermissionError`` here (contention outlasting the
+    retry budget) *and* as ``ManifestCorruptError`` from :func:`load_manifest`'s read hitting the
+    same transient sharing violation from the *reader* side, which this function never covered.
+    See :func:`_lock_for` for the actual fix -- a per-path lock that serializes this *process's
+    own* concurrent access so the OS-level race can't happen at all between our own threads; this
+    retry now only matters for a handle held by something outside this process.
+    """
+    last_exc: Optional[PermissionError] = None
+    for _ in range(_REPLACE_RETRIES):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError as exc:
+            last_exc = exc
+            time.sleep(_REPLACE_RETRY_DELAY_S)
+    assert last_exc is not None
+    raise last_exc
+
+
+_manifest_locks: dict[str, threading.Lock] = {}
+_manifest_locks_guard = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    """A process-wide lock keyed by resolved manifest path -- one lock per run's ``manifest.json``,
+    shared by every :func:`save_manifest`/:func:`load_manifest` call against that same path.
+
+    **Added 2026-07-19** alongside :func:`_replace_with_retry`'s retry loop, which turned out not
+    to be enough by itself: under real concurrent-thread load on Windows, both writers (``os.
+    replace``) *and* readers (``path.read_text``, wrapped into ``ManifestCorruptError`` by
+    :func:`load_manifest`'s existing ``OSError`` handling) hit transient sharing-violation
+    ``PermissionError``s, and retrying a fixed number of times is inherently racy under sustained
+    contention (there's always some load high enough to exhaust the budget). A lock is
+    deterministic instead of probabilistic: as long as only *this process's* threads are involved
+    (the actual scenario ``test_concurrent_writes_never_produce_a_torn_file`` exercises, and the
+    only one this module has ever claimed to make safe -- see :func:`save_manifest`'s docstring),
+    serializing every read and write against a given manifest path means no two threads ever have
+    it open at the same instant, so the Windows-specific race simply can't occur. Doesn't replace
+    :func:`_replace_with_retry` -- a lock can't protect against a handle held by something outside
+    this process, which the retry loop still covers.
+
+    Keyed by ``str(path)`` (not the run_id alone) since callers can point different run_ids at
+    different ``runs_root`` overrides (tests do this constantly) -- two different physical files
+    must never share a lock, and two calls for the *same* physical file (even reached via a
+    differently-spelled but equal path) should. The registry itself is never cleared -- one small
+    ``Lock`` per distinct manifest path for the life of the process is negligible, and removing
+    entries would reopen a tiny window for two threads to each create a *different* lock for the
+    same path right as an entry gets evicted.
+    """
+    key = str(path)
+    with _manifest_locks_guard:
+        lock = _manifest_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _manifest_locks[key] = lock
+        return lock
+
+
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
@@ -118,7 +207,10 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
             json.dump(data, f, indent=2, sort_keys=True)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp_name, path)  # atomic on the same filesystem, POSIX and Windows alike
+        # atomic on the same filesystem, POSIX and Windows alike -- but Windows can transiently
+        # deny the rename while another thread has `path` open for reading; see
+        # `_replace_with_retry`'s docstring.
+        _replace_with_retry(tmp_name, path)
     except BaseException:
         try:
             os.unlink(tmp_name)
@@ -134,10 +226,16 @@ def save_manifest(manifest: RunManifest, *, runs_root: Optional[Path] = None) ->
     reader never observes a truncated/partial file. It does *not* protect a read-modify-write
     against a lost update if two callers race (see :func:`update_manifest`'s docstring) —
     serialize your own read-modify-write calls if that matters.
+
+    Guarded by :func:`_lock_for` (2026-07-19) so this process's own concurrent
+    ``save_manifest``/``load_manifest`` calls against the same path never race at the OS level —
+    see that function's docstring for why the write-temp-rename dance alone wasn't enough on
+    Windows under real concurrent load.
     """
 
     path = manifest_path(manifest.run_id, runs_root=runs_root)
-    _atomic_write_json(path, manifest.model_dump())
+    with _lock_for(path):
+        _atomic_write_json(path, manifest.model_dump())
 
 
 def load_manifest(run_id: str, *, runs_root: Optional[Path] = None) -> RunManifest:
@@ -145,15 +243,18 @@ def load_manifest(run_id: str, *, runs_root: Optional[Path] = None) -> RunManife
 
     Raises ``FileNotFoundError`` if the run/manifest doesn't exist yet, or
     :class:`ManifestCorruptError` if it exists but is unreadable/invalid.
+
+    Guarded by :func:`_lock_for` (2026-07-19) — see :func:`save_manifest`'s docstring.
     """
 
     path = manifest_path(run_id, runs_root=runs_root)
     if not path.exists():
         raise FileNotFoundError(f"no manifest at {path}")
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
-        raise ManifestCorruptError(path, exc) from exc
+    with _lock_for(path):
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            raise ManifestCorruptError(path, exc) from exc
     try:
         return RunManifest.model_validate(raw)
     except ValidationError as exc:
@@ -205,6 +306,9 @@ def record_stage_result(
     error: Optional[str] = None,
     log_path: Optional[str] = None,
     cache_key: Optional[str] = None,
+    peak_vram_mb: Optional[float] = None,
+    peak_ram_mb: Optional[float] = None,
+    oom_fallback: Optional[dict[str, Any]] = None,
     runs_root: Optional[Path] = None,
 ) -> RunManifest:
     """Finish a stage: set its terminal status/timing, register any artifacts it produced.
@@ -216,6 +320,13 @@ def record_stage_result(
     ``cache_key`` (T05) is stored on the record for ``success``/``skipped`` results so a later
     call can compare it against a freshly-computed cache key to decide whether to skip. Left
     ``None`` for a ``failed`` result — a failed attempt has no valid cache key to reuse.
+
+    ``peak_vram_mb``/``peak_ram_mb``/``oom_fallback`` (T12): only ever passed by
+    ``pipeline.dag.scheduler`` for a stage that actually ran (never for a ``"skipped"`` cache hit,
+    which has no execution to have measured) — each is only written when not ``None``, the same
+    "only set if given" pattern ``cache_key`` already uses, so a caller that doesn't know about
+    these fields yet (e.g. a hand-built test call) leaves them untouched rather than clobbering a
+    previous value with ``None``.
     """
 
     def _mutate(m: RunManifest) -> None:
@@ -231,6 +342,12 @@ def record_stage_result(
             rec.log_path = log_path
         if cache_key is not None:
             rec.cache_key = cache_key
+        if peak_vram_mb is not None:
+            rec.peak_vram_mb = peak_vram_mb
+        if peak_ram_mb is not None:
+            rec.peak_ram_mb = peak_ram_mb
+        if oom_fallback is not None:
+            rec.oom_fallback = oom_fallback
         for art in artifacts:
             m.artifacts[art.name] = art
             if art.name not in rec.artifacts:

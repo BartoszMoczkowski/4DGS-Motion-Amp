@@ -8,9 +8,13 @@ modules: the stage registry (T04, via ``pipeline.dag.graph``), the run manifest 
 Design choices (see ``planning/tasks/T05-dag-scheduler-and-cache.md``):
 
 - **Serial execution.** One stage at a time, in topological order — correct for a single-GPU host
-  where the two GPU images never run concurrently (``planning/ARCHITECTURE.md``). The per-stage
-  loop body below is the one hook T12's resource gating slots into later (check headroom right
-  before ``stage_cls().run(ctx)``).
+  where the two GPU images never run concurrently (``planning/ARCHITECTURE.md``). T12 slots into
+  the per-stage loop body exactly where this docstring always said it would: a
+  ``pipeline.resources.check_headroom`` call right before a real (non-cached) stage runs, a
+  ``pipeline.resources.ResourceMonitor`` wrapping the run to fill ``StageRecord.peak_vram_mb``/
+  ``peak_ram_mb``, and ``pipeline.resources.run_with_oom_retry`` in place of a bare
+  ``stage_cls().run(ctx)`` call so an apparent CUDA OOM gets one reduced-memory retry before the
+  stage is recorded as failed.
 - **Caching is cross-run.** A stage is "fresh" if its cache key matches either this run's own
   manifest record (cheap, same-run resume) or a *different* run's success recorded in
   ``pipeline.dag.cache``'s index (cache reuse across runs of the same/similar preset). Either way
@@ -48,6 +52,7 @@ from ..artifacts import (
     stage_log_path,
     update_manifest,
 )
+from ..resources import InsufficientResourcesError, ResourceMonitor, check_headroom, run_with_oom_retry
 from ..stages import StageContext
 from .cache import compute_cache_key, get_cached, put_cached
 from .graph import DAGNode, MissingDependencyError, external_inputs, resolve_nodes, topo_sort
@@ -236,9 +241,13 @@ def run_dag(
             paths=_paths,
             containers=_containers,
         )
+        # T12: pre-flight resource gate, right before this stage actually starts — a too-large
+        # estimate raises `InsufficientResourcesError` here, *before* anything has run (no
+        # monitor started, nothing to measure), so it's recorded exactly like any other stage
+        # failure: a clean "failed" manifest entry with a clear message, never a bare crash.
         try:
-            result = node.stage_cls().run(ctx)
-        except Exception as exc:  # noqa: BLE001 - a failing stage must not crash the scheduler
+            check_headroom(node.stage_cls.resources)
+        except InsufficientResourcesError as exc:
             manifest = record_stage_result(
                 run_id,
                 name,
@@ -247,7 +256,26 @@ def run_dag(
                 log_path=str(stage_log_path(run_id, name, runs_root=runs_root)),
                 runs_root=runs_root,
             )
+            return manifest
+
+        monitor = ResourceMonitor()
+        monitor.start()
+        try:
+            result, oom_fallback = run_with_oom_retry(node.stage_cls, ctx, name)
+        except Exception as exc:  # noqa: BLE001 - a failing stage must not crash the scheduler
+            peak_vram_mb, peak_ram_mb = monitor.stop()
+            manifest = record_stage_result(
+                run_id,
+                name,
+                status="failed",
+                error=str(exc),
+                log_path=str(stage_log_path(run_id, name, runs_root=runs_root)),
+                peak_vram_mb=peak_vram_mb,
+                peak_ram_mb=peak_ram_mb,
+                runs_root=runs_root,
+            )
             return manifest  # stop scheduling; remaining selected stages stay "pending"
+        peak_vram_mb, peak_ram_mb = monitor.stop()
 
         for art in result.values():
             if art.content_hash is None:
@@ -263,6 +291,9 @@ def run_dag(
             artifacts=list(result.values()),
             cache_key=cache_key,
             log_path=str(stage_log_path(run_id, name, runs_root=runs_root)),
+            peak_vram_mb=peak_vram_mb,
+            peak_ram_mb=peak_ram_mb,
+            oom_fallback=oom_fallback,
             runs_root=runs_root,
         )
         put_cached(cache_key, run_id, name, result, runs_root=runs_root)

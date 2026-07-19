@@ -17,20 +17,21 @@ def test_submodule_stubs_import():
 
 def test_api_stubs_raise_not_implemented():
     """``run_pipeline``/``run_stage`` were wired to a real scheduler in T05 (see
-    ``tests/test_dag.py``); ``cancel``/``gpu_status``/container controls remain T08/T12 stubs."""
+    ``tests/test_dag.py``); ``list_containers``/``start_container``/``stop_container`` to
+    ``pipeline.containers`` in T08; ``gpu_status`` to ``pipeline.resources`` in T12 (see
+    ``tests/test_resources.py``). Only ``cancel`` remains a stub — out of scope for every task
+    scheduled so far."""
     from pipeline import api
 
     import pytest
 
     with pytest.raises(NotImplementedError):
         api.cancel("run001")
-    with pytest.raises(NotImplementedError):
-        api.gpu_status()
 
 
 def test_no_heavy_imports_at_module_scope():
-    """No torch/CUDA/docker/pynvml should be pulled in just by importing pipeline."""
-    banned = {"torch", "torchvision", "docker", "pynvml"}
+    """No torch/CUDA/docker/pynvml/psutil should be pulled in just by importing pipeline."""
+    banned = {"torch", "torchvision", "docker", "pynvml", "psutil"}
     before = set(sys.modules)
 
     import pipeline  # noqa: F401
