@@ -17,4 +17,8 @@ Additional files that contain results of the work include:
 
 the remaining data in ./data is synthetic data from DNerf https://github.com/albertpumarola/D-NeRF.
 
-Due to the size limitations the ./output folder containing the generated
+Due to the size limitations the ./output folder containing the generated trained models is not included in the repository.
+
+### Documentation
+
+Compiled project documentation lives in [`docs/`](docs/README.md): project overview, the motion-segmentation work (`motion_seg/`), the Omniverse→4DGS synthetic-data pipeline (`omniverse_pipeline/`), and the pipeline orchestrator (`orchestrator/`). Detailed chronological working notes are in `.claude_notes/`.
