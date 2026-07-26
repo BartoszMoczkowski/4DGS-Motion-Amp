@@ -1,5 +1,5 @@
 """``convert.default`` — calls the vendored, ported copy of
-``omniverse_pipeline/omni_to_4dgs.py``'s ``convert()``.
+``omniverse-pipeline/omniverse_pipeline/omni_to_4dgs.py``'s ``convert()``.
 
 Per the "copy the logic in, don't call the original script" rule (``planning/INSTRUCTIONS.md``,
 2026-07-14, superseding "wrap, don't rewrite"), this calls

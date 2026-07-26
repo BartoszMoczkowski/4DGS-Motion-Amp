@@ -1,8 +1,8 @@
 """Copied-in (vendored) stage logic, one subpackage per execution environment.
 
 Per ``planning/INSTRUCTIONS.md``'s "copy the logic in, don't call the original script" rule
-(2026-07-14, superseding "wrap, don't rewrite"): ``omniverse_pipeline/``, ``motion_seg/``, and the
-repo-root scripts (``train.py``, ``render.py``, ``render_amp.py``, ``mbs_infer.py``, ...) are
+(2026-07-14, superseding "wrap, don't rewrite"): ``omniverse-pipeline/omniverse_pipeline/``, ``motion-seg/motion_seg/``, and the
+``core/`` scripts (``train.py``, ``render.py``, ``render_amp.py``, ``mbs_infer.py``, ...) are
 throwaway/testing scripts, useful as a *reference* for already-verified logic, never as a live
 runtime dependency. A ``pipeline.stages`` module must never ``sys.path``-hack its way into
 importing them and must never shell out to them as a subprocess. Instead the verified

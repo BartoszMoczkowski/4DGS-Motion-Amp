@@ -53,7 +53,7 @@ def test_pump01_roundtrips_legacy_capture_yaml():
     from pipeline.config.loader import load_legacy_capture_yaml
 
     legacy = load_legacy_capture_yaml(
-        REPO_ROOT / "omniverse_pipeline" / "capture_config_pump.yaml"
+        REPO_ROOT / "omniverse-pipeline" / "omniverse_pipeline" / "capture_config_pump.yaml"
     )["capture"]
     cfg = validate_config("pump01").capture
 
@@ -74,7 +74,7 @@ def test_pump01_roundtrips_legacy_hyperparams():
     from pipeline.config import validate_config
     from pipeline.config.loader import load_legacy_hyperparams
 
-    legacy = load_legacy_hyperparams(REPO_ROOT / "arguments" / "multipleview" / "pump01.py")
+    legacy = load_legacy_hyperparams(REPO_ROOT / "core" / "arguments" / "multipleview" / "pump01.py")
     cfg = validate_config("pump01")
 
     legacy_hidden = {

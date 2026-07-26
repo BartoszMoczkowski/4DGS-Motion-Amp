@@ -1,0 +1,42 @@
+[project]
+name = "4dgs-core"
+version = "0.1.0"
+description = "4D Gaussian Splatting training/rendering core (upstream 4DGaussians fork) + motion amplification"
+requires-python = "==3.12.12"
+dependencies = [
+    "diff-gaussian-rasterization",
+    "simple-knn",
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "lpips>=0.1.4",
+    # train.py imports mmengine at module level; mmcv itself is Linux-only (CUDA container)
+    "mmengine>=0.10",
+    "mmcv; sys_platform == 'linux'",
+    "open3d>=0.19.0",
+    "opencv-python>=5.0.0.93",
+    "plyfile>=1.1.4",
+    "pyquaternion>=0.9.9",
+    "scipy>=1.11",
+    "matplotlib>=3.8",
+    "imageio[ffmpeg]>=2.37.3",
+    "tensorboardx>=2.6.5",
+    "tqdm>=4.67.3",
+    "ninja>=1.13.0",
+    "easydict>=1.13",
+    "scikit-learn>=1.5",
+]
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# Flat script-style layout: the upstream code imports top-level packages
+# (`scene`, `utils`, `gaussian_renderer`, `arguments`, `motion_amp`, `lpipsPyTorch`)
+# directly. Declaring them here makes `uv run --package 4dgs-core python core/train.py`
+# work from the repo root without sys.path hacks.
+[tool.setuptools.packages.find]
+include = ["scene*", "utils*", "gaussian_renderer*", "arguments*", "motion_amp*", "lpipsPyTorch*"]
+
+# Loose top-level scripts, also importable as modules (ampUI.py / run_renders_auto.py
+# do `import render_amp`).
+py-modules = ["train", "render", "render_amp", "export_perframe_3DGS", "merge_many_4dgs"]

@@ -13,16 +13,16 @@ Single source of truth for how the three layers fit together. Expands the origin
 
 | # | Stage (role.impl) | Ported from (reference only) | Env | GPU |
 |---|---|---|---|---|
-| 1 | prep_split.default | `omniverse_pipeline/split_mesh.py` | isaac* | no |
-| 2 | prep_motion.default | `omniverse_pipeline/add_motion.py` | isaac* | no |
-| 3 | capture.isaac | `omniverse_pipeline/omni_capture.py` | isaac† | yes |
-| 4 | convert | `omniverse_pipeline/omni_to_4dgs.py` | host | no |
-| 5 | train | `train.py` | cuda | yes |
-| 6 | render | `render.py` | cuda | yes |
-| 7 | seg_extract | `motion_seg/extract_trajectories.py` | cuda | yes |
-| 8 | segment.rigid (B) / segment.mbs (A) | `motion_seg/segment_rigid.py` / `mbs_infer.py` | host / cuda | no / yes |
-| 9 | seg_eval | `motion_seg/evaluate_segmentation.py` | host | no |
-| 10 | amp | `render_amp.py` (+ `motion_amp/renderer.py`) | cuda | yes |
+| 1 | prep_split.default | `omniverse-pipeline/omniverse_pipeline/split_mesh.py` | isaac* | no |
+| 2 | prep_motion.default | `omniverse-pipeline/omniverse_pipeline/add_motion.py` | isaac* | no |
+| 3 | capture.isaac | `omniverse-pipeline/omniverse_pipeline/omni_capture.py` | isaac† | yes |
+| 4 | convert | `omniverse-pipeline/omniverse_pipeline/omni_to_4dgs.py` | host | no |
+| 5 | train | `core/train.py` | cuda | yes |
+| 6 | render | `core/render.py` | cuda | yes |
+| 7 | seg_extract | `motion-seg/motion_seg/extract_trajectories.py` | cuda | yes |
+| 8 | segment.rigid (B) / segment.mbs (A) | `motion-seg/motion_seg/segment_rigid.py` / `mbs_infer.py` | host / cuda | no / yes |
+| 9 | seg_eval | `motion-seg/motion_seg/evaluate_segmentation.py` | host | no |
+| 10 | amp | `core/render_amp.py` (+ `core/motion_amp/renderer.py`) | cuda | yes |
 
 \* `prep_split`/`prep_motion` are plain USD/trimesh CPU work with no real Isaac Sim runtime
 dependency — decided in T11 to run in the existing `isaac` container anyway (it already has
@@ -46,8 +46,8 @@ rendering — and still exec inside the `isaac` container as before.
 
 The two GPU images never need to run simultaneously → single-GPU **serial** scheduling is fine.
 
-**"Ported from" means exactly that, not "imports at runtime."** `omniverse_pipeline/`, `motion_seg/`,
-and the repo-root scripts are throwaway/testing scripts — a reference for already-verified logic,
+**"Ported from" means exactly that, not "imports at runtime."** `omniverse-pipeline/omniverse_pipeline/`,
+`motion-seg/motion_seg/`, and the `core/` scripts are throwaway/testing scripts — a reference for already-verified logic,
 not a dependency. No stage may `sys.path`-hack into them or shell out to them (superseded
 "wrap, don't rewrite"; see `INSTRUCTIONS.md` and `.claude_notes/NOTES_pipeline_orchestration.md`,
 2026-07-14). The only thing genuinely external to this project is the **container runtime**
@@ -86,14 +86,14 @@ host process. Instead the stage builds a CLI invocation (`python pipeline/vendor
 see `pipeline/stages/cuda_common.py`. T08's repo bind-mount (`/workspace`) is what makes
 `pipeline/vendored/cuda|isaac` visible inside the running container, so the container executes
 the orchestrator's copy, not whatever happens to be sitting in
-`omniverse_pipeline/`/`motion_seg`/repo root at the time.
+`omniverse-pipeline/`/`motion-seg/`/`core/` at the time.
 
 ## Layer 1 — `pipeline/` execution module
 
 Components (each maps to a task):
 
 - **Config** (T02): one pydantic schema for *all* settings; layered presets
-  `base ← scene ← experiment`. Replaces `capture_config*.yaml`, `arguments/multipleview/*.py`, and
+  `base ← scene ← experiment`. Replaces `capture_config*.yaml`, `core/arguments/multipleview/*.py`, and
   `.sh` flags. Validated before anything runs.
 - **Artifacts + run manifest** (T03): typed artifact records; per-run `manifest.json` with
   resolved config, git SHA, per-stage status/timing/logs/outputs/peak-mem. The read surface for
@@ -140,7 +140,7 @@ the Claude sandbox has no CUDA/Isaac/Docker.
 ## Layer 3 — UI (deprioritized)
 
 Thin layer over the **same** Layer 1 API (T15, done 2026-07-19). Streamlit (`orchestrator/ui/`),
-folding in `ampUI.py`'s amp-param panel: pick/edit preset, launch run, watch stage progress + logs
+folding in `amp-ui/amp_ui/ampUI.py`'s amp-param panel: pick/edit preset, launch run, watch stage progress + logs
 + GPU, browse artifacts/previews, compare runs. **Talks to Layer 1 by direct in-process import**
 (`pipeline`/`mcp_server`), not the T14 HTTP server — this UI only ever runs on the same machine as
 Layer 1 itself, unlike a possibly-remote MCP client, so there's no reason to hop through the

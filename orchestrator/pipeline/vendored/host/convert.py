@@ -1,4 +1,4 @@
-"""Vendored, verbatim copy of ``omniverse_pipeline/omni_to_4dgs.py``'s ``convert()`` and the
+"""Vendored, verbatim copy of ``omniverse-pipeline/omniverse_pipeline/omni_to_4dgs.py``'s ``convert()`` and the
 geometry/COLMAP-writer helpers it calls (2026-07-14 copy-in rework of T07; see
 ``pipeline.vendored``'s module docstring). Function bodies are byte-for-byte the reference
 script's — no import changes needed here (the reference script's helpers have no cross-repo

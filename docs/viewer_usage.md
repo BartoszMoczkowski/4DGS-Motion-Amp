@@ -7,9 +7,10 @@ The viewer is downloads from [3D-GS](https://repo-sam.inria.fr/fungraph/3d-gauss
 |      ├── resources
 |      ├── shaders
 |      |...
-|   | train.py
-|   | test.py
-|   | ...(other files)
+|   | core
+|      ├── train.py
+|      ├── render.py
+|      |...(other files)
 ```
 ## How to use viewer?
 If you train the 4D-GS on locally:
@@ -28,8 +29,9 @@ Then you could clone this repo on your personal computer, and download a D-NeRF 
 |      |...
 │   | data 
 │     ├── dnerf
-|   | train.py
-|   | test.py
-|   | ...(other files)
+|   | core
+|      ├── train.py
+|      ├── render.py
+|      |...(other files)
 ```
 And the rendering speed may mainly depends on your network bandwidth.

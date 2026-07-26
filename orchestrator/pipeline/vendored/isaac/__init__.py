@@ -2,7 +2,7 @@
 
 Per ``planning/INSTRUCTIONS.md``'s "copy the logic in, don't call the original script" rule and
 ``pipeline.vendored``'s module docstring: each module here is a verbatim, byte-for-byte port of
-the corresponding repo-root reference script under ``omniverse_pipeline/``, including its own
+the corresponding repo-root reference script under ``omniverse-pipeline/omniverse_pipeline/``, including its own
 ``argparse``-based ``if __name__ == "__main__":`` entry point (where it has one). Like
 ``pipeline.vendored.cuda`` (T09/T10) and unlike ``pipeline.vendored.host`` (T07), these modules
 are never imported by the orchestrator's own host process — they only ever run as a **separate
@@ -11,15 +11,15 @@ process inside the ``isaac`` container**, via Isaac Sim's own bundled interprete
 ``pipeline/stages/isaac_common.py``), because that's the only place ``pxr``/``omni.*``
 (Isaac Sim's USD/Omniverse Kit bindings) are actually importable.
 
-- :mod:`pipeline.vendored.isaac.rig` — verbatim port of ``omniverse_pipeline/rig.py`` (pure-math
+- :mod:`pipeline.vendored.isaac.rig` — verbatim port of ``omniverse-pipeline/omniverse_pipeline/rig.py`` (pure-math
   camera-rig generation, numpy-only — no Isaac Sim dependency itself, but vendored alongside
   ``omni_capture.py`` since that's the one same-directory import it makes).
 - :mod:`pipeline.vendored.isaac.split_mesh` — verbatim port of
-  ``omniverse_pipeline/split_mesh.py`` (stage ``prep_split.default``).
+  ``omniverse-pipeline/omniverse_pipeline/split_mesh.py`` (stage ``prep_split.default``).
 - :mod:`pipeline.vendored.isaac.add_motion` — verbatim port of
-  ``omniverse_pipeline/add_motion.py`` (stage ``prep_motion.default``).
+  ``omniverse-pipeline/omniverse_pipeline/add_motion.py`` (stage ``prep_motion.default``).
 - :mod:`pipeline.vendored.isaac.omni_capture` — verbatim port of
-  ``omniverse_pipeline/omni_capture.py`` (stage ``capture.isaac``).
+  ``omniverse-pipeline/omniverse_pipeline/omni_capture.py`` (stage ``capture.isaac``).
 
 Env decision (``planning/ARCHITECTURE.md``'s "isaac/host*" footnote, resolved by this task):
 ``split_mesh``/``add_motion`` are plain-Python USD/trimesh CPU work with no actual Isaac Sim

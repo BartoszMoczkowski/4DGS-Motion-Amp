@@ -19,10 +19,10 @@ Key design decisions (locked with the author): static segmentation (one labeling
 
 | Path | What it is |
 |---|---|
-| root (`train.py`, `render.py`, `scene/`, …) | Upstream [4DGaussians](https://github.com/hustvl/4DGaussians) codebase (base of this fork) |
-| `render_amp.py`, `motion_amp/`, `ampUI.py`, `cameras.py`, `run_renders_auto.py` | Author's motion-amplification code (FFT-based Eulerian amplification over per-Gaussian trajectory tensors, Streamlit UI) |
-| `omniverse_pipeline/` | Isaac Sim capture + USD prep + converter to 4DGS `multipleview` format — see [omniverse-pipeline.md](omniverse-pipeline.md) |
-| `motion_seg/` | Motion segmentation: rigidity-graph clustering (Option B) + MBS inference adapter (Option A) + evaluation — see [motion-segmentation.md](motion-segmentation.md) |
+| `core/` (package `4dgs-core`: `train.py`, `render.py`, `render_amp.py`, `scene/`, …) | Upstream [4DGaussians](https://github.com/hustvl/4DGaussians) codebase (base of this fork) plus the author's motion-amplification code (FFT-based Eulerian amplification over per-Gaussian trajectory tensors) |
+| `amp-ui/` (package `amp-ui`: `amp_ui/ampUI.py`, `cameras.py`, `run_renders_auto.py`) | Standalone Streamlit UI, USB camera recorder, benchmark harness |
+| `omniverse-pipeline/` | Isaac Sim capture + USD prep + converter to 4DGS `multipleview` format — see [omniverse-pipeline.md](omniverse-pipeline.md) |
+| `motion-seg/` | Motion segmentation: rigidity-graph clustering (Option B) + MBS inference adapter (Option A) + evaluation — see [motion-segmentation.md](motion-segmentation.md) |
 | `orchestrator/` | Pipeline orchestration: DAG execution package, HTTP MCP server, Streamlit UI — see [orchestrator.md](orchestrator.md) |
 | `submodules/multibody-sync-4dgs` | Fork of MultiBodySync (CVPR 2021), used as segmentation reference |
 | `.claude_notes/` | Chronological working notes (the primary detailed record) |

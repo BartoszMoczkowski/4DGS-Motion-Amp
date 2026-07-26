@@ -1,8 +1,8 @@
 """Pydantic models for the unified pipeline config.
 
 One typed schema covering every stage's settings, replacing three scattered sources:
-``omniverse_pipeline/capture_config_pump.yaml``, ``arguments/multipleview/<name>.py``, and the
-CLI flags baked into ``train_pump.sh`` / ``motion_seg/run.sh`` / ``render_amp.py``. See
+``omniverse-pipeline/omniverse_pipeline/capture_config_pump.yaml``, ``core/arguments/multipleview/<name>.py``, and the
+CLI flags baked into ``omniverse-pipeline/train_pump.sh`` / ``motion-seg/motion_seg/run.sh`` / ``core/render_amp.py``. See
 ``pipeline/config/MIGRATION.md`` for the exact old-setting -> new-field mapping and
 ``planning/tasks/T02-config-schema-and-presets.md`` for scope.
 
@@ -178,7 +178,7 @@ class RenderConfig(StrictModel):
 
 
 class SegExtractConfig(StrictModel):
-    """``motion_seg/extract_trajectories.py`` flags (beyond the shared param groups)."""
+    """``motion-seg/motion_seg/extract_trajectories.py`` flags (beyond the shared param groups)."""
 
     iteration: int = -1
     configs: Optional[str] = None
@@ -191,7 +191,7 @@ class SegExtractConfig(StrictModel):
 
 
 class SegmentRigidConfig(StrictModel):
-    """``motion_seg/segment_rigid.py`` (segmentation Option B: rigidity-graph clustering)."""
+    """``motion-seg/motion_seg/segment_rigid.py`` (segmentation Option B: rigidity-graph clustering)."""
 
     k: int = 12
     min_size: int = 15
@@ -202,7 +202,7 @@ class SegmentRigidConfig(StrictModel):
 
 
 class SegmentMbsConfig(StrictModel):
-    """``motion_seg/mbs_infer.py`` (segmentation Option A: MultiBodySync MotNet inference).
+    """``motion-seg/motion_seg/mbs_infer.py`` (segmentation Option A: MultiBodySync MotNet inference).
 
     ``checkpoint`` has no sensible default (it's a required CLI flag pointing at a downloaded
     ``.pth.tar``); left empty here and enforced by :meth:`SegmentConfig._check_impl_ready`.
@@ -240,7 +240,7 @@ class SegmentConfig(StrictModel):
 
 
 class SegEvalConfig(StrictModel):
-    """``motion_seg/evaluate_segmentation.py`` flags."""
+    """``motion-seg/motion_seg/evaluate_segmentation.py`` flags."""
 
     drop_floaters: bool = False
     recolored_ply: Optional[str] = None
@@ -251,7 +251,7 @@ class SegEvalConfig(StrictModel):
 
 # --- amplification ----------------------------------------------------------------------------
 
-#: Fixed channel order used by render_amp.py / ampUI.py (positional indexing into
+#: Fixed channel order used by core/render_amp.py / amp-ui/amp_ui/ampUI.py (positional indexing into
 #: amp_factors/freq_cutoffs lists) — this is the canonical channel list for the new schema.
 AMP_CHANNELS: tuple[str, ...] = (
     "pos3d",
@@ -264,7 +264,7 @@ AMP_CHANNELS: tuple[str, ...] = (
     "cov3D",
 )
 
-#: ampUI.py's Streamlit method labels map to different underlying functions than render_amp.py's
+#: amp-ui/amp_ui/ampUI.py's Streamlit method labels map to different underlying functions than core/render_amp.py's
 #: CLI ``--method`` strings. The new schema standardizes on the CLI names; this alias table lets
 #: a future UI/wrapper (T09/T15) translate the Streamlit label a user picks back to a canonical
 #: ``AmpConfig.method`` value. See MIGRATION.md for the full reconciliation.
@@ -285,7 +285,7 @@ class AmpChannelConfig(StrictModel):
 
 
 class AmpConfig(StrictModel):
-    """``render_amp.py`` / ``ampUI.py`` flags."""
+    """``core/render_amp.py`` / ``amp-ui/amp_ui/ampUI.py`` flags."""
 
     method: Literal["eulerian", "eulerian_abs", "eulerian_mod", "eulerian_abs_mod"] = "eulerian"
     low_vram_mode: bool = False

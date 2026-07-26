@@ -17,9 +17,9 @@ for the shared argument-building/bridge-file/container-exec plumbing.
 - :mod:`pipeline.vendored.cuda.train` — verbatim port of ``train.py``.
 - :mod:`pipeline.vendored.cuda.render` — verbatim port of ``render.py``.
 - :mod:`pipeline.vendored.cuda.seg_extract` — verbatim port of
-  ``motion_seg/extract_trajectories.py``.
-- :mod:`pipeline.vendored.cuda.amp` — verbatim port of ``render_amp.py``.
-- :mod:`pipeline.vendored.cuda.mbs_infer` — verbatim port of ``motion_seg/mbs_infer.py`` (T10,
+  ``motion-seg/motion_seg/extract_trajectories.py``.
+- :mod:`pipeline.vendored.cuda.amp` — verbatim port of ``core/render_amp.py``.
+- :mod:`pipeline.vendored.cuda.mbs_infer` — verbatim port of ``motion-seg/motion_seg/mbs_infer.py`` (T10,
   segmentation "Option A": MultiBodySync MotNet inference — a second impl behind the same
   ``segment`` role ``segment.rigid`` (T07) already occupies, see
   ``pipeline/stages/segment_mbs.py``).

@@ -1,5 +1,5 @@
 """``seg_extract.default`` — runs the vendored, ported copy of
-``motion_seg/extract_trajectories.py``'s CLI (``pipeline/vendored/cuda/seg_extract.py``) inside
+``motion-seg/motion_seg/extract_trajectories.py``'s CLI (``pipeline/vendored/cuda/seg_extract.py``) inside
 the ``cuda`` container (T08/T09).
 
 See ``pipeline.stages.train``'s and ``pipeline.stages.cuda_common``'s module docstrings for the

@@ -1,42 +1,10 @@
 [project]
 name = "4dgs-motion-amp"
 version = "0.1.0"
-description = "Add your description here"
+description = "Workspace root for the 4DGS motion-amplification project — no runtime deps; sync individual members (see [tool.uv.workspace])"
 readme = "README.md"
 requires-python = "==3.12.12"
-dependencies = [
-    "argparse>=1.4.0",
-    "diff-gaussian-rasterization",
-    "imageio[ffmpeg]>=2.37.3",
-    "lpips>=0.1.4",
-    "matplotlib>=3.8",
-    "mmcv; sys_platform == 'linux'",
-    "ninja>=1.13.0",
-    "open3d>=0.19.0",
-    "opencv-python>=5.0.0.93",
-    "plyfile>=1.1.4",
-    "pyquaternion>=0.9.9",
-    "pyyaml>=6.0.3",
-    "scipy>=1.11",
-    "simple-knn",
-    "tensorboardx>=2.6.5",
-    "torch>=2.6.0",
-    "torchvision>=0.21.0",
-    "tqdm>=4.67.3",
-]
-
-[project.optional-dependencies]
-# Layer 1 orchestrator (see orchestrator/planning/ARCHITECTURE.md). Pure-Python,
-# no torch/CUDA — opt in with `uv sync --extra orchestrator` /
-# `pip install -e .[orchestrator]`; never installed by a plain `uv sync`.
-orchestrator = ["pipeline"]
-# Layer 2 (T13/T14) — MCP server over HTTP, on top of Layer 1. Separate extra so a Layer-1-only
-# install (running/testing the DAG engine itself) doesn't need `mcp`/starlette/uvicorn at all.
-orchestrator-mcp = ["pipeline[mcp]"]
-# Layer 3 (T15) — Streamlit UI, on top of Layer 1 (imports `pipeline`/`mcp_server` directly, no
-# HTTP hop — see orchestrator/ui/README.md). Separate extra for the same reason as
-# `orchestrator-mcp`: a Layer-1-only install never needs `streamlit` pulled in.
-orchestrator-ui = ["pipeline[ui]"]
+dependencies = []
 
 [[tool.uv.index]]
 name = "pytorch-cu126"
@@ -52,15 +20,22 @@ depth-diff-gaussian-rasterization = { workspace = true, editable = true }
 diff-gaussian-rasterization = { workspace = true, editable = true }
 simple-knn = { workspace = true, editable = true }
 pipeline = { workspace = true, editable = true }
+"4dgs-core" = { workspace = true, editable = true }
+motion-seg = { workspace = true, editable = true }
+omniverse-pipeline = { workspace = true, editable = true }
+amp-ui = { workspace = true, editable = true }
 mmcv = { url = "https://download.openmmlab.com/mmcv/dist/cu121/torch2.4.0/mmcv-2.2.0-cp312-cp312-manylinux1_x86_64.whl" }
 
 [tool.uv.workspace]
 members = [
+    "core",
+    "motion-seg",
+    "omniverse-pipeline",
+    "amp-ui",
     "submodules/depth-diff-gaussian-rasterization",
     "submodules/simple-knn",
     "orchestrator",
 ]
 
-
 [tool.uv]
-no-build-isolation-package = ["diff-gaussian-rasterization","simple-knn"]
+no-build-isolation-package = ["diff-gaussian-rasterization", "simple-knn"]

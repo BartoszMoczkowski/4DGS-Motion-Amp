@@ -28,8 +28,8 @@ Needs Layer 1's own dependencies (same environment you'd run/test the orchestrat
 package in) plus `streamlit`. From the repo root, using the `uv` workspace:
 
 ```
-uv sync --extra orchestrator-ui
-uv run streamlit run orchestrator/ui/app.py
+uv sync --package pipeline --extra ui
+uv run --package pipeline --extra ui streamlit run orchestrator/ui/app.py
 ```
 
 Or, from an existing orchestrator dev venv (`orchestrator/`) with `pipeline` already installed
@@ -48,7 +48,7 @@ explicitly needs one because it's reachable over the network).
 ## Views
 
 - **Presets** — pick a preset, resolve/validate it, see the full resolved config. Folds in
-  `ampUI.py`'s amplification-parameter panel (per-channel factor/freq-cutoff editor, method
+  `amp-ui/amp_ui/ampUI.py`'s amplification-parameter panel (per-channel factor/freq-cutoff editor, method
   picker) pre-filled from the preset's resolved `amp:` section. "Save as new preset" writes a new
   `pipeline/config/presets/<name>.yaml` (`extends: <this preset>` + the amp overrides) — this is
   config, not pipeline logic, so it doesn't violate the "no logic in the UI" rule.

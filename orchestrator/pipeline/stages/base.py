@@ -2,7 +2,7 @@
 
 A concrete stage is a thin orchestration adapter (config, artifacts, logging, ctx) around logic
 *ported into this project* from an already-verified reference script (``train.py``,
-``omni_capture.py``, ``motion_seg/segment_rigid.py``, ...) — see ``planning/INSTRUCTIONS.md``'s
+``omni_capture.py``, ``motion-seg/motion_seg/segment_rigid.py``, ...) — see ``planning/INSTRUCTIONS.md``'s
 "copy the logic in, don't call the original script" rule (2026-07-14, superseding "wrap, don't
 rewrite"): a stage calls into ``pipeline.vendored.<env>.*``, never the reference script itself
 (no reach-outside-the-package import hack, no subprocess to it). This module only defines the

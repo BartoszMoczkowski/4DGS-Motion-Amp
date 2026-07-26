@@ -34,8 +34,8 @@ Shared reference for how Claude and Bartosz work on this subproject. Keep this s
 ## Ground rules for the work
 
 - **Copy the logic in, don't call the original script.** (Superseded "wrap, don't rewrite" —
-  2026-07-14, see `.claude_notes/NOTES_pipeline_orchestration.md`.) `omniverse_pipeline/`,
-  `motion_seg/`, and the repo-root scripts (`train.py`, `render.py`, `render_amp.py`, ...) are
+  2026-07-14, see `.claude_notes/NOTES_pipeline_orchestration.md`.) `omniverse-pipeline/omniverse_pipeline/`,
+  `motion-seg/motion_seg/`, and the `core/` scripts (`train.py`, `render.py`, `render_amp.py`, ...) are
   throwaway/testing scripts — useful as a *reference* for already-verified logic, never as a live
   dependency. A stage must not `sys.path`-hack its way into importing them, and must not shell out
   to them as a subprocess. Instead, port the verified function(s) into the orchestrator's own tree
@@ -51,7 +51,7 @@ Shared reference for how Claude and Bartosz work on this subproject. Keep this s
   (self-test, dry-run, or a real run where a GPU is available). CPU-only pieces must be verifiable
   in the sandbox; GPU pieces get a documented manual-run checklist for Bartosz's machine.
 - **Config is the single source of truth.** Once T02 lands, no new `.sh` files and no new
-  scattered YAML/`arguments/*.py` — new settings go into the config schema/presets.
+  scattered YAML/`core/arguments/*.py` — new settings go into the config schema/presets.
 - **Path translation lives in exactly one module** (T06). Never hardcode `Q:\` / `/omniverse` /
   `/workspace` anywhere else.
 - **Keep the old `.sh` scripts working** until a stage reaches parity, as a fallback.

@@ -1,6 +1,6 @@
 # Omniverse → 4DGS synthetic-data pipeline
 
-Compiled from `.claude_notes/NOTES_omniverse_pipeline.md` and `omniverse_pipeline/README.md` (full detail there).
+Compiled from `.claude_notes/NOTES_omniverse_pipeline.md` and `omniverse-pipeline/omniverse_pipeline/README.md` (full detail there).
 
 ## Why synthetic data
 
@@ -16,10 +16,10 @@ prepared USD stage (parts + authored motion + semantics)
       data/multipleview/<scene>/: camNN/frame_XXXXX.jpg, sparse_/ (COLMAP bins written
       directly from GT poses), points3D_multipleview.ply, poses_bounds_multipleview.npy,
       gt_segmentation.npz, scene_scale.json
-  → train.py (4DGS multipleview) → segmentation → render_amp.py
+  → core/train.py (4DGS multipleview) → segmentation → core/render_amp.py
 ```
 
-Key files: `omniverse_pipeline/{omni_capture.py, omni_to_4dgs.py, rig.py, split_mesh.py, add_motion.py, capture_config*.yaml}`. The camera rig is 8–12 configurable static cameras on a ring/dome looking at the subject's bbox center.
+Key files: `omniverse-pipeline/omniverse_pipeline/{omni_capture.py, omni_to_4dgs.py, rig.py, split_mesh.py, add_motion.py, capture_config*.yaml}`. The camera rig is 8–12 configurable static cameras on a ring/dome looking at the subject's bbox center.
 
 ## The pump test asset
 

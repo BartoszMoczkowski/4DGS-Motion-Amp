@@ -41,9 +41,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # venv and the compiled extensions survive into the running container.
 WORKDIR /opt/build
 
-# Copy the dependency files first to leverage Docker caching
+# Copy the dependency files first to leverage Docker caching. uv needs the pyproject.toml
+# of *every* workspace member present to resolve the lockfile, even though only the CUDA core
+# package (and its editable CUDA-extension deps) is actually synced below.
 COPY pyproject.toml uv.lock  ./
 COPY submodules/ ./submodules/
+COPY core/ ./core/
+COPY motion-seg/pyproject.toml ./motion-seg/pyproject.toml
+COPY omniverse-pipeline/pyproject.toml ./omniverse-pipeline/pyproject.toml
+COPY amp-ui/pyproject.toml ./amp-ui/pyproject.toml
+COPY orchestrator/pyproject.toml ./orchestrator/pyproject.toml
 RUN ls -la /*
 
 # `docker build` never has GPU passthrough (only `docker run --gpus` does), so torch can't
@@ -54,10 +61,12 @@ RUN ls -la /*
 # update this if the build ever needs to target a different GPU.
 ENV TORCH_CUDA_ARCH_LIST="8.6+PTX"
 
-# Create the virtual environment and install dependencies
+# Create the virtual environment and install dependencies.
+# Only the CUDA core package is synced into this image (plus its editable CUDA-extension
+# workspace deps); the other workspace members are CPU/Isaac-side and don't belong here.
 # --frozen ensures uv uses the exact versions in uv.lock without updating it
 RUN uv venv .venv && \
-    uv sync --frozen
+    uv sync --frozen --package 4dgs-core
 
 # Expose the virtual environment's binary folder to the PATH
 # This fulfills the requirement to expose the obtained python file/binaries

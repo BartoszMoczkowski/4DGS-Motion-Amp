@@ -39,7 +39,7 @@ Every path the pipeline cares about falls under exactly one of two roots — **r
 - The repo root's host form is derived from ``__file__`` (this module already lives inside the
   repo, wherever it's actually checked out) — no hardcoded drive letter or username.
 - The assets root has no such anchor (it's an external asset library, e.g. ``Q:\\Omniverse``) —
-  its default matches the existing ``omniverse_pipeline/capture_config_pump.yaml`` convention and
+  its default matches the existing ``omniverse-pipeline/omniverse_pipeline/capture_config_pump.yaml`` convention and
   is overridable via the ``PIPELINE_ASSETS_ROOT`` env var (``PIPELINE_REPO_ROOT`` for the repo
   root).
 
@@ -79,7 +79,7 @@ _ASSETS_ROOT_ENV_VAR = "PIPELINE_ASSETS_ROOT"
 
 #: Sensible defaults. Repo root comes from where this file actually is; the assets root has no
 #: such anchor so it falls back to the path already used in
-#: ``omniverse_pipeline/capture_config_pump.yaml`` (``Q:/Omniverse``).
+#: ``omniverse-pipeline/omniverse_pipeline/capture_config_pump.yaml`` (``Q:/Omniverse``).
 _DEFAULT_REPO_ROOT_HOST = _THIS_FILE_HOST
 _DEFAULT_ASSETS_ROOT_HOST = Path("Q:/Omniverse")
 

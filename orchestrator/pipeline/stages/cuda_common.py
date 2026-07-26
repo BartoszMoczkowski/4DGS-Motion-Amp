@@ -2,7 +2,7 @@
 bridge-config file (``pipeline.config.bridge``), and the container-exec call itself.
 
 Every ``pipeline/vendored/cuda/*.py`` script is a plain ``argparse`` CLI (verbatim ports of
-``train.py``/``render.py``/``motion_seg/extract_trajectories.py``/``render_amp.py`` — see
+``core/train.py``/``core/render.py``/``motion-seg/motion_seg/extract_trajectories.py``/``core/render_amp.py`` — see
 ``pipeline.vendored.cuda``'s package docstring) invoked as ``python <script> <args...>`` *inside*
 the ``cuda`` container via ``ctx.containers`` (T08, wired into ``StageContext`` by
 ``pipeline.dag.scheduler`` alongside ``ctx.paths`` — see that module's "T09" note). None of these
@@ -41,7 +41,9 @@ VENDORED_CUDA_SCRIPTS: dict[str, str] = {
 #: `PYTHONPATH` a container-side script needs so `from arguments import ...` etc. resolve —
 #: Python only puts the *script's own* directory on `sys.path[0]`, not the exec `workdir`, and
 #: `pipeline/vendored/cuda/*.py` lives several directories below the repo root those imports need.
-CUDA_EXTRA_ENV: dict[str, str] = {"PYTHONPATH": "/workspace"}
+#: Since the repo-layout split, the importable top-level packages (`scene`, `utils`,
+#: `arguments`, `gaussian_renderer`, `motion_amp`, `lpipsPyTorch`) live under `core/`.
+CUDA_EXTRA_ENV: dict[str, str] = {"PYTHONPATH": "/workspace/core"}
 
 
 class CudaStageError(RuntimeError):

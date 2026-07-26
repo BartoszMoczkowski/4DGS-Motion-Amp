@@ -1,6 +1,6 @@
 """T15 — a thin Streamlit panel over Layer 1's ``pipeline.api``.
 
-Views (per ``planning/tasks/T15-ui.md``'s scope): pick/edit a preset (folds in ``ampUI.py``'s
+Views (per ``planning/tasks/T15-ui.md``'s scope): pick/edit a preset (folds in ``amp-ui/amp_ui/ampUI.py``'s
 amp-parameter panel), launch a run and watch per-stage progress/logs, browse artifacts/previews,
 compare two runs. No pipeline logic lives here — every action calls into ``layer1_client``, which
 itself only calls ``pipeline.api`` (+ the same read-only helpers Layer 2's MCP server uses).
@@ -135,7 +135,7 @@ with tab_presets:
         with st.expander("Full resolved config (JSON)"):
             st.json(resolved)
 
-        st.markdown("#### Amplification-parameter panel (folded in from `ampUI.py`)")
+        st.markdown("#### Amplification-parameter panel (folded in from `amp-ui/amp_ui/ampUI.py`)")
         amp = resolved.get("amp", {})
         channels_cfg = amp.get("channels", {})
 

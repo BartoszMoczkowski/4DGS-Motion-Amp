@@ -29,7 +29,7 @@ def should_use_low_vram_mode(
     *,
     default: bool = False,
 ) -> bool:
-    """``AmpConfig.low_vram_mode`` (``render_amp.py``/``ampUI.py``'s ``--low_vram`` /
+    """``AmpConfig.low_vram_mode`` (``core/render_amp.py``/``amp-ui/amp_ui/ampUI.py``'s ``--low_vram`` /
     "Low VRAM mode" checkbox — moves intermediate tensors off-GPU aggressively between amplify
     steps, at a speed cost). Forced ``True`` when free VRAM is below the stage's own estimate times
     :data:`_COMFORTABLE_MARGIN`; otherwise left at whatever the config already said
@@ -51,7 +51,7 @@ def scaled_working_set(
     floor: int,
 ) -> int:
     """Scale a GPU working-set size (``SegmentMbsConfig.n_points``/``n_sub`` — MotNet's
-    subsampled point/FPS-subsample counts, ``motion_seg/mbs_infer.py``'s own default is 4000/256)
+    subsampled point/FPS-subsample counts, ``motion-seg/motion_seg/mbs_infer.py``'s own default is 4000/256)
     down proportionally to how far free VRAM falls short of the stage's comfortable estimate, never
     below ``floor`` (below which the algorithm's own accuracy assumptions break down — MotNet needs
     a minimum working set to do anything meaningful) and never above ``default`` (plenty of
@@ -93,7 +93,7 @@ def scaled_opacity_thresh(
     ceiling: float = 0.5,
 ) -> float:
     """Scale ``SegmentRigidConfig``/``SegmentMbsConfig.opacity_thresh`` (both default ``0.1`` —
-    ``motion_seg/segment_rigid.py``/``mbs_infer.py``'s pre-filter dropping near-transparent
+    ``motion-seg/motion_seg/segment_rigid.py``/``mbs_infer.py``'s pre-filter dropping near-transparent
     Gaussians before clustering/working-set selection) *up* under tight VRAM — the inverse
     direction from :func:`scaled_working_set`: a stricter opacity cutoff drops more points before
     any working-set subsample even runs, shrinking the set MotNet/the rigidity graph actually

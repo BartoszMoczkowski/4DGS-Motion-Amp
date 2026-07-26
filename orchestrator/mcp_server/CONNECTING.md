@@ -31,14 +31,14 @@ it:**
 
 ```powershell
 # one-time: install the Layer 2 extra (Layer 1's `pipeline` plus `mcp`)
-uv sync --extra orchestrator-mcp
+uv sync --package pipeline --extra mcp
 
 # generate a token once, save it somewhere safe (a password manager, not a repo file)
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 # every time you start the server
 $env:PIPELINE_MCP_TOKEN = "<paste the token>"
-python -m mcp_server
+uv run --package pipeline --extra mcp python -m mcp_server
 ```
 
 Reads three env vars (`mcp_server/config.py`):

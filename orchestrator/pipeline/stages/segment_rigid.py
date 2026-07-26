@@ -1,5 +1,5 @@
 """``segment.rigid`` — calls the vendored, ported copy of
-``motion_seg/segment_rigid.py``'s ``segment_trajectories()``.
+``motion-seg/motion_seg/segment_rigid.py``'s ``segment_trajectories()``.
 
 Per the "copy the logic in, don't call the original script" rule (``planning/INSTRUCTIONS.md``,
 2026-07-14, superseding "wrap, don't rewrite"), this calls

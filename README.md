@@ -3,11 +3,11 @@ This is the project for the Thesis in Technology Univeristy of Lodz by Bartosz M
 
 The project is based on previous work of 4DGS https://github.com/hustvl/4DGaussians and as such only a small number of files were created by me. 
 These files are:
-* render_amp.py
-* run_renders_auto.py
-* cameras.py
-* ampUI.py
-* motion_amp/render.py
+* core/render_amp.py
+* amp-ui/amp_ui/run_renders_auto.py
+* amp-ui/amp_ui/cameras.py
+* amp-ui/amp_ui/ampUI.py
+* core/motion_amp/renderer.py
 
 Additional files that contain results of the work include:
 * results_visual
@@ -21,4 +21,4 @@ Due to the size limitations the ./output folder containing the generated trained
 
 ### Documentation
 
-Compiled project documentation lives in [`docs/`](docs/README.md): project overview, the motion-segmentation work (`motion_seg/`), the Omniverse→4DGS synthetic-data pipeline (`omniverse_pipeline/`), and the pipeline orchestrator (`orchestrator/`). Detailed chronological working notes are in `.claude_notes/`.
+Compiled project documentation lives in [`docs/`](docs/README.md): project overview, the motion-segmentation work (`motion-seg/motion_seg/`), the Omniverse→4DGS synthetic-data pipeline (`omniverse-pipeline/omniverse_pipeline/`), and the pipeline orchestrator (`orchestrator/`). Detailed chronological working notes are in `.claude_notes/`.

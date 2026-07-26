@@ -561,7 +561,7 @@ def test_exec_reports_nonzero_exit_without_raising(manager, fake_client, tmp_pat
 
 
 def test_exec_passes_extra_environment_through_to_exec_create(manager, fake_client, tmp_path):
-    """T09: `pipeline.stages.cuda_common.run_cuda_script` sets `PYTHONPATH=/workspace` for every
+    """T09: `pipeline.stages.cuda_common.run_cuda_script` sets `PYTHONPATH=/workspace/core` for every
     vendored `pipeline/vendored/cuda/*.py` call -- this is the plumbing that carries it down to
     docker-py's `exec_create`."""
     fake_client.containers.seed(
@@ -574,10 +574,10 @@ def test_exec_passes_extra_environment_through_to_exec_create(manager, fake_clie
         "cuda",
         ["python", "train.py"],
         log_path=tmp_path / "log.txt",
-        environment={"PYTHONPATH": "/workspace"},
+        environment={"PYTHONPATH": "/workspace/core"},
     )
 
-    assert fake_client.api.create_calls[0]["environment"] == {"PYTHONPATH": "/workspace"}
+    assert fake_client.api.create_calls[0]["environment"] == {"PYTHONPATH": "/workspace/core"}
 
 
 def test_exec_environment_defaults_to_none(manager, fake_client, tmp_path):

@@ -1,4 +1,4 @@
-"""Vendored, verbatim copy of ``motion_seg/extract_trajectories.py`` (T09 copy-in, per
+"""Vendored, verbatim copy of ``motion-seg/motion_seg/extract_trajectories.py`` (T09 copy-in, per
 ``planning/INSTRUCTIONS.md``'s "copy the logic in, don't call the original script" rule; see
 ``pipeline.vendored.cuda``'s package docstring). Body is byte-for-byte the reference script's,
 including its own argparse ``main()`` entry point — this file is executed as a separate process
@@ -9,7 +9,7 @@ Original docstring:
 
     Phase 1 data adapter (.claude_notes/NOTES_4dgs_motion_segmentation.md): extract a dense
     per-Gaussian trajectory tensor from a TRAINED 4DGS multipleview model, for motion
-    segmentation (see motion_seg/segment_rigid.py).
+    segmentation (see motion-seg/motion_seg/segment_rigid.py).
 
     Needs the training GPU environment (same devcontainer/venv as train.py / render.py) — the
     GaussianModel, its deformation network, and `.get_xyz`/`.get_opacity` all live on CUDA.

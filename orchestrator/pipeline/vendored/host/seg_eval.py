@@ -1,4 +1,4 @@
-"""Vendored, verbatim copy of ``motion_seg/evaluate_segmentation.py``'s ``propagate_labels()``,
+"""Vendored, verbatim copy of ``motion-seg/motion_seg/evaluate_segmentation.py``'s ``propagate_labels()``,
 ``evaluate()``, and ``_write_colored_ply()`` (2026-07-14 copy-in rework of T07; see
 ``pipeline.vendored``'s module docstring). Function bodies are byte-for-byte the reference
 script's; the only change is importing ``adjusted_rand_index``/``best_iou_matching`` from the
@@ -9,7 +9,7 @@ ported — only these three functions are a production dependency of
 
 Original docstring:
 
-    Compare a predicted segmentation (motion_seg/segment_rigid.py output) against the
+    Compare a predicted segmentation (motion-seg/motion_seg/segment_rigid.py output) against the
     Omniverse ground-truth per-part labels. The two point sets differ (GT = the sampled init
     cloud; predicted = the trained Gaussians, whose count changes with densification/pruning),
     but they live in the same coordinate frame (both went through the same omni_to_4dgs.py

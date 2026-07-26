@@ -1,4 +1,4 @@
-"""``amp.default`` — runs the vendored, ported copy of ``render_amp.py``'s CLI
+"""``amp.default`` — runs the vendored, ported copy of ``core/render_amp.py``'s CLI
 (``pipeline/vendored/cuda/amp.py``) inside the ``cuda`` container (T08/T09).
 
 See ``pipeline.stages.train``'s and ``pipeline.stages.cuda_common``'s module docstrings for the
@@ -20,7 +20,7 @@ class AmpFactorNotIntegerError(ValueError):
     """A channel's ``factor`` isn't a whole number.
 
     ``pipeline/vendored/cuda/amp.py``'s ``--amp_factors`` is declared ``type=int`` (a verbatim,
-    pre-existing quirk of ``render_amp.py`` — see that module's docstring); passing a non-integer
+    pre-existing quirk of ``core/render_amp.py`` — see that module's docstring); passing a non-integer
     string would fail argparse *inside* the container with a much less legible error. Caught here
     instead, before the exec call.
     """
@@ -32,18 +32,18 @@ def _int_factor(channel: str, value: float) -> int:
     raise AmpFactorNotIntegerError(
         f"amp.channels[{channel!r}].factor = {value!r} is not a whole number, but "
         "pipeline/vendored/cuda/amp.py's --amp_factors is int-typed (a pre-existing "
-        "render_amp.py quirk, kept as-is per the 'copy the logic in' rule) — use an integer "
+        "core/render_amp.py quirk, kept as-is per the 'copy the logic in' rule) — use an integer "
         "factor (e.g. 2 or -1 to disable this channel)"
     )
 
 
 @register("amp.default")
 class AmpStage(Stage):
-    """Per-channel motion amplification + video render (``render_amp.py``'s ``render_sets`` /
+    """Per-channel motion amplification + video render (``core/render_amp.py``'s ``render_sets`` /
     ``render_set_amp``).
 
     ``inputs["model"]`` is ``train.default``'s trained model directory. Channel order is fixed
-    (``pipeline.config.models.AMP_CHANNELS``) and matches ``render_amp.py``'s positional
+    (``pipeline.config.models.AMP_CHANNELS``) and matches ``core/render_amp.py``'s positional
     ``amp_factors``/``freq_cutoffs`` lists; a channel missing from ``AmpConfig.channels`` (it
     shouldn't be, since the pydantic default fills all eight) falls back to "don't amplify"
     (``factor=-1``). The compiled video is written by the reference script to a fixed, iteration-

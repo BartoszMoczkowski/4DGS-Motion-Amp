@@ -14,14 +14,14 @@ Key mismatches beyond correspondence: MBS assumes piecewise-rigid bodies and N �
 - **Option B — lightweight trajectory clustering, MBS as reference only.** Pure numpy/scipy, no GPU for the clustering itself. Chosen as the first baseline.
 - **Option C — full MBS retrain end-to-end.** Highest effort, deferred.
 
-## Implementation: `motion_seg/`
+## Implementation: `motion-seg/motion_seg/`
 
-- `extract_trajectories.py` — data adapter (needs the GPU env). Loads a trained model, samples `get_state_at_time` at T evenly-spaced times, writes `trajectories.npz` (`canonical_xyz`, `traj (N,T,3)`, `opacity`, `times`).
+- `extract_trajectories.py` — data adapter (needs the GPU env: the package's `core` extra, which pulls in `4dgs-core`). Loads a trained model, samples `get_state_at_time` at T evenly-spaced times, writes `trajectories.npz` (`canonical_xyz`, `traj (N,T,3)`, `opacity`, `times`).
 - `rigidity_graph.py` — Option B core (pure numpy/scipy): k-NN graph in canonical space; per-edge rigidity score = std-dev of pairwise distance over time (exactly 0 for a true rigid pair); **log-space Otsu** auto-threshold; connected components → segments; tiny components folded into nearest neighbor.
 - `segment_rigid.py` — CLI wrapper (opacity-filters floaters, label −1). `--selftest` verifies on a synthetic 7-body scene with no GPU: **ARI 0.9988**.
 - `mbs_infer.py` — Option A adapter: exact flow into MotNet per view pair, `compose_dense` + `sync_motion_seg` imported from MBS source, one shared FPS subsample across views (the "permutation sync is the identity" simplification), 3-NN label propagation back to the full set. Wired into the orchestrator as `segment.mbs` but **not yet run on a real GPU/checkpoint**.
 - `metrics.py`, `evaluate_segmentation.py` — ARI + Hungarian IoU against `gt_segmentation.npz` (GT labels nearest-neighbor-propagated from the init cloud onto trained Gaussians), plus colored-PLY and PNG previews (`visualize.py`).
-- `run.sh <scene>` — chains extract → segment → evaluate; supports `SKIP_EXTRACT=1` and passthrough tuning args.
+- `run.sh <scene>` — chains extract → segment → evaluate (`./motion-seg/motion_seg/run.sh pump01`); supports `SKIP_EXTRACT=1` and passthrough tuning args.
 
 ## Results so far
 

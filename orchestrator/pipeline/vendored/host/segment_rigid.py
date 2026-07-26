@@ -1,4 +1,4 @@
-"""Vendored, verbatim copy of ``motion_seg/segment_rigid.py``'s ``segment_trajectories()``
+"""Vendored, verbatim copy of ``motion-seg/motion_seg/segment_rigid.py``'s ``segment_trajectories()``
 (2026-07-14 copy-in rework of T07; see ``pipeline.vendored``'s module docstring). The function
 body is byte-for-byte the reference script's; the only change is the import of
 ``segment_by_rigidity`` now pointing at the sibling vendored module

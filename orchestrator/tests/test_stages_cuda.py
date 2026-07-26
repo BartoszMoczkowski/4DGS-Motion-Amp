@@ -181,7 +181,7 @@ def test_train_stage_builds_expected_cli_and_bridge(tmp_path, monkeypatch):
     assert len(fake.calls) == 1
     call = fake.calls[0]
     assert call["env"] == "cuda"
-    assert call["environment"] == {"PYTHONPATH": "/workspace"}
+    assert call["environment"] == {"PYTHONPATH": "/workspace/core"}
     cmd = call["cmd"]
     assert cmd[0] == "python"
     assert cmd[1].endswith("orchestrator/pipeline/vendored/cuda/train.py")

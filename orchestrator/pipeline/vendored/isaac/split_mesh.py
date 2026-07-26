@@ -1,4 +1,4 @@
-"""Vendored, verbatim copy of ``omniverse_pipeline/split_mesh.py`` (T11 copy-in, per
+"""Vendored, verbatim copy of ``omniverse-pipeline/omniverse_pipeline/split_mesh.py`` (T11 copy-in, per
 ``planning/INSTRUCTIONS.md``'s "copy the logic in, don't call the original script" rule; see
 ``pipeline.vendored.isaac``'s package docstring). Body is byte-for-byte the reference script's,
 including its own argparse ``main()`` entry point — this file is executed as a separate process

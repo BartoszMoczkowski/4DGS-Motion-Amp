@@ -1,4 +1,4 @@
-"""``segment.mbs`` — runs the vendored, ported copy of ``motion_seg/mbs_infer.py``'s CLI
+"""``segment.mbs`` — runs the vendored, ported copy of ``motion-seg/motion_seg/mbs_infer.py``'s CLI
 (``pipeline/vendored/cuda/mbs_infer.py``) inside the ``cuda`` container (T08/T09's container-exec
 model; T10 is the first task to put a *second* impl behind an existing role — see
 ``pipeline.stages.registry``'s module docstring for why that's exactly "add a new idea = register

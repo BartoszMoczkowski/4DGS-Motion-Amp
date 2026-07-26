@@ -69,10 +69,10 @@ a normal Windows Python (3.10+) environment:
 
 ```powershell
 # with uv (repo already uses it):
-uv sync --extra orchestrator
+uv sync --package pipeline
 
 # or plain pip, in any venv:
-pip install -e '.[orchestrator]'
+pip install -e ./orchestrator
 ```
 
 Sanity-check the CPU-only suite first (no Docker/GPU needed for this part):
@@ -250,7 +250,7 @@ Needed once T13's `mcp_server/` is what Claude actually talks to, instead of Bar
 `pipeline.api` by hand. No GPU/Docker/Isaac involved in this step at all — the server itself is
 plain native-Windows Python.
 
-1. `uv sync --extra orchestrator-mcp` (separate from step 5's `orchestrator` extra — pulls in
+1. `uv sync --package pipeline --extra mcp` (the `mcp` extra on the `pipeline` package — pulls in
    `mcp` + its HTTP-server deps on top of `pipeline`).
 2. Generate a bearer token once and keep it somewhere safe (a password manager, not a repo file):
    `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
@@ -268,5 +268,5 @@ plain native-Windows Python.
   (`git submodule update --init --recursive`).
 - `exec_in_container("cuda", ["ls", "/omniverse"])` is empty or errors → step 4 (assets root not
   actually where `PIPELINE_ASSETS_ROOT` says, or the env var isn't set for wherever yours live).
-- `import pipeline` fails → step 5 (`uv sync --extra orchestrator` / `pip install -e
-  '.[orchestrator]'` not run, or run in the wrong environment).
+- `import pipeline` fails → step 5 (`uv sync --package pipeline` / `pip install -e
+  ./orchestrator` not run, or run in the wrong environment).

@@ -1,4 +1,4 @@
-"""Vendored, verbatim copy of ``motion_seg/mbs_infer.py``'s inference logic (T10 copy-in, per
+"""Vendored, verbatim copy of ``motion-seg/motion_seg/mbs_infer.py``'s inference logic (T10 copy-in, per
 ``planning/INSTRUCTIONS.md``'s "copy the logic in, don't call the original script" rule; see
 ``pipeline.vendored.cuda``'s package docstring). Body is byte-for-byte the reference script's
 (``_load_mot_net``/``_select_working_set``/``run_mbs_segmentation``/``main``), including its own
@@ -110,7 +110,7 @@ import numpy as np
 #: pipeline/vendored/cuda/mbs_infer.py -> repo root -> submodules/multibody-sync-4dgs (four
 #: hops up from this file's directory: cuda -> vendored -> pipeline -> orchestrator -> repo root).
 #: The reference script computed this the same way relative to its own (different) location
-#: (motion_seg/mbs_infer.py, one hop up to the repo root) — this is the one relocation fix that
+#: (motion-seg/motion_seg/mbs_infer.py, one hop up to the repo root) — this is the one relocation fix that
 #: actually changes behavior, everything else below is unchanged.
 MBS_ROOT = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "..", "submodules", "multibody-sync-4dgs"

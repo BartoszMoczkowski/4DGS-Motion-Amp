@@ -15,8 +15,8 @@ T07 adds the first three *real* stages this way: :mod:`pipeline.stages.convert`
 (``convert.default``), :mod:`pipeline.stages.segment_rigid` (``segment.rigid``), and
 :mod:`pipeline.stages.seg_eval` (``seg_eval.default``) -- all CPU/``host``-environment stages
 that call already-verified logic *ported into* :mod:`pipeline.vendored.host` (copied from
-``omniverse_pipeline/omni_to_4dgs.py``, ``motion_seg/segment_rigid.py``,
-``motion_seg/evaluate_segmentation.py`` respectively) -- per ``planning/INSTRUCTIONS.md``'s
+``omniverse-pipeline/omniverse_pipeline/omni_to_4dgs.py``, ``motion-seg/motion_seg/segment_rigid.py``,
+``motion-seg/motion_seg/evaluate_segmentation.py`` respectively) -- per ``planning/INSTRUCTIONS.md``'s
 "copy the logic in, don't call the original script" rule, never by importing or subprocessing
 those reference scripts directly.
 

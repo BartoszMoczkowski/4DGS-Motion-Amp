@@ -1,5 +1,5 @@
 """``seg_eval.default`` — calls the vendored, ported copy of
-``motion_seg/evaluate_segmentation.py``'s ``evaluate()``/``_write_colored_ply()``.
+``motion-seg/motion_seg/evaluate_segmentation.py``'s ``evaluate()``/``_write_colored_ply()``.
 
 Per the "copy the logic in, don't call the original script" rule (``planning/INSTRUCTIONS.md``,
 2026-07-14, superseding "wrap, don't rewrite"), this calls
