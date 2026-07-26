@@ -1,0 +1,25 @@
+[project]
+name = "omniverse-pipeline"
+version = "0.1.0"
+description = "Synthetic multi-cam capture pipeline: USD prep, Isaac Sim capture, conversion to 4DGS multipleview format"
+requires-python = "==3.12.12"
+# NOTE: `pxr` (OpenUSD), `isaacsim` and `omni.*` are NOT pip-installable — they are
+# provided by the Isaac Sim runtime. USD-prep scripts run under Isaac Sim's own
+# python.bat; `omni_to_4dgs` runs in any env with numpy+Pillow.
+dependencies = [
+    "numpy>=1.24",
+    "Pillow>=10.0",
+    "pyyaml>=6.0",
+    "matplotlib>=3.8",
+    "trimesh>=4.0",
+]
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["omniverse_pipeline*"]
+
+[tool.setuptools.package-data]
+omniverse_pipeline = ["*.yaml"]

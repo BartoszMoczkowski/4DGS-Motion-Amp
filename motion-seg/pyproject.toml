@@ -1,0 +1,27 @@
+[project]
+name = "motion-seg"
+version = "0.1.0"
+description = "Motion segmentation for 4DGS: rigidity-graph clustering (CPU) + MultiBodySync adapter (GPU)"
+requires-python = "==3.12.12"
+# Base install is pure CPU: segment_rigid / evaluate_segmentation / metrics /
+# rigidity_graph / visualize only need numpy/scipy/matplotlib.
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+# extract_trajectories.py and mbs_infer.py load a trained 4DGS model and need the
+# full torch/CUDA core. Opt in with: uv sync --package motion-seg --extra core
+core = ["4dgs-core"]
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["motion_seg*"]
+
+[tool.setuptools.package-data]
+motion_seg = ["*.pth.tar"]

@@ -85,17 +85,18 @@ import sys
 
 import numpy as np
 
-# Make sure the repo root (which contains the `motion_seg` package) is importable regardless
-# of how this file is invoked. `python -m motion_seg.mbs_infer` from the repo root already
-# puts it on sys.path, but running the file directly (`python motion_seg/mbs_infer.py`, or
-# some `uv run` invocations) sets sys.path[0] to this file's own directory instead — which is
-# exactly what caused "No module named 'motion_seg'" when the lazy `from motion_seg.visualize
-# import ...` ran at the end of main().
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if _REPO_ROOT not in sys.path:
-    sys.path.insert(0, _REPO_ROOT)
+# Make sure the `motion_seg` package is importable regardless of how this file is invoked.
+# `python -m motion_seg.mbs_infer` already puts it on sys.path, but running the file directly
+# (`python motion-seg/motion_seg/mbs_infer.py`, or some `uv run` invocations) sets sys.path[0]
+# to this file's own directory instead — which is exactly what caused "No module named
+# 'motion_seg'" when the lazy `from motion_seg.visualize import ...` ran at the end of main().
+# The package lives one directory up (motion-seg/); the repo root (for submodules/) is two up.
+_PACKAGE_PARENT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _PACKAGE_PARENT not in sys.path:
+    sys.path.insert(0, _PACKAGE_PARENT)
 
-MBS_ROOT = os.path.join(os.path.dirname(__file__), "..", "submodules", "multibody-sync-4dgs")
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+MBS_ROOT = os.path.join(_REPO_ROOT, "submodules", "multibody-sync-4dgs")
 
 
 def _add_mbs_to_path():

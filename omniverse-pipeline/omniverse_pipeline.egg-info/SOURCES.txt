@@ -1,0 +1,15 @@
+pyproject.toml
+omniverse_pipeline/__init__.py
+omniverse_pipeline/add_motion.py
+omniverse_pipeline/capture_config.yaml
+omniverse_pipeline/capture_config_pump.container.yaml
+omniverse_pipeline/capture_config_pump.yaml
+omniverse_pipeline/omni_capture.py
+omniverse_pipeline/omni_to_4dgs.py
+omniverse_pipeline/rig.py
+omniverse_pipeline/split_mesh.py
+omniverse_pipeline.egg-info/PKG-INFO
+omniverse_pipeline.egg-info/SOURCES.txt
+omniverse_pipeline.egg-info/dependency_links.txt
+omniverse_pipeline.egg-info/requires.txt
+omniverse_pipeline.egg-info/top_level.txt

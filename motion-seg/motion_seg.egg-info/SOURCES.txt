@@ -1,0 +1,15 @@
+pyproject.toml
+motion_seg/__init__.py
+motion_seg/checkpoint-best.pth.tar
+motion_seg/evaluate_segmentation.py
+motion_seg/extract_trajectories.py
+motion_seg/mbs_infer.py
+motion_seg/metrics.py
+motion_seg/rigidity_graph.py
+motion_seg/segment_rigid.py
+motion_seg/visualize.py
+motion_seg.egg-info/PKG-INFO
+motion_seg.egg-info/SOURCES.txt
+motion_seg.egg-info/dependency_links.txt
+motion_seg.egg-info/requires.txt
+motion_seg.egg-info/top_level.txt
