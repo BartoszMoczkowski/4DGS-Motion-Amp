@@ -85,6 +85,11 @@ def otsu_threshold_log(values: np.ndarray, n_bins: int = 256) -> float:
     v = v[np.isfinite(v)]
     if len(v) == 0:
         return 0.0
+    if v.max() == v.min():
+        # Single-valued input (e.g. all scores clamped to the numerical-noise floor):
+        # there is nothing to separate, and the exp/log roundtrip would otherwise return
+        # a threshold a hair *below* every score, cutting all edges.
+        return float(v.max())
     positive = v[v > 0]
     eps = float(positive.min() * 1e-3) if len(positive) else 1e-12
     log_thr = otsu_threshold(np.log(v + eps), n_bins=n_bins)
@@ -125,6 +130,15 @@ def segment_by_rigidity(
     """
     edges = build_knn_edges(xyz, k=k)
     scores = edge_rigidity_score(traj, edges)
+    # Numerical-noise floor tied to the scene scale: rigid edges are only rigid up to
+    # float64 rounding (~1e-16 relative), so on clean data the "rigid" class is a mix of
+    # exact zeros and ~1e-17 noise. Without this floor, log-space Otsu treats that rounding
+    # noise as a real class and splits *inside* it (threshold between exact 0 and 1e-17),
+    # shattering genuinely rigid parts into singletons. Clamping everything below
+    # ~1e-12 of the scene's bounding-box diagonal collapses the noise band into one
+    # histogram spike, far below any real non-rigid motion.
+    scale = float(np.linalg.norm(xyz.max(axis=0) - xyz.min(axis=0)))
+    scores = np.maximum(scores, scale * 1e-12)
     thr = otsu_threshold_log(scores) if threshold is None else threshold
     thr = thr * threshold_mult
     keep = scores <= thr

@@ -34,9 +34,10 @@ build-backend = "setuptools.build_meta"
 # (`scene`, `utils`, `gaussian_renderer`, `arguments`, `motion_amp`, `lpipsPyTorch`)
 # directly. Declaring them here makes `uv run --package 4dgs-core python core/train.py`
 # work from the repo root without sys.path hacks.
-[tool.setuptools.packages.find]
-include = ["scene*", "utils*", "gaussian_renderer*", "arguments*", "motion_amp*", "lpipsPyTorch*"]
-
 # Loose top-level scripts, also importable as modules (ampUI.py / run_renders_auto.py
 # do `import render_amp`).
+[tool.setuptools]
 py-modules = ["train", "render", "render_amp", "export_perframe_3DGS", "merge_many_4dgs"]
+
+[tool.setuptools.packages.find]
+include = ["scene*", "utils*", "gaussian_renderer*", "arguments*", "motion_amp*", "lpipsPyTorch*"]

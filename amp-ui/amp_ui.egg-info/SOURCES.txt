@@ -1,0 +1,10 @@
+pyproject.toml
+amp_ui/__init__.py
+amp_ui/ampUI.py
+amp_ui/cameras.py
+amp_ui/run_renders_auto.py
+amp_ui.egg-info/PKG-INFO
+amp_ui.egg-info/SOURCES.txt
+amp_ui.egg-info/dependency_links.txt
+amp_ui.egg-info/requires.txt
+amp_ui.egg-info/top_level.txt

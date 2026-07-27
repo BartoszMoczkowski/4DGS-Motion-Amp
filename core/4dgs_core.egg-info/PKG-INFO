@@ -1,0 +1,24 @@
+Metadata-Version: 2.4
+Name: 4dgs-core
+Version: 0.1.0
+Summary: 4D Gaussian Splatting training/rendering core (upstream 4DGaussians fork) + motion amplification
+Requires-Python: ==3.12.12
+Requires-Dist: diff-gaussian-rasterization
+Requires-Dist: simple-knn
+Requires-Dist: torch>=2.6.0
+Requires-Dist: torchvision>=0.21.0
+Requires-Dist: lpips>=0.1.4
+Requires-Dist: mmengine>=0.10
+Requires-Dist: mmcv; sys_platform == "linux"
+Requires-Dist: open3d>=0.19.0
+Requires-Dist: opencv-python>=5.0.0.93
+Requires-Dist: plyfile>=1.1.4
+Requires-Dist: pyquaternion>=0.9.9
+Requires-Dist: scipy>=1.11
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: imageio[ffmpeg]>=2.37.3
+Requires-Dist: tensorboardx>=2.6.5
+Requires-Dist: tqdm>=4.67.3
+Requires-Dist: ninja>=1.13.0
+Requires-Dist: easydict>=1.13
+Requires-Dist: scikit-learn>=1.5

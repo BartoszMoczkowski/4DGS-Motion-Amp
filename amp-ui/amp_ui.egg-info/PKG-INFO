@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: amp-ui
+Version: 0.1.0
+Summary: Standalone Streamlit UI + benchmark harness for motion-amplified 4DGS rendering, plus USB camera recorder
+Requires-Python: ==3.12.12
+Requires-Dist: 4dgs-core
+Requires-Dist: streamlit>=1.38
+Requires-Dist: av>=12.0
+Requires-Dist: pandas>=2.0
+Requires-Dist: opencv-python>=5.0.0.93
