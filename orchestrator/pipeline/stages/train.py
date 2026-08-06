@@ -45,7 +45,12 @@ class TrainStage(Stage):
     # Rough estimates for T12 (resource manager, not yet built) — 4DGS training on a short
     # multipleview capture comfortably fits an 8-12GB card in practice; padded here since nothing
     # measures real headroom yet and a stale underestimate is worse than an overestimate.
-    resources = ResourceRequest(needs_gpu=True, vram_gb=16.0, ram_gb=16.0)
+    # ram_gb 16->0 (2026-08-06): the host-free-RAM gate is miscalibrated for Docker-Desktop
+    # stages -- this stage's RAM lives inside the WSL2 VM, which is now hard-capped via
+    # ~/.wslconfig (memory=20GB), so the cap, not the gate, protects the host. A nonzero
+    # estimate just deadlocked batches: vmmemWSL legitimately holds its cap between runs,
+    # leaving "host free" permanently below any estimate.
+    resources = ResourceRequest(needs_gpu=True, vram_gb=16.0, ram_gb=0.0)
 
     def run(self, ctx: StageContext) -> dict[str, Artifact]:
         scene = ctx.inputs["scene"]

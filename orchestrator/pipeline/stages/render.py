@@ -32,7 +32,10 @@ class RenderStage(Stage):
     inputs = ("model",)
     outputs = ("renders",)
     environment = "cuda"
-    resources = ResourceRequest(needs_gpu=True, vram_gb=8.0, ram_gb=8.0)
+    # ram_gb 8->0 (2026-08-06): same reasoning as stages/train.py -- this stage's RAM lives
+    # inside the WSL2 VM, which is hard-capped via ~/.wslconfig (memory=20GB); the host-free-RAM
+    # gate only deadlocked batches against vmmemWSL's held cache. VRAM gating stays.
+    resources = ResourceRequest(needs_gpu=True, vram_gb=8.0, ram_gb=0.0)
 
     def run(self, ctx: StageContext) -> dict[str, Artifact]:
         model = ctx.inputs["model"]
