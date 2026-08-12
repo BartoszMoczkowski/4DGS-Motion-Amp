@@ -36,6 +36,7 @@ VENDORED_CUDA_SCRIPTS: dict[str, str] = {
     "seg_extract": "orchestrator/pipeline/vendored/cuda/seg_extract.py",
     "amp": "orchestrator/pipeline/vendored/cuda/amp.py",
     "mbs_infer": "orchestrator/pipeline/vendored/cuda/mbs_infer.py",
+    "mask_lift": "orchestrator/pipeline/vendored/cuda/mask_lift.py",
 }
 
 #: `PYTHONPATH` a container-side script needs so `from arguments import ...` etc. resolve —
@@ -98,7 +99,7 @@ def write_stage_bridge(ctx: StageContext) -> PurePosixPath:
 
     Reads ``ctx.config["_bridge"]`` — the ``{"model": ..., "pipeline_params": ..., "hidden": ...,
     "optim": ...}`` dict ``pipeline.api._stage_config_for`` merges into every ``cuda``-role
-    stage's config (T09) — and shapes it exactly like ``pipeline.config.bridge.write_bridge``
+    stage's config (T09) — and shapes it exactly like :func:`pipeline.config.bridge.write_bridge`
     expects (a ``PipelineConfig.model_dump()``-shaped dict, just with only those four keys).
 
     One bridge file per stage invocation (not shared/cached across stages) — cheap to (re)write

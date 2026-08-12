@@ -108,7 +108,39 @@ The remaining proposals in `IMPLEMENTATION_PLAN.md`:
 - **T22 multi-view mask lifting** (proposal 02) — use 2D segmentation masks lifted to 3D as spatial priors. The thesis question is whether oracle masks show a large gap over motion-only methods.
 - **T21 subspace spectral** (proposal 04) — PCA + local subspace fits. Cross-check against T20; may provide better init.
 
-If T19+T22 still fail to reach ARI ≥ 0.5 on pump01, the thesis conclusion becomes: **motion-only segmentation of 4DGS at ~10⁵ Gaussians is reconstruction-quality-limited on mm-scale industrial scenes**. The practical contribution shifts to the motion-amplification pipeline (which works) and the synthetic-data generation framework (which enables quantitative evaluation).
+### T19 grid benchmark — `roi.motion_gate` + `segment.rigid2` real-data run (2026-08-12)
+
+T19 (band-limited energy gate + k-NN dilation + rigidity-lock readmission) was sandbox-verified (recall ≥ 0.95, precision ≥ 0.85 on synthetic movers+static scene) then run on the 7 trained grid/sweep models via the orchestrator's new `roi` role. **Results: ROI gating does not improve ARI on real data.**
+
+**ARI comparison (rigid2_roi vs rigid2 baseline)**
+
+| run_id | rigid2_roi global ARI | rigid2_roi ARI-within-ROI | rigid2 baseline ARI | n_roi_points | n_pred |
+|--------|----------------------|--------------------------|---------------------|-------------|--------|
+| grid-A20mm_M2 | 0.016 | 0.001 | −0.001 | 248,953 | 229 |
+| grid-A20mm_M4 | −0.046 | −0.042 | −0.041 | 329,369 | 98 |
+| grid-A40mm_M8 | −0.024 | −0.004 | −0.001 | 286,849 | 13 |
+| sweep-g10000 | 0.010 | 0.003 | 0.004 | 9,778 | 3 |
+| sweep-g25000 | −0.016 | −0.024 | −0.018 | 21,930 | 3 |
+| sweep-g50000 | 0.002 | −0.009 | −0.004 | 40,618 | 3 |
+| sweep-g100000 | −0.029 | −0.028 | −0.028 | 95,067 | 3 |
+
+**Key findings**
+
+1. **The motion gate keeps almost all points.** `n_roi_points` is essentially the full point count on every model. The background cloud in these synthetic scenes is not actually static — reconstruction jitter after band-passing has energy comparable to the true mm-scale motion.
+
+2. **ARI-within-ROI ≈ global ARI.** There is no meaningful improvement from removing "static" points because there are effectively no static points to remove.
+
+3. **Log-Otsu on denoised energy cannot separate jitter from motion.** The band-pass preserves some jitter power at the drive frequency and harmonics, so even background points have sufficient periodic energy to pass the gate.
+
+**Interpretation and next steps**
+
+The T19 hypothesis — that spatial gating would break through the motion-only ceiling by removing the static background cloud — is **not supported** on real reconstruction data. The bottleneck is not the background poisoning the graph; the bottleneck is that reconstruction jitter ≈ true motion amplitude, making all points look "moving" to an energy-based gate.
+
+This strengthens the case for **T22 (multi-view mask lifting, proposal 02)** because mask lifting uses **geometric priors** (camera frustums + depth rendering) rather than motion energy, so it is immune to reconstruction jitter. The T19 ROI plumbing (`roi_mask` artifact contract, scheduler defensive-reading fix, segment-stage label −2 convention) is already in place and will be reused by T22.
+
+If T22 also fails to reach ARI ≥ 0.5 on pump01, the thesis conclusion becomes: **motion-only segmentation of 4DGS at ~10⁵ Gaussians is reconstruction-quality-limited on mm-scale industrial scenes**. The practical contribution shifts to the motion-amplification pipeline (which works) and the synthetic-data generation framework (which enables quantitative evaluation).
+
+
 
 
 - Synthetic self-test: ARI 0.9988, mean Hungarian IoU 0.982.

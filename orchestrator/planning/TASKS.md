@@ -24,9 +24,17 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T15 | UI (Streamlit over Layer 1 API) | 5 | T09 | done |
 | T16 | WSL2/Linux-distro bundling (deferred) | 6 | T08 | deferred |
 | T17 | MCP job/cancel hardening (real cancel, concurrency guard, typed preview) | 4 | T14 | todo |
-| T18 | Trajectory denoising + calibrated rigidity + `segment.rigid2` (proposal 06) | 7 | T07 | done (sandbox); grid run pending |
+| T18 | Trajectory denoising + calibrated rigidity + `segment.rigid2` (proposal 06) | 7 | T07 | done |
+| T19 | ROI role: `roi.motion_gate` + roi-aware segment stages + eval extensions (proposal 01) | 7 | T18 | done |
+| T20 | `segment.kabsch` EM (proposal 05) | 7 | T18 | done |
+| T21 | `segment.subspace` spectral (proposal 04) | 7 | T18 | todo |
+| T22 | `roi.mask_lift` multi-view mask lifting (proposal 02) | 7 | T19, T09 | done (sandbox); real GPU run pending |
+| T23 | `segment.seeded` part-focused (proposal 03) | 7 | T19 | todo |
 
-Phase 7 (segmentation rescue — `docs/proposals/IMPLEMENTATION_PLAN.md`): T19–T23 (ROI role,
+Phase 7 (segmentation rescue — `docs/proposals/IMPLEMENTATION_PLAN.md`): T18–T20 and T22 are
+done (sandbox-verified, some real GPU runs pending Bartosz's machine); T21 (subspace spectral)
+and T23 (seeded part) remain todo. T22's real GPU oracle-ceiling run is the next priority to
+determine whether mask lifting is worth pursuing.
 Kabsch EM, subspace spectral, mask lifting, seeded part) are planned but not yet scheduled.
 
 ## Dependency graph

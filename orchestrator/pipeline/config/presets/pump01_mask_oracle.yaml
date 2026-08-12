@@ -1,0 +1,10 @@
+# T22 oracle ceiling: perfect ROI from ground-truth part labels.
+# Measures the upper-bound ARI achievable with a perfect machine-region mask.
+extends: pump01
+name: pump01_mask_oracle
+
+roi:
+  impl: mask_oracle
+
+segment:
+  impl: rigid2

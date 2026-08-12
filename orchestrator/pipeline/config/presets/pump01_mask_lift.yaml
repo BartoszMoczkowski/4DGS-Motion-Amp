@@ -1,0 +1,12 @@
+# T22 mask lift: multi-view 2D masks lifted to 3D Gaussian ROI via depth rendering.
+# Set roi.mask_lift.masks_dir to a directory containing per-camera binary masks.
+extends: pump01
+name: pump01_mask_lift
+
+roi:
+  impl: mask_lift
+  mask_lift:
+    masks_dir: ""  # required — per-camera mask images
+
+segment:
+  impl: rigid2

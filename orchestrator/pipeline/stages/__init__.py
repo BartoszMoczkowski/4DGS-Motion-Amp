@@ -45,28 +45,31 @@ input, closing the loop so a preset's auto-planned DAG now runs end to end from 
 :mod:`pipeline.stages.prep_split`'s module docstring) are each their own single-impl role, one per
 top-level config section, avoiding a role-name collision the registry's ``role.impl`` convention
 would otherwise create.
+
+T19 adds :mod:`pipeline.stages.roi_motion_gate` (``roi.motion_gate``).
+T22 adds :mod:`pipeline.stages.roi_mask_lift` (``roi.mask_lift``) and
+:mod:`pipeline.stages.roi_mask_oracle` (``roi.mask_oracle``).
 """
 
 from __future__ import annotations
 
 from . import amp  # noqa: F401  (import for its registration side-effect)
-from . import capture_isaac  # noqa: F401  (import for its registration side-effect)
-from . import convert  # noqa: F401  (import for its registration side-effect)
-from . import echo  # noqa: F401  (import for its registration side-effect)
-from . import prep_motion  # noqa: F401  (import for its registration side-effect)
-from . import prep_split  # noqa: F401  (import for its registration side-effect)
-from . import render  # noqa: F401  (import for its registration side-effect)
-from . import seg_eval  # noqa: F401  (import for its registration side-effect)
-from . import seg_extract  # noqa: F401  (import for its registration side-effect)
-from . import roi_motion_gate  # noqa: F401  (import for its registration side-effect)
-from . import segment_kabsch  # noqa: F401  (import for its registration side-effect)
-from . import segment_mbs  # noqa: F401  (import for its registration side-effect)
-from . import segment_rigid  # noqa: F401  (import for its registration side-effect)
-from . import segment_rigid2  # noqa: F401  (import for its registration side-effect)
-from . import train  # noqa: F401  (import for its registration side-effect)
-from . import segment_rigid  # noqa: F401  (import for its registration side-effect)
-from . import segment_rigid2  # noqa: F401  (import for its registration side-effect)
-from . import train  # noqa: F401  (import for its registration side-effect)
+from . import capture_isaac  # noqa: F401
+from . import convert  # noqa: F401
+from . import echo  # noqa: F401
+from . import prep_motion  # noqa: F401
+from . import prep_split  # noqa: F401
+from . import render  # noqa: F401
+from . import roi_mask_lift  # noqa: F401  (T22)
+from . import roi_mask_oracle  # noqa: F401  (T22)
+from . import roi_motion_gate  # noqa: F401  (T19)
+from . import seg_eval  # noqa: F401
+from . import seg_extract  # noqa: F401
+from . import segment_kabsch  # noqa: F401  (T20)
+from . import segment_mbs  # noqa: F401
+from . import segment_rigid  # noqa: F401
+from . import segment_rigid2  # noqa: F401  (T18)
+from . import train  # noqa: F401
 from .base import Environment, ResourceRequest, Stage, StageContext
 from .registry import (
     DuplicateStageError,

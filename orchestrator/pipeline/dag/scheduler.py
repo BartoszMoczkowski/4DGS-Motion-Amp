@@ -196,15 +196,15 @@ def run_dag(
         node: DAGNode = nodes[name]
         stage_cfg = (stage_configs or {}).get(name, resolved_config)
 
-        input_artifacts = {inp: manifest.artifacts[inp] for inp in node.inputs if inp in manifest.artifacts}
-        missing_now = [inp for inp in node.inputs if inp not in input_artifacts]
+        declared_inputs = {inp: manifest.artifacts[inp] for inp in node.inputs if inp in manifest.artifacts}
+        missing_now = [inp for inp in node.inputs if inp not in declared_inputs]
         if missing_now:
             raise MissingDependencyError(
                 f"stage {name!r} requires {missing_now} but no upstream stage has produced "
                 f"them yet in run {run_id!r} — include their producing stage(s) in this call "
                 f"(e.g. via `only`/`from_stage`) or run them first"
             )
-        input_hashes = {inp: (art.content_hash or "") for inp, art in input_artifacts.items()}
+        input_hashes = {inp: (art.content_hash or "") for inp, art in declared_inputs.items()}
         cache_key = compute_cache_key(node.stage_cls, stage_cfg, input_hashes, git_sha)
 
         if not force and _already_recorded(name, cache_key, manifest):
@@ -230,7 +230,7 @@ def run_dag(
             config=stage_cfg,
             run_dir=run_dir(run_id, runs_root=runs_root),
             logger=logger,
-            inputs=input_artifacts,
+            inputs=dict(manifest.artifacts),  # T19: all artifacts for defensive reading
             # T09: `cuda`/`isaac` stages (train/render/seg_extract/amp, ...) need real path
             # translation and container exec, not just the "reserved slot" T04/T08 left on
             # `StageContext` — pass the whole `pipeline.paths`/`pipeline.containers` modules

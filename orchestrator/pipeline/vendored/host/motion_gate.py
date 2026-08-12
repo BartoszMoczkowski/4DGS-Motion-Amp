@@ -42,7 +42,8 @@ def motion_gate(
         harmonics: number of drive-frequency harmonics to keep in the band-pass.
         dilation_hops: number of k-NN hops to dilate the initial moving region.
         readmit_mult: rigidity-lock readmission threshold, in units of the calibrated
-            noise-floor sigma (sigma_d from static-static edges).
+            noise-floor sigma (sigma_d from static-static edges).  ``<= 0`` disables
+            readmission.
         k: k for the k-NN graph used in dilation + readmission.
 
     Returns:
@@ -65,9 +66,10 @@ def motion_gate(
     moving = energy > thr
     n_moving = int(moving.sum())
 
-    # Guard degenerate cases: Otsu threshold >= max energy, or no points pass the gate.
-    # An empty ROI would break downstream segmentation, so fall back to all True.
-    if thr <= 0 or thr >= energy.max() or n_moving == 0:
+    # Guard degenerate cases: Otsu threshold >= max energy, no points pass the gate,
+    # or almost everything passes (threshold is splitting noise, not signal).
+    moving_frac = n_moving / n if n else 0.0
+    if thr <= 0 or thr >= energy.max() or n_moving == 0 or moving_frac > 0.95:
         roi_mask = np.ones(n, dtype=bool)
         snr = np.ones(n, dtype=np.float32)
         return roi_mask, snr, {
@@ -94,29 +96,34 @@ def motion_gate(
 
     n_dilated = int(roi.sum())
 
-    # 6. Rigidity-lock readmission
-    # Calibrate noise floor from the ORIGINAL static points (not yet readmitted)
-    static = ~moving
-    sigma_d = calibrate_sigma_d(traj, edges, static=static)
-    readmit_thr = readmit_mult * sigma_d
+    # 6. Rigidity-lock readmission (disabled when readmit_mult <= 0)
+    if readmit_mult > 0:
+        # Calibrate noise floor from the ORIGINAL static points (not yet readmitted)
+        static = ~moving
+        sigma_d = calibrate_sigma_d(traj, edges, static=static)
+        readmit_thr = readmit_mult * sigma_d
 
-    n_readmitted = 0
-    if readmit_thr > 0 and n_dilated < n:
-        # Candidate edges: one endpoint in ROI, the other static (not in ROI)
-        in_roi_not_other = roi[edges[:, 0]] & ~roi[edges[:, 1]]
-        other_not_roi = ~roi[edges[:, 0]] & roi[edges[:, 1]]
-        cand_mask = in_roi_not_other | other_not_roi
-        cand_edges = edges[cand_mask]
+        n_readmitted = 0
+        if readmit_thr > 0 and n_dilated < n:
+            # Candidate edges: one endpoint in ROI, the other static (not in ROI)
+            in_roi_not_other = roi[edges[:, 0]] & ~roi[edges[:, 1]]
+            other_not_roi = ~roi[edges[:, 0]] & roi[edges[:, 1]]
+            cand_mask = in_roi_not_other | other_not_roi
+            cand_edges = edges[cand_mask]
 
-        if len(cand_edges) > 0:
-            scores = edge_rigidity_score(traj, cand_edges)
-            # The static endpoint of each candidate edge
-            static_end = np.where(~roi[cand_edges[:, 0]], cand_edges[:, 0], cand_edges[:, 1])
-            # A static point is readmitted if ANY of its edges to ROI is below threshold
-            readmit = np.zeros(n, dtype=bool)
-            readmit[static_end[scores < readmit_thr]] = True
-            n_readmitted = int(readmit.sum())
-            roi = roi | readmit
+            if len(cand_edges) > 0:
+                scores = edge_rigidity_score(traj, cand_edges)
+                # The static endpoint of each candidate edge
+                static_end = np.where(~roi[cand_edges[:, 0]], cand_edges[:, 0], cand_edges[:, 1])
+                # A static point is readmitted if ANY of its edges to ROI is below threshold
+                readmit = np.zeros(n, dtype=bool)
+                readmit[static_end[scores < readmit_thr]] = True
+                n_readmitted = int(readmit.sum())
+                roi = roi | readmit
+    else:
+        sigma_d = None
+        readmit_thr = None
+        n_readmitted = 0
 
     snr = (energy / thr).astype(np.float32)
 
@@ -127,8 +134,8 @@ def motion_gate(
         "n_readmitted": n_readmitted,
         "drive_freq_used": int(f0),
         "otsu_threshold": float(thr),
-        "sigma_d": float(sigma_d),
-        "readmit_threshold": float(readmit_thr),
+        "sigma_d": float(sigma_d) if sigma_d is not None else None,
+        "readmit_threshold": float(readmit_thr) if readmit_thr is not None else None,
         "degenerate": False,
     }
     return roi, snr, info

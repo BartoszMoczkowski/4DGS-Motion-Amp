@@ -34,6 +34,10 @@ T19's ROI motion gate (``roi.motion_gate`` + ``segment.rigid2``, proposal 01) ru
 ``--impl rigid2_roi`` (results in ``runs/grid_seg_rigid2_roi_results.csv``); reuses extracted
 trajectories and prepends the ROI stage so the segmentation runs only on the gated region.
 
+T22's oracle-mask ceiling (``roi.mask_oracle`` + ``segment.rigid2``, proposal 02) runs with
+``--impl mask_lift_oracle`` (results in ``runs/grid_seg_mask_lift_oracle_results.csv``);
+reuses extracted trajectories and uses GT labels directly as a perfect ROI mask.
+
 Idempotent: a run whose manifest already has a successful ``seg_eval.default`` is skipped.
 ``force=True`` for the same reason as in ``run_grid_4dgs.py`` — the cross-run cache keys on
 resolved config + input content hashes, the seg configs are identical across runs and the
@@ -47,6 +51,7 @@ Usage (from the repo root, workspace venv):
     .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl rigid2  # T18 upgraded Option B
     .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl kabsch  # T20 Kabsch EM
     .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl rigid2_roi  # T19 ROI + rigid2
+    .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl mask_lift_oracle  # T22 oracle ceiling
 """
 
 from __future__ import annotations
@@ -65,12 +70,25 @@ from pipeline.artifacts import Artifact, load_manifest, update_manifest  # noqa:
 from pipeline.config import validate_config  # noqa: E402
 from pipeline.dag import run_dag  # noqa: E402
 
+#: Which orchestrator stage name provides the segmentation for each --impl.
+SEGMENT_STAGE: dict[str, str] = {
+    "rigid": "segment.rigid",
+    "mbs": "segment.mbs",
+    "rigid2": "segment.rigid2",
+    "kabsch": "segment.kabsch",
+    "rigid2_roi": "segment.rigid2",
+    "mask_lift_oracle": "segment.rigid2",
+    "mask_lift": "segment.rigid2",
+}
+
 RESULTS_CSV = {
     "rigid": REPO_ROOT / "runs" / "grid_seg_results.csv",
     "mbs": REPO_ROOT / "runs" / "grid_seg_mbs_results.csv",
     "rigid2": REPO_ROOT / "runs" / "grid_seg_rigid2_results.csv",
     "kabsch": REPO_ROOT / "runs" / "grid_seg_kabsch_results.csv",
     "rigid2_roi": REPO_ROOT / "runs" / "grid_seg_rigid2_roi_results.csv",
+    "mask_lift_oracle": REPO_ROOT / "runs" / "grid_seg_mask_lift_oracle_results.csv",
+    "mask_lift": REPO_ROOT / "runs" / "grid_seg_mask_lift_results.csv",
 }
 
 STAGES = {
@@ -80,6 +98,8 @@ STAGES = {
     "rigid2": ["segment.rigid2", "seg_eval.default"],
     "kabsch": ["segment.kabsch", "seg_eval.default"],
     "rigid2_roi": ["roi.motion_gate", "segment.rigid2", "seg_eval.default"],
+    "mask_lift_oracle": ["roi.mask_oracle", "segment.rigid2", "seg_eval.default"],
+    "mask_lift": ["roi.mask_lift", "segment.rigid2", "seg_eval.default"],
 }
 
 PRESET = {
@@ -88,6 +108,8 @@ PRESET = {
     "rigid2": "pump01_segB2",
     "kabsch": "pump01_kabsch",
     "rigid2_roi": "pump01_roi_gate",
+    "mask_lift_oracle": "pump01_mask_oracle",
+    "mask_lift": "pump01_mask_lift",
 }
 
 RUN_IDS = [
@@ -106,8 +128,18 @@ def already_done(run_id: str, impl: str) -> bool:
         manifest = load_manifest(run_id)
     except FileNotFoundError:
         return False
-    # seg_eval runs for both impls, so key idempotency off the impl's own segment stage.
-    rec = manifest.stages.get(f"segment.{impl}")
+    # For ROI-based impls, idempotency is keyed off the ROI stage so that changing the ROI
+    # method forces a re-run even if the underlying segment stage already succeeded.
+    seg_stage = SEGMENT_STAGE[impl]
+    if impl in ("rigid2_roi", "mask_lift_oracle", "mask_lift"):
+        roi_stage = {
+            "rigid2_roi": "roi.motion_gate",
+            "mask_lift_oracle": "roi.mask_oracle",
+            "mask_lift": "roi.mask_lift",
+        }[impl]
+        rec = manifest.stages.get(roi_stage)
+        return rec is not None and rec.status in ("success", "skipped")
+    rec = manifest.stages.get(seg_stage)
     return rec is not None and rec.status in ("success", "skipped")
 
 
@@ -131,6 +163,16 @@ def seed_gt(run_id: str) -> Path:
     return gt
 
 
+def _backup_eval(run_dir: Path, suffix: str) -> None:
+    """Preserve seg_eval_result.json before it gets overwritten."""
+    eval_path = run_dir / "seg_eval_result.json"
+    if not eval_path.is_file():
+        return
+    backup = run_dir / f"seg_eval_result_before_{suffix}.json"
+    if not backup.exists():
+        backup.write_bytes(eval_path.read_bytes())
+
+
 def run_one(run_id: str, resolved: dict, impl: str) -> None:
     if already_done(run_id, impl):
         print(f"[skip] {run_id} already segmented ({impl})")
@@ -140,32 +182,26 @@ def run_one(run_id: str, resolved: dict, impl: str) -> None:
     stages = STAGES[impl]
     run_dir = REPO_ROOT / "runs" / run_id
     eval_path = run_dir / "seg_eval_result.json"
-    if impl == "mbs" and eval_path.is_file():
-        # seg_eval writes a fixed filename; keep the rigid pass's summary before it's overwritten.
-        backup = run_dir / "seg_eval_result_rigid.json"
-        if not backup.exists():
-            backup.write_bytes(eval_path.read_bytes())
-    if impl == "rigid2":
-        # Per-run GT for the separability diagnostic; and preserve whichever eval summary is
-        # currently on disk (rigid or mbs) before seg_eval overwrites it.
-        resolved["segment"]["rigid2"]["gt_segmentation_path"] = str(gt_path)
-        if eval_path.is_file():
-            backup = run_dir / "seg_eval_result_before_rigid2.json"
-            if not backup.exists():
-                backup.write_bytes(eval_path.read_bytes())
-    if impl == "rigid2_roi":
-        # Same as rigid2: per-run GT for separability + preserve existing eval summary.
-        resolved["segment"]["rigid2"]["gt_segmentation_path"] = str(gt_path)
-        if eval_path.is_file():
-            backup = run_dir / "seg_eval_result_before_rigid2_roi.json"
-            if not backup.exists():
-                backup.write_bytes(eval_path.read_bytes())
+
+    # Backups before seg_eval overwrites the shared result file.
+    if impl == "mbs":
+        _backup_eval(run_dir, "rigid")
+    if impl in ("rigid2", "rigid2_roi", "mask_lift_oracle", "mask_lift"):
+        _backup_eval(run_dir, impl)
     if impl == "kabsch":
-        # Preserve any existing eval summary before seg_eval overwrites it.
-        if eval_path.is_file():
-            backup = run_dir / "seg_eval_result_before_kabsch.json"
-            if not backup.exists():
-                backup.write_bytes(eval_path.read_bytes())
+        _backup_eval(run_dir, "kabsch")
+
+    # Per-run GT for separability diagnostic (rigid2-based impls).
+    if impl in ("rigid2", "rigid2_roi", "mask_lift_oracle", "mask_lift"):
+        resolved["segment"]["rigid2"]["gt_segmentation_path"] = str(gt_path)
+
+    # For mask_lift, ensure masks_dir is set (user must provide it via CLI or preset).
+    if impl == "mask_lift":
+        masks_dir = resolved.get("roi", {}).get("mask_lift", {}).get("masks_dir", "")
+        if not masks_dir:
+            print(f"[SKIP] {run_id}: mask_lift requires roi.mask_lift.masks_dir")
+            return
+
     error = ""
     try:
         manifest = run_dag(run_id, stages, resolved, preset=PRESET[impl], force=True, stage_configs={
@@ -185,6 +221,7 @@ def run_one(run_id: str, resolved: dict, impl: str) -> None:
 
     stages_rec = (manifest.stages if manifest else {})
     summary = json.loads(eval_path.read_text(encoding="utf-8")) if eval_path.is_file() else {}
+    seg_stage = SEGMENT_STAGE[impl]
     row = {
         "run_id": run_id,
         "status": status,
@@ -195,7 +232,7 @@ def run_one(run_id: str, resolved: dict, impl: str) -> None:
         "ari_within_roi": summary.get("ari_within_roi", ""),
         "n_roi_points": summary.get("n_roi_points", ""),
         "seg_extract_s": getattr(stages_rec.get("seg_extract.default"), "wall_time_s", "") or "",
-        "segment_s": getattr(stages_rec.get(f"segment.{impl.replace('_roi', '')}"), "wall_time_s", "") or "",
+        "segment_s": getattr(stages_rec.get(seg_stage), "wall_time_s", "") or "",
         "error": error,
     }
     results_csv = RESULTS_CSV[impl]
@@ -211,17 +248,25 @@ def run_one(run_id: str, resolved: dict, impl: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--impl", choices=["rigid", "mbs", "rigid2", "kabsch", "rigid2_roi"], default="rigid",
+    ap.add_argument("--impl",
+                    choices=["rigid", "mbs", "rigid2", "kabsch", "rigid2_roi",
+                             "mask_lift_oracle", "mask_lift"],
+                    default="rigid",
                     help="segmentation backend: rigid = Option B rigidity graph (default), "
-                         "mbs = Option A MultiBodySync MotNet (needs the downloaded checkpoint), "
-                         "rigid2 = T18 upgraded Option B (denoise + calibrated z + spectral), "
-                         "kabsch = T20 Kabsch EM (proposal 05), "
-                         "rigid2_roi = T19 ROI motion gate + rigid2 (proposal 01)")
+                         "mbs = Option A MultiBodySync MotNet, "
+                         "rigid2 = T18 upgraded Option B, "
+                         "kabsch = T20 Kabsch EM, "
+                         "rigid2_roi = T19 ROI motion gate + rigid2, "
+                         "mask_lift_oracle = T22 perfect GT ROI ceiling, "
+                         "mask_lift = T22 multi-view mask lifting")
+    ap.add_argument("--masks-dir", type=str, default="",
+                    help="per-camera mask directory (required for --impl mask_lift)")
     args = ap.parse_args()
 
-    # Same resolved config the training batch used (defaults for the seg sections: n_times=60,
-    # rigid k=12/min_size=15, eval drop_floaters=False; pump01_segA adds the mbs checkpoint).
     resolved = validate_config(PRESET[args.impl]).model_dump()
+    if args.masks_dir:
+        resolved["roi"]["mask_lift"]["masks_dir"] = args.masks_dir
+
     # Also write a label-colored PLY per run (path is relative to the run dir) for visual checks.
     resolved["seg_eval"]["recolored_ply"] = (
         "segmentation_colored.ply" if args.impl == "rigid"
