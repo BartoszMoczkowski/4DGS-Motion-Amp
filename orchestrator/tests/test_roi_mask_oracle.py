@@ -7,6 +7,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from pathlib import Path
+
+from pipeline.stages.base import StageContext
+from pipeline.stages.roi_mask_oracle import RoiMaskOracleStage
 
 
 def _make_scene(*, n_moving: int, n_static: int):
@@ -24,9 +28,6 @@ def _make_scene(*, n_moving: int, n_static: int):
 
 def test_oracle_matches_gt_labels():
     """roi_mask_oracle should mark all GT-labeled points as inside ROI."""
-    from pipeline.stages.roi_mask_oracle import RoiMaskOracleStage
-    from pipeline.stages.base import StageContext
-
     xyz, labels = _make_scene(n_moving=100, n_static=50)
 
     # Write fixture files
@@ -47,7 +48,7 @@ def test_oracle_matches_gt_labels():
         ctx = StageContext(
             stage_name="roi.mask_oracle",
             run_id="test",
-            run_dir=tmp,
+            run_dir=Path(tmp),
             config={},
             inputs={
                 "trajectories": type("A", (), {"path": traj_path})(),
@@ -60,7 +61,8 @@ def test_oracle_matches_gt_labels():
         stage = RoiMaskOracleStage()
         artifacts = stage.run(ctx)
 
-        roi_mask = np.load(artifacts["roi_mask"].path)["roi_mask"]
+        with np.load(artifacts["roi_mask"].path) as d:
+            roi_mask = d["roi_mask"]
         assert roi_mask.dtype == bool
         assert len(roi_mask) == len(xyz)
         # All GT-labeled points (label >= 0) should be in ROI
@@ -94,7 +96,7 @@ def test_oracle_with_label_zero_as_background():
         ctx = StageContext(
             stage_name="roi.mask_oracle",
             run_id="test",
-            run_dir=tmp,
+            run_dir=Path(tmp),
             config={},
             inputs={
                 "trajectories": type("A", (), {"path": traj_path})(),
@@ -106,7 +108,8 @@ def test_oracle_with_label_zero_as_background():
 
         stage = RoiMaskOracleStage()
         artifacts = stage.run(ctx)
-        roi_mask = np.load(artifacts["roi_mask"].path)["roi_mask"]
+        with np.load(artifacts["roi_mask"].path) as d:
+            roi_mask = d["roi_mask"]
 
         assert roi_mask[:50].all()
         assert not roi_mask[50:].any()
@@ -143,7 +146,7 @@ def test_oracle_nearest_neighbour_alignment():
         ctx = StageContext(
             stage_name="roi.mask_oracle",
             run_id="test",
-            run_dir=tmp,
+            run_dir=Path(tmp),
             config={},
             inputs={
                 "trajectories": type("A", (), {"path": traj_path})(),
@@ -155,7 +158,8 @@ def test_oracle_nearest_neighbour_alignment():
 
         stage = RoiMaskOracleStage()
         artifacts = stage.run(ctx)
-        roi_mask = np.load(artifacts["roi_mask"].path)["roi_mask"]
+        with np.load(artifacts["roi_mask"].path) as d:
+            roi_mask = d["roi_mask"]
 
         # The first n_gt points should map to their corresponding GT labels
         # (small noise, so NN should be exact or very close)
@@ -187,7 +191,7 @@ def test_oracle_artifact_contract():
         ctx = StageContext(
             stage_name="roi.mask_oracle",
             run_id="test",
-            run_dir=tmp,
+            run_dir=Path(tmp),
             config={},
             inputs={
                 "trajectories": type("A", (), {"path": traj_path})(),
@@ -200,8 +204,8 @@ def test_oracle_artifact_contract():
         stage = RoiMaskOracleStage()
         artifacts = stage.run(ctx)
 
-        data = np.load(artifacts["roi_mask"].path)
-        assert "roi_mask" in data.files
-        assert "snr" in data.files
-        assert data["roi_mask"].dtype == bool
-        assert data["snr"].dtype == np.float32
+        with np.load(artifacts["roi_mask"].path) as data:
+            assert "roi_mask" in data.files
+            assert "snr" in data.files
+            assert data["roi_mask"].dtype == bool
+            assert data["snr"].dtype == np.float32

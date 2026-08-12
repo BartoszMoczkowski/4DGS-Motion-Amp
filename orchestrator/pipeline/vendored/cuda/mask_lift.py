@@ -23,17 +23,12 @@ import os
 import sys
 
 import numpy as np
-import torch
 from PIL import Image
 
-# These imports rely on PYTHONPATH=/workspace/core inside the cuda container.
-from arguments import ModelHiddenParams, ModelParams, PipelineParams, get_combined_args
-from gaussian_renderer import GaussianModel, render
-from scene import Scene
-from scene.cameras import MiniCam
-from utils.general_utils import safe_state
-from utils.graphics_utils import getProjectionMatrix, getWorld2View2
-from utils.render_utils import get_state_at_time
+# NOTE: torch and the 4DGS core imports (arguments / gaussian_renderer / scene / utils)
+# are deferred into the functions that use them so this module stays importable on the
+# host (orchestrator sandbox tests import the pure-numpy helpers).  They rely on
+# PYTHONPATH=/workspace/core inside the cuda container.
 
 
 class _TimeCam:
@@ -96,7 +91,9 @@ def _dilate_graph(mask: np.ndarray, edges: np.ndarray, hops: int = 1) -> np.ndar
 def _make_minicam(R: np.ndarray, T: np.ndarray, W: int, H: int, fx: float, fy: float,
                   znear: float = 0.01, zfar: float = 100.0, time: float = 0.0) -> MiniCam:
     """Build a MiniCam from COLMAP-style R,T and pinhole intrinsics."""
-    from utils.graphics_utils import focal2fov
+    import torch
+    from scene.cameras import MiniCam
+    from utils.graphics_utils import focal2fov, getProjectionMatrix, getWorld2View2
     FoVx = focal2fov(fx, W)
     FoVy = focal2fov(fy, H)
     w2v = getWorld2View2(R, T, translate=np.array([0.0, 0.0, 0.0]), scale=1.0)
@@ -142,6 +139,10 @@ def lift_masks(
         votes: float32[N] — raw vote score (numerator/denominator).
         info: dict with diagnostics.
     """
+    import torch
+    from gaussian_renderer import render
+    from utils.render_utils import get_state_at_time
+
     n = gaussians.get_xyz.shape[0]
     device = gaussians.get_xyz.device
 
@@ -243,6 +244,12 @@ def lift_masks(
 
 
 def main():
+    import torch  # noqa: F401  (ensures CUDA env before core imports)
+    from arguments import ModelHiddenParams, ModelParams, PipelineParams, get_combined_args
+    from gaussian_renderer import GaussianModel
+    from scene import Scene
+    from utils.general_utils import safe_state
+
     parser = argparse.ArgumentParser(description="Lift 2D masks to 3D Gaussian ROI mask")
     model = ModelParams(parser, sentinel=True)
     pipeline = PipelineParams(parser)

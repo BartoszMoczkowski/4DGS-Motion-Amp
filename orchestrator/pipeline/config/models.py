@@ -334,7 +334,7 @@ class RoiConfig(StrictModel):
     ``impl: "none"`` means the DAG contains no ``roi`` stage — current presets are unaffected.
     """
 
-    impl: Literal["none", "motion_gate", "mask_lift"] = "none"
+    impl: Literal["none", "motion_gate", "mask_lift", "mask_oracle"] = "none"
     motion_gate: RoiMotionGateConfig = Field(default_factory=RoiMotionGateConfig)
     mask_lift: RoiMaskLiftConfig = Field(default_factory=RoiMaskLiftConfig)
 

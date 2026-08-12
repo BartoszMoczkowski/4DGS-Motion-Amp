@@ -27,12 +27,12 @@ class RoiMaskOracleStage(Stage):
     resources = ResourceRequest(needs_gpu=False, ram_gb=1.0)
 
     def run(self, ctx: StageContext) -> dict[str, Artifact]:
-        traj_data = np.load(ctx.inputs["trajectories"].path)
-        xyz = traj_data["canonical_xyz"]
+        with np.load(ctx.inputs["trajectories"].path) as traj_data:
+            xyz = traj_data["canonical_xyz"]
 
-        gt_data = np.load(ctx.inputs["gt_segmentation"].path)
-        gt_points = gt_data["points"]
-        gt_labels = gt_data["labels"]
+        with np.load(ctx.inputs["gt_segmentation"].path) as gt_data:
+            gt_points = gt_data["points"]
+            gt_labels = gt_data["labels"]
 
         # Nearest-neighbour match: GT init cloud -> trajectory points (same convention as
         # segment_rigid2.py and seg_eval.default).
@@ -40,12 +40,9 @@ class RoiMaskOracleStage(Stage):
         _, nn = cKDTree(gt_points).query(xyz, k=1)
         mapped_labels = gt_labels[nn]
 
-        # Background is conventionally label 0 or -1 in Omniverse instance segmentation.
-        # Any positive label is considered part of the machine.
+        # Background is label 0 (pump01 GT: label 0 is the dominant static class,
+        # labels 1..106 are the machine parts).  Only positive labels are in the ROI.
         roi_mask = mapped_labels > 0
-        # Also include label 0 if it represents a valid part (some datasets use 0 as first part).
-        # Conservative: include everything that has a non-negative label.
-        roi_mask = mapped_labels >= 0
 
         # snr is a dummy diagnostic for the oracle (perfect knowledge = 1.0 inside, 0.0 outside).
         snr = roi_mask.astype(np.float32)

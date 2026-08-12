@@ -140,6 +140,27 @@ This strengthens the case for **T22 (multi-view mask lifting, proposal 02)** bec
 
 If T22 also fails to reach ARI ≥ 0.5 on pump01, the thesis conclusion becomes: **motion-only segmentation of 4DGS at ~10⁵ Gaussians is reconstruction-quality-limited on mm-scale industrial scenes**. The practical contribution shifts to the motion-amplification pipeline (which works) and the synthetic-data generation framework (which enables quantitative evaluation).
 
+### T22 oracle ceiling benchmark — `roi.mask_oracle` + `segment.rigid2` (2026-08-12)
+
+T22's mask-lifting bet was tested at its ceiling first: `roi.mask_oracle` derives a *perfect* ROI from GT part labels (NN-aligned to the trajectory cloud; label 0 = background), then `segment.rigid2` clusters only inside it. All 7 grid/sweep runs succeeded (`runs/grid_seg_mask_lift_oracle_results.csv`). **Results: even a perfect ROI does not rescue segmentation — Scenario C (reconstruction-quality-limited).**
+
+| run_id | oracle global ARI | oracle ARI-within-ROI | motion-gate ARI-within-ROI (T19) | separability AUROC | n_pred (107 GT) |
+|--------|------------------|----------------------|----------------------------------|--------------------|-----------------|
+| grid-A20mm_M2 | 0.281 | 0.105 | 0.001 | 0.626 | 35 |
+| grid-A20mm_M4 | 0.294 | −0.013 | −0.042 | 0.585 | 12 |
+| grid-A40mm_M8 | 0.207 | 0.012 | −0.004 | 0.671 | 6 |
+| sweep-g10000 | 0.128 | 0.005 | 0.003 | 0.458 | 3 |
+| sweep-g25000 | 0.021 | 0.000 | −0.024 | 0.518 | 3 |
+| sweep-g50000 | 0.056 | 0.002 | −0.009 | 0.455 | 3 |
+| sweep-g100000 | 0.000 | −0.000 | −0.028 | 0.507 | 3 |
+
+**Key findings**
+
+1. **Oracle ARI-within-ROI ≈ 0 on every run (max 0.105).** The higher *global* ARI (0.21–0.29 on grid runs) is an artifact of the label −2 convention: the oracle removes the background cloud, which is then scored as one big correct group. Machine-part clustering still collapses (3–35 clusters vs 107 GT parts).
+2. **Separability AUROC is 0.45–0.67 on all models** (threshold for per-edge viability: 0.8) — the rigidity edge signal itself does not separate same-part from different-part pairs.
+3. **Verdict: the bottleneck was never ROI quality.** T19's gate failed because jitter ≈ motion; the oracle proves even a perfect geometric gate fails because the trajectory signal inside the machine region is already too noisy. T22 mask lifting as a segmentation rescue is dead; `roi.mask_oracle` remains as a diagnostic ceiling stage. Full report: `.claude_notes/NOTES_T22_oracle_results_2026-08-12.md`.
+
+
 
 
 
