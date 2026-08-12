@@ -24,6 +24,9 @@ pipeline = { workspace = true, editable = true }
 motion-seg = { workspace = true, editable = true }
 omniverse-pipeline = { workspace = true, editable = true }
 amp-ui = { workspace = true, editable = true }
+"camera-sync-display" = { workspace = true, editable = true }
+"camera-sync-recorder" = { workspace = true, editable = true }
+"camera-sync-analyzer" = { workspace = true, editable = true }
 mmcv = { url = "https://download.openmmlab.com/mmcv/dist/cu121/torch2.4.0/mmcv-2.2.0-cp312-cp312-manylinux1_x86_64.whl" }
 
 [tool.uv.workspace]
@@ -35,6 +38,9 @@ members = [
     "submodules/depth-diff-gaussian-rasterization",
     "submodules/simple-knn",
     "orchestrator",
+    "camera_sync/sync_display",
+    "camera_sync/recorder",
+    "camera_sync/sync_analyzer",
 ]
 
 [tool.uv]

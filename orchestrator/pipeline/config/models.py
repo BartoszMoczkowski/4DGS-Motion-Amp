@@ -187,7 +187,7 @@ class SegExtractConfig(StrictModel):
     out: str = ""
 
 
-# --- segmentation: role "segment" with two selectable implementations ----------------------
+# --- segmentation: role "segment" with selectable implementations --------------------------
 
 
 class SegmentRigidConfig(StrictModel):
@@ -217,17 +217,73 @@ class SegmentMbsConfig(StrictModel):
     seed: int = 0
 
 
+class SegmentRigid2Config(StrictModel):
+    """T18 ``segment.rigid2`` (proposal 06, ``docs/proposals/06-multiscale-snr-multiscale.md``):
+    FFT denoising + calibrated rigidity z-scores + spectral partition. All fields map 1:1 to
+    :func:`pipeline.vendored.host.rigidity_graph2.segment_by_rigidity2` kwargs, except
+    ``opacity_thresh``/``gt_segmentation_path`` (stage-level, mirroring ``SegmentRigidConfig``).
+    """
+
+    k: int = 12
+    min_size: int = 15
+    opacity_thresh: float = 0.1
+    denoise: bool = True
+    # None => auto-detect from the moving points' mean power spectrum.
+    drive_freq: Optional[float] = None
+    harmonics: int = 3
+    calibrate_sigma: bool = True
+    # Significance cut for partition="components" when calibrate_sigma is on.
+    z_thresh: float = 3.0
+    # Legacy fallback path (calibrate_sigma=False): Otsu-log * threshold_mult, as segment.rigid.
+    threshold_mult: float = 1.0
+    partition: Literal["spectral", "components"] = "components"
+    min_clusters: int = 2
+    max_clusters: int = 50
+    # 0 => eigengap model selection.
+    n_clusters: int = 0
+    # 0 => segment the full set; else FPS-subsample + q-NN label propagation.
+    n_subsample: int = 0
+    propagate_q: int = 3
+    # Optional per-run GT path (set by benchmark harnesses, like seg_eval's recolored_ply);
+    # only feeds the separability.json diagnostic, never the segmentation. "" => skip.
+    gt_segmentation_path: str = ""
+
+
+class SegmentKabschConfig(StrictModel):
+    """T20 ``segment.kabsch`` (proposal 05): iterative Kabsch EM rigid-body clustering."""
+
+    n_clusters: int = 0                     # 0 => BIC search over k_range
+    k_range: list[int] = Field(default_factory=lambda: [2, 200])
+    init: Literal["fft", "kmeans"] = "fft"  # "spectral" can be added later
+    max_iter: int = 30
+    # Per-coordinate noise std; None => auto from trajectory energy median.
+    sigma: Optional[float] = None
+    spatial_prior: bool = False             # Potts k-NN prior (future work)
+    greedy_split: bool = False              # post-EM BIC-guided split
+    fps_subsample: int = 0                  # 0 => full set; else FPS + q-NN propagate
+    propagate_q: int = 3
+    drive_freq: Optional[float] = None      # for FFT-fingerprint init
+    harmonics: int = 3
+    tolerance: float = 1e-4
+    min_size: int = 15
+    opacity_thresh: float = 0.1
+    rng_seed: int = 0
+
+
 class SegmentConfig(StrictModel):
-    """Role ``segment``: picks + configures one of the two segmentation implementations.
+    """Role ``segment``: picks + configures one of the segmentation implementations.
 
     This is the "role -> impl selection" the config layer owns (T02 scope) — the registry
     (T04) resolves ``impl`` to an actual registered stage class named e.g. ``segment.rigid`` /
-    ``segment.mbs``; this model only validates that the choice is coherent.
+    ``segment.mbs`` / ``segment.rigid2`` / ``segment.kabsch``; this model only validates that
+    the choice is coherent.
     """
 
-    impl: Literal["rigid", "mbs"] = "rigid"
+    impl: Literal["rigid", "mbs", "rigid2", "kabsch"] = "rigid"
     rigid: SegmentRigidConfig = Field(default_factory=SegmentRigidConfig)
     mbs: SegmentMbsConfig = Field(default_factory=SegmentMbsConfig)
+    rigid2: SegmentRigid2Config = Field(default_factory=SegmentRigid2Config)
+    kabsch: SegmentKabschConfig = Field(default_factory=SegmentKabschConfig)
 
     @model_validator(mode="after")
     def _check_impl_ready(self) -> "SegmentConfig":
@@ -237,6 +293,61 @@ class SegmentConfig(StrictModel):
                 "(path to a downloaded MultiBodySync checkpoint)"
             )
         return self
+
+
+# --- ROI: motion gate + mask lift ----------------------------------------------------------
+
+
+class RoiMotionGateConfig(StrictModel):
+    """T19 ``roi.motion_gate`` (proposal 01): band-limited energy gate + k-NN dilation +
+    rigidity-lock readmission.  All fields map 1:1 to
+    :func:`pipeline.vendored.host.motion_gate.motion_gate` kwargs.
+    """
+
+    # None => auto-detect from the moving points' mean power spectrum.
+    drive_freq: Optional[float] = None
+    harmonics: int = 3
+    # Number of k-NN hops to dilate the initial energy-gated moving region.
+    dilation_hops: int = 1
+    # Rigidity-lock readmission threshold, in units of the calibrated noise-floor sigma.
+    readmit_mult: float = 3.0
+    # k for the k-NN graph used in dilation + readmission.
+    k: int = 12
+
+
+class RoiMaskLiftConfig(StrictModel):
+    """T22 ``roi.mask_lift`` (proposal 02): multi-view 2D masks lifted to 3D via depth
+    rendering.  Host-side mask production (clean-plate diff) is configured here too.
+    """
+
+    # Directory containing per-camera per-frame mask images (or SAM outputs).
+    masks_dir: str = ""
+    ref_time: int = 0
+    depth_tol: float = 0.02
+    vote_thresh: float = 0.5
+    dilation_hops: int = 1
+
+
+class RoiConfig(StrictModel):
+    """Role ``roi``: picks + configures one of the ROI extraction implementations.
+
+    ``impl: "none"`` means the DAG contains no ``roi`` stage — current presets are unaffected.
+    """
+
+    impl: Literal["none", "motion_gate", "mask_lift"] = "none"
+    motion_gate: RoiMotionGateConfig = Field(default_factory=RoiMotionGateConfig)
+    mask_lift: RoiMaskLiftConfig = Field(default_factory=RoiMaskLiftConfig)
+
+    @model_validator(mode="after")
+    def _check_impl_ready(self) -> "RoiConfig":
+        if self.impl == "mask_lift" and not self.mask_lift.masks_dir:
+            raise ValueError(
+                "roi.impl == 'mask_lift' requires roi.mask_lift.masks_dir to be set"
+            )
+        return self
+
+
+# --- evaluation -----------------------------------------------------------------------------
 
 
 class SegEvalConfig(StrictModel):
@@ -449,5 +560,7 @@ class PipelineConfig(StrictModel):
     seg_extract: SegExtractConfig = Field(default_factory=SegExtractConfig)
     segment: SegmentConfig = Field(default_factory=SegmentConfig)
     seg_eval: SegEvalConfig = Field(default_factory=SegEvalConfig)
+
+    roi: RoiConfig = Field(default_factory=RoiConfig)
 
     amp: AmpConfig = Field(default_factory=AmpConfig)

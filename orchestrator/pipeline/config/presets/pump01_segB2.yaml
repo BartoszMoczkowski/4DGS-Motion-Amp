@@ -1,0 +1,12 @@
+# Experiment preset (T18): run the upgraded Option-B segmentation (segment.rigid2 — FFT
+# denoising + calibrated rigidity z-scores + spectral partition, proposal 06) on the pump01
+# scene. Defaults are the SegmentRigid2Config defaults; override here per experiment, e.g.:
+#   segment:
+#     rigid2:
+#       drive_freq: 4        # cycles per clip window, if auto-detect picks the wrong bin
+#       max_clusters: 120    # pump01 has 107 GT parts
+extends: pump01
+name: pump01_segB2
+
+segment:
+  impl: rigid2

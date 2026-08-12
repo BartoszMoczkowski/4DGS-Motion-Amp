@@ -1,0 +1,10 @@
+# Experiment preset (T19): run ROI motion gating + upgraded Option-B segmentation
+# (roi.motion_gate -> segment.rigid2) on the pump01 scene.
+extends: pump01
+name: pump01_roi_gate
+
+roi:
+  impl: motion_gate
+
+segment:
+  impl: rigid2

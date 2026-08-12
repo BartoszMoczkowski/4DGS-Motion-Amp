@@ -9,11 +9,9 @@ public function before being ported, per ``planning/INSTRUCTIONS.md``'s "refacto
 importable functions only when it clearly pays off"; the port itself is unchanged from that
 graduated function) — rather than reaching into ``motion_seg`` from outside the package.
 
-Consumes ``segmentation`` (produced by whichever ``segment.*`` impl a preset selects — here
-always ``segment.rigid`` in T07's scope) and an external ``gt_segmentation`` artifact (this
-repo's Phase-0 scope has nothing that produces GT segmentation directly — in the real pipeline
-it comes from ``convert.default`` itself, when a capture includes ``points3D_labels.npy``, but
-T07 doesn't wire that hand-off, so it's pre-seeded like ``capture``/``trajectories``).
+Consumes ``segmentation`` (produced by whichever ``segment.*`` impl a preset selects) and an
+external ``gt_segmentation`` artifact.  T19 addition: optionally consumes ``roi_mask`` for
+ARI-within-ROI scoring.
 """
 
 from __future__ import annotations
@@ -57,11 +55,19 @@ class SegEvalStage(Stage):
         drop_floaters = bool(ctx.config.get("drop_floaters", False))
         top_n = int(ctx.config.get("top_n", 15))
 
+        # Optional ROI mask for ARI-within-ROI scoring (T19)
+        roi_mask = None
+        roi_artifact = ctx.inputs.get("roi_mask")
+        if roi_artifact is not None:
+            roi_data = np.load(roi_artifact.path)
+            roi_mask = roi_data["roi_mask"]
+
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             result = evaluate(
                 pred["points"], pred["labels"], gt["points"], gt["labels"],
                 drop_floaters=drop_floaters,
+                roi_mask=roi_mask,
             )
         for line in buf.getvalue().splitlines():
             ctx.logger.info(line)
@@ -83,9 +89,18 @@ class SegEvalStage(Stage):
                 for gt_l, pred_l, iou, gt_sz, pred_sz in result["matches"][:top_n]
             ],
         }
+        if "ari_within_roi" in result:
+            summary["ari_within_roi"] = result["ari_within_roi"]
+            summary["n_roi_points"] = result["n_roi_points"]
+
         summary_path = ctx.run_dir / "seg_eval_result.json"
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         ctx.logger.info("wrote %s (ari=%.4f, mean_iou=%.4f)", summary_path, summary["ari"], summary["mean_iou"])
+
+        metadata = {"ari": summary["ari"], "mean_iou": summary["mean_iou"]}
+        if "ari_within_roi" in summary:
+            metadata["ari_within_roi"] = summary["ari_within_roi"]
+            metadata["n_roi_points"] = summary["n_roi_points"]
 
         artifacts: dict[str, Artifact] = {
             "seg_eval_result": Artifact(
@@ -93,7 +108,7 @@ class SegEvalStage(Stage):
                 kind="json",
                 path=str(summary_path),
                 producing_stage=ctx.stage_name,
-                metadata={"ari": summary["ari"], "mean_iou": summary["mean_iou"]},
+                metadata=metadata,
             )
         }
 

@@ -67,6 +67,14 @@ class SegmentRigidStage(Stage):
         out_path = ctx.run_dir / "segmentation.npz"
         # Same on-disk shape segment_rigid.py's own CLI writes (points, labels) — evaluate_
         # segmentation.py's --pred / seg_eval.default both read exactly this.
+        # Optional ROI gating: points outside ROI get label -2 (static), preserving -1 floaters.
+        roi_artifact = ctx.inputs.get("roi_mask")
+        if roi_artifact is not None:
+            roi_data = np.load(roi_artifact.path)
+            roi_mask = roi_data["roi_mask"]
+            labels[(~roi_mask) & (labels != -1)] = -2
+            ctx.logger.info("roi gated: %d inside, %d outside (-2)", int(roi_mask.sum()), int((~roi_mask).sum()))
+
         np.savez(out_path, points=xyz.astype(np.float32), labels=labels)
 
         return {

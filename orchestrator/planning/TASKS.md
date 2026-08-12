@@ -24,6 +24,10 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T15 | UI (Streamlit over Layer 1 API) | 5 | T09 | done |
 | T16 | WSL2/Linux-distro bundling (deferred) | 6 | T08 | deferred |
 | T17 | MCP job/cancel hardening (real cancel, concurrency guard, typed preview) | 4 | T14 | todo |
+| T18 | Trajectory denoising + calibrated rigidity + `segment.rigid2` (proposal 06) | 7 | T07 | done (sandbox); grid run pending |
+
+Phase 7 (segmentation rescue — `docs/proposals/IMPLEMENTATION_PLAN.md`): T19–T23 (ROI role,
+Kabsch EM, subspace spectral, mask lifting, seeded part) are planned but not yet scheduled.
 
 ## Dependency graph
 
@@ -37,6 +41,7 @@ T01 ─┬─ T02 ─┐
 T05 ── T13 ── T14
 T05, T06 ── T08 ── T09
 T08 ── T16 (deferred, no downstream dependents)
+T07 ── T18
 ```
 
 ## Critical path

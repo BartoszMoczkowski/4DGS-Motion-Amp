@@ -1,0 +1,12 @@
+# Experiment preset (T20): run Kabsch EM rigid-body clustering (segment.kabsch, proposal 05)
+# on the pump01 scene.  Fixed K=107 (known GT parts), FPS subsample to 5k for speed.
+extends: pump01
+name: pump01_kabsch
+
+segment:
+  impl: kabsch
+  kabsch:
+    n_clusters: 107
+    fps_subsample: 5000
+    max_iter: 15
+    greedy_split: false

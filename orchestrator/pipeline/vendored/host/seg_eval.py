@@ -7,14 +7,8 @@ sibling vendored module (:mod:`pipeline.vendored.host.metrics`) instead of
 ported — only these three functions are a production dependency of
 ``pipeline/stages/seg_eval.py``.
 
-Original docstring:
-
-    Compare a predicted segmentation (motion-seg/motion_seg/segment_rigid.py output) against the
-    Omniverse ground-truth per-part labels. The two point sets differ (GT = the sampled init
-    cloud; predicted = the trained Gaussians, whose count changes with densification/pruning),
-    but they live in the same coordinate frame (both went through the same omni_to_4dgs.py
-    scale normalization), so GT labels are propagated onto the predicted points by nearest
-    neighbor before scoring.
+T19 addition: ``evaluate()`` gains an optional ``roi_mask`` argument for ARI-within-ROI
+scoring.
 """
 from __future__ import annotations
 
@@ -31,13 +25,15 @@ def propagate_labels(src_points, src_labels, dst_points):
     return src_labels[nn]
 
 
-def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: bool = False) -> dict:
+def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: bool = False,
+             roi_mask: np.ndarray | None = None) -> dict:
     """Score a predicted segmentation against GT.
 
     Returns a dict with ``ari``, ``mean_iou``, ``matches`` (as :func:`best_iou_matching` returns
     them), ``gt_on_pred`` (GT labels propagated onto ``pred_points``), the (possibly
     floater-dropped) ``pred_points``/``pred_labels`` actually scored, and ``n_gt``/``n_pred``
-    instance counts.
+    instance counts.  When ``roi_mask`` is provided, also returns ``ari_within_roi`` computed
+    on the subset inside the ROI.
     """
     pred_points = np.asarray(pred_points)
     pred_labels = np.asarray(pred_labels)
@@ -53,7 +49,7 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
     ari = adjusted_rand_index(gt_on_pred, pred_labels)
     mean_iou, matches = best_iou_matching(gt_on_pred, pred_labels)
 
-    return {
+    result = {
         "ari": ari,
         "mean_iou": mean_iou,
         "matches": matches,
@@ -63,6 +59,23 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
         "n_gt": len(np.unique(gt_labels)),
         "n_pred": len(np.unique(pred_labels)),
     }
+
+    if roi_mask is not None:
+        roi_mask = np.asarray(roi_mask)
+        if len(roi_mask) != len(pred_points):
+            raise ValueError(
+                f"roi_mask length {len(roi_mask)} != pred_points length {len(pred_points)}"
+            )
+        in_roi = roi_mask
+        if in_roi.any():
+            result["ari_within_roi"] = adjusted_rand_index(
+                gt_on_pred[in_roi], pred_labels[in_roi]
+            )
+        else:
+            result["ari_within_roi"] = None
+        result["n_roi_points"] = int(in_roi.sum())
+
+    return result
 
 
 def _write_colored_ply(path, xyz, labels):

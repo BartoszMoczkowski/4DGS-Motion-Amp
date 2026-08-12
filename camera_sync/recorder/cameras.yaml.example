@@ -1,0 +1,22 @@
+# Example camera configuration for camera-sync-recorder
+#
+# Usage:
+#   recorder --config cameras.yaml --out ./recordings/run_001
+#
+# Each camera needs:
+#   - a unique camera_id key
+#   - a url field with the full RTSP stream URL
+
+cameras:
+  cam01:
+    url: rtsp://192.168.1.101:554/stream
+  cam02:
+    url: rtsp://192.168.1.102:554/stream
+  cam03:
+    url: rtsp://192.168.1.103:554/stream
+  cam04:
+    url: rtsp://192.168.1.104:554/stream
+
+  # Add more cameras as needed — up to 16 is supported.
+  # cam05:
+  #   url: rtsp://192.168.1.105:554/stream

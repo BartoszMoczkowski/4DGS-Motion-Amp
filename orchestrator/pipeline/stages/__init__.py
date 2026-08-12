@@ -58,8 +58,14 @@ from . import prep_split  # noqa: F401  (import for its registration side-effect
 from . import render  # noqa: F401  (import for its registration side-effect)
 from . import seg_eval  # noqa: F401  (import for its registration side-effect)
 from . import seg_extract  # noqa: F401  (import for its registration side-effect)
+from . import roi_motion_gate  # noqa: F401  (import for its registration side-effect)
+from . import segment_kabsch  # noqa: F401  (import for its registration side-effect)
 from . import segment_mbs  # noqa: F401  (import for its registration side-effect)
 from . import segment_rigid  # noqa: F401  (import for its registration side-effect)
+from . import segment_rigid2  # noqa: F401  (import for its registration side-effect)
+from . import train  # noqa: F401  (import for its registration side-effect)
+from . import segment_rigid  # noqa: F401  (import for its registration side-effect)
+from . import segment_rigid2  # noqa: F401  (import for its registration side-effect)
 from . import train  # noqa: F401  (import for its registration side-effect)
 from .base import Environment, ResourceRequest, Stage, StageContext
 from .registry import (
