@@ -12,7 +12,7 @@ then analyze the recordings to extract per-camera offsets.
 |---------|------|---------|--------|
 | `camera-sync-display` | `sync_display/` | Full-screen QR + clock + ArUco display | **Implemented** |
 | `camera-sync-recorder` | `recorder/` | FFmpeg multi-camera recording wrapper | **Implemented** |
-| `camera-sync-analyzer` | `sync_analyzer/` | QR detection, offset fitting, reporting | Stub / planned |
+| `camera-sync-analyzer` | `sync_analyzer/` | QR detection, offset fitting, reporting | **Implemented** |
 
 ## Quick Start
 
@@ -70,11 +70,25 @@ recorder --help
 # --timeout        Per-camera startup timeout (default: 15s)
 ```
 
-### 3. Analyzer (planned)
+### 3. Analyzer
+
+Run synchronization analysis:
 
 ```bash
-# Not yet implemented
-uv run --package camera-sync-analyzer sync-analyzer -i ./recordings/run_001 -o ./synced/run_001
+uv sync --package camera-sync-analyzer
+uv run --package camera-sync-analyzer sync-analyzer -i ./recordings/run_001 -o ./synced/run_001 --remux
+```
+
+CLI options:
+```bash
+sync-analyzer --help
+# --input, -i        Directory containing MKVs + manifest, or single video (required)
+# --out, -o          Output directory for sync_report.json and remuxed clips (required)
+# --sample-fps       Frame sampling rate for detection in Hz (default: 5.0)
+# --ref-camera       Camera ID to use as time reference (default: auto-select)
+# --save-overlays    Save annotated detection frames to output/detection_log/
+# --remux            Remux synchronized video clips via FFmpeg -itsoffset
+# --selftest         Run built-in synthetic self-test with artificial delays
 ```
 
 ## Full Workflow
@@ -88,8 +102,8 @@ uv run --package camera-sync-display sync-display
 
 # 3. Stop recording (Ctrl+C)
 
-# 4. Analyse and compute offsets (future)
-# uv run --package camera-sync-analyzer sync-analyzer -i ./recordings/run_001 -o ./synced/run_001
+# 4. Analyze and compute offsets + remux aligned clips
+uv run --package camera-sync-analyzer sync-analyzer -i ./recordings/run_001 -o ./synced/run_001 --remux
 ```
 
 ## Architecture
