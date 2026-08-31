@@ -32,7 +32,7 @@ class SegExtractStage(Stage):
     inputs = ("model",)
     outputs = ("trajectories",)
     environment = "cuda"
-    resources = ResourceRequest(needs_gpu=True, vram_gb=8.0, ram_gb=8.0)
+    resources = ResourceRequest(needs_gpu=True, vram_gb=4.0, ram_gb=1.0)
 
     def run(self, ctx: StageContext) -> dict[str, Artifact]:
         model = ctx.inputs["model"]

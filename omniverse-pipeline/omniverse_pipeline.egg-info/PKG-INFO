@@ -8,3 +8,4 @@ Requires-Dist: Pillow>=10.0
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: matplotlib>=3.8
 Requires-Dist: trimesh>=4.0
+Requires-Dist: usd-core>=24.0

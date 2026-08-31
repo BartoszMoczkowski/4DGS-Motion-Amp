@@ -40,9 +40,11 @@ class RoiMaskOracleStage(Stage):
         _, nn = cKDTree(gt_points).query(xyz, k=1)
         mapped_labels = gt_labels[nn]
 
-        # Background is label 0 (pump01 GT: label 0 is the dominant static class,
-        # labels 1..106 are the machine parts).  Only positive labels are in the ROI.
-        roi_mask = mapped_labels > 0
+        # Background is label -1 (cubes) or label 0 (pump01). Only non-background points are in ROI.
+        if -1 in gt_labels:
+            roi_mask = mapped_labels != -1
+        else:
+            roi_mask = mapped_labels > 0
 
         # snr is a dummy diagnostic for the oracle (perfect knowledge = 1.0 inside, 0.0 outside).
         snr = roi_mask.astype(np.float32)

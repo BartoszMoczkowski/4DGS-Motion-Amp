@@ -2,8 +2,11 @@ pyproject.toml
 omniverse_pipeline/__init__.py
 omniverse_pipeline/add_motion.py
 omniverse_pipeline/capture_config.yaml
+omniverse_pipeline/capture_config_cubes.yaml
 omniverse_pipeline/capture_config_pump.container.yaml
 omniverse_pipeline/capture_config_pump.yaml
+omniverse_pipeline/capture_config_pump_warehouse.yaml
+omniverse_pipeline/compose_scene.py
 omniverse_pipeline/omni_capture.py
 omniverse_pipeline/omni_to_4dgs.py
 omniverse_pipeline/rig.py

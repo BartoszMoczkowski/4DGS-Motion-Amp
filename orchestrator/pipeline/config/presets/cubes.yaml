@@ -1,0 +1,20 @@
+# Scene preset for the synthetic spinning cubes benchmark scenes.
+extends: base
+name: cubes
+
+convert:
+  name: cubes
+  near: 0.1
+  far: 1000.0
+  target_radius: 4.0
+
+model:
+  source_path: "data/multipleview/cubes"
+  model_path: "output/multipleview/cubes"
+
+train:
+  port: 6017
+  expname: "multipleview/cubes"
+
+optim:
+  opacity_reset_interval: 60000

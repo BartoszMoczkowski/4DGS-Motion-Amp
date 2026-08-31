@@ -186,7 +186,9 @@ source = { editable = "camera_sync/sync_analyzer" }
 dependencies = [
     { name = "numpy" },
     { name = "opencv-python" },
+    { name = "pyyaml" },
     { name = "pyzbar" },
+    { name = "qrcode", extra = ["pil"] },
     { name = "scipy" },
 ]
 
@@ -194,7 +196,9 @@ dependencies = [
 requires-dist = [
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "opencv-python", specifier = ">=4.9.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "pyzbar", specifier = ">=0.1.9" },
+    { name = "qrcode", extras = ["pil"], specifier = ">=7.4.2" },
     { name = "scipy", specifier = ">=1.12.0" },
 ]
 

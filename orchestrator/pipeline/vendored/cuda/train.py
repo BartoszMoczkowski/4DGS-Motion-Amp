@@ -129,7 +129,7 @@ def scene_reconstruction(
                 viewpoint_stack,
                 batch_size=batch_size,
                 sampler=sampler,
-                num_workers=16,
+                num_workers=4,
                 collate_fn=list,
             )
             random_loader = False
@@ -138,7 +138,7 @@ def scene_reconstruction(
                 viewpoint_stack,
                 batch_size=batch_size,
                 shuffle=True,
-                num_workers=16,
+                num_workers=4,
                 collate_fn=list,
             )
             random_loader = True
@@ -228,7 +228,7 @@ def scene_reconstruction(
                         viewpoint_stack,
                         batch_size=opt.batch_size,
                         shuffle=True,
-                        num_workers=32,
+                        num_workers=4,
                         collate_fn=list,
                     )
                     random_loader = True

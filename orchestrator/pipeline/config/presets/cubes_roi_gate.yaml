@@ -1,0 +1,9 @@
+# ROI motion gating + upgraded Option-B segmentation preset for spinning cubes scenes
+extends: cubes
+name: cubes_roi_gate
+
+roi:
+  impl: motion_gate
+
+segment:
+  impl: rigid2

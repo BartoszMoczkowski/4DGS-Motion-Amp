@@ -1,0 +1,9 @@
+# Oracle GT mask ROI ceiling + upgraded Option-B segmentation preset for spinning cubes scenes
+extends: cubes
+name: cubes_mask_oracle
+
+roi:
+  impl: mask_oracle
+
+segment:
+  impl: rigid2

@@ -30,6 +30,7 @@ def _parse_args():
     ap.add_argument("--n-cameras", type=int, help="override rig.n_cameras")
     ap.add_argument("--headless", type=int, choices=[0, 1], help="override app.headless")
     ap.add_argument("--frames", type=int, help="override capture.num_frames")
+    ap.add_argument("--chunk-size", type=int, default=None, help="override capture.camera_chunk_size (default: 4)")
     return ap.parse_args()
 
 
@@ -191,10 +192,10 @@ def main():
     W, H = int(cap_cfg["width"]), int(cap_cfg["height"])
     intr = rigmod.intrinsics_from_fov(W, H, float(cap_cfg.get("vfov_deg", 45)))
 
-    # --- 5. Create USD cameras + render products ---
+    # --- 5. Create USD cameras ---
     cam_scope = "/World/CaptureCameras"
     UsdGeom.Scope.Define(stage, cam_scope)
-    render_products, cam_records = [], []
+    cam_paths, cam_records = [], []
     # focalLength/aperture so the rendered vertical FoV matches `intr`
     v_ap = 20.955
     focal_mm = (v_ap / 2) / np.tan(np.deg2rad(float(cap_cfg.get("vfov_deg", 45))) / 2)
@@ -217,8 +218,7 @@ def main():
         xf = UsdGeom.Xformable(cam.GetPrim())
         xf.ClearXformOpOrder()
         xf.AddTransformOp().Set(M)
-        rp = rep.create.render_product(path, (W, H), name=f"cam{i:02d}")
-        render_products.append(rp)
+        cam_paths.append(path)
         cam_records.append({"folder": f"cam{i:02d}",
                             "c2w": [float(v) for v in c2w.flatten()],
                             "near": float(cap_cfg.get("near", radius * 0.05)),
@@ -230,31 +230,20 @@ def main():
     # --- 6b. Lighting (a headless render is black without a light) ---
     _setup_lighting(stage, cfg.get("lighting", {}), center, radius, up_token, capture_dir, UsdLux, UsdGeom, Gf, np)
 
-    # --- 7. Writer ---
-    writer = rep.writers.get("BasicWriter")
-    writer.initialize(
-        output_dir=capture_dir,
-        rgb=True,
-        instance_segmentation=bool(out_cfg.get("instance_segmentation", True)),
-        semantic_segmentation=bool(out_cfg.get("semantic_segmentation", True)),
-        colorize_instance_segmentation=False,
-        colorize_semantic_segmentation=False,
-        camera_params=True,
-    )
-    writer.attach(render_products)
-    rep.orchestrator.set_capture_on_play(False)
-
-    # --- 8. Author authoritative GT (poses + intrinsics) ---
-    with open(os.path.join(capture_dir, "cameras_gt.json"), "w") as f:
+    # --- 7. Author authoritative GT (poses + intrinsics) ---
+    with open(os.path.join(capture_dir, "cameras_gt.json"), "w", encoding="utf-8") as f:
         json.dump({"intrinsics": intr, "up_axis": up_token,
                    "meters_per_unit": UsdGeom.GetStageMetersPerUnit(stage),
                    "cameras": cam_records}, f, indent=2)
 
-    # --- 9. Sample the meshes for the init point cloud (+ GT labels) ---
+    # --- 8. Sample the meshes for the init point cloud (+ GT labels) ---
     _sample_pointcloud(stage, root, capture_dir, int(out_cfg.get("num_init_points", 100000)),
                        UsdGeom, Usd, np)
 
-    # --- 10. Step over the animation timeline ---
+    # --- 9. Step over the animation timeline in camera chunks ---
+    chunk_size = args.chunk_size if args.chunk_size is not None else int(cap_cfg.get("camera_chunk_size", 4))
+    chunk_size = max(1, min(chunk_size, n_cams))
+
     tl_start = stage.GetStartTimeCode()
     tl_end = stage.GetEndTimeCode()
     n_frames = int(cap_cfg["num_frames"])
@@ -263,16 +252,109 @@ def main():
         times = np.linspace(tl_start, tl_end, n_frames)
     else:
         times = np.arange(n_frames)
-    print(f"[capture] {n_cams} cams x {n_frames} frames, timecode {tl_start}->{tl_end}")
-    for k, tc in enumerate(times):
-        # advance the timeline to this timecode, then capture one frame from all products
-        delta = (times[1] - times[0]) / fps if len(times) > 1 else 1.0 / fps
-        omni.timeline.get_timeline_interface().set_current_time(float(tc) / fps)
-        rep.orchestrator.step(rt_subframes=int(cap_cfg.get("rt_subframes", 8)),
-                              delta_time=0.0, pause_timeline=True)
-    rep.orchestrator.wait_until_complete()
-    print(f"[capture] done -> {capture_dir}")
-    simulation_app.close()
+
+    num_chunks = int(np.ceil(n_cams / chunk_size))
+    print(f"[capture] {n_cams} cams in {num_chunks} chunk(s) (chunk_size={chunk_size}) x {n_frames} frames, timecode {tl_start}->{tl_end}")
+
+    scene_name = scene_cfg.get("name") or os.path.basename(capture_dir).replace("capture_", "")
+    import time
+    _write_status(capture_dir, {
+        "scene_name": scene_name,
+        "status": "rendering",
+        "current_frame": 0,
+        "total_frames": n_frames,
+        "current_chunk": 0,
+        "total_chunks": num_chunks,
+        "total_cameras": n_cams,
+        "overall_progress_pct": 0.0,
+        "updated_at": time.time(),
+    })
+
+    rep.orchestrator.set_capture_on_play(False)
+
+    try:
+        for chunk_idx in range(num_chunks):
+            c_start = chunk_idx * chunk_size
+            c_end = min(c_start + chunk_size, n_cams)
+            chunk_cams = cam_paths[c_start:c_end]
+            chunk_names = [f"cam{i:02d}" for i in range(c_start + 1, c_end + 1)]
+            print(f"\n[capture] --- Chunk {chunk_idx + 1}/{num_chunks}: {chunk_names} ---", flush=True)
+
+            chunk_rps = [rep.create.render_product(c_path, (W, H), name=c_name) for c_path, c_name in zip(chunk_cams, chunk_names)]
+
+            writer = rep.writers.get("BasicWriter")
+            writer.initialize(
+                output_dir=capture_dir,
+                rgb=True,
+                instance_segmentation=bool(out_cfg.get("instance_segmentation", True)),
+                semantic_segmentation=bool(out_cfg.get("semantic_segmentation", False)),
+                colorize_instance_segmentation=bool(out_cfg.get("colorize_instance_segmentation", False)),
+                colorize_semantic_segmentation=bool(out_cfg.get("colorize_semantic_segmentation", False)),
+                camera_params=True,
+            )
+            writer.attach(chunk_rps)
+
+            for k, tc in enumerate(times):
+                omni.timeline.get_timeline_interface().set_current_time(float(tc) / fps)
+                if (k + 1) % 10 == 0 or k == 0 or k == len(times) - 1:
+                    prog = ((chunk_idx * n_frames + (k + 1)) / (num_chunks * n_frames)) * 100.0
+                    print(f"[capture] Chunk {chunk_idx + 1}/{num_chunks} | frame {k+1}/{n_frames} (timecode {tc:.1f}) | overall {prog:.1f}%", flush=True)
+                    _write_status(capture_dir, {
+                        "scene_name": scene_name,
+                        "status": "rendering",
+                        "current_frame": k + 1,
+                        "total_frames": n_frames,
+                        "current_chunk": chunk_idx + 1,
+                        "total_chunks": num_chunks,
+                        "chunk_cameras": chunk_names,
+                        "total_cameras": n_cams,
+                        "overall_progress_pct": round(prog, 1),
+                        "updated_at": time.time(),
+                    })
+                rep.orchestrator.step(rt_subframes=int(cap_cfg.get("rt_subframes", 4)),
+                                      delta_time=0.0, pause_timeline=True)
+
+            rep.orchestrator.wait_until_complete()
+            writer.detach()
+            for rp in chunk_rps:
+                try:
+                    rp.destroy()
+                except Exception:
+                    pass
+            simulation_app.update()
+
+        _write_status(capture_dir, {
+            "scene_name": scene_name,
+            "status": "completed",
+            "current_frame": n_frames,
+            "total_frames": n_frames,
+            "current_chunk": num_chunks,
+            "total_chunks": num_chunks,
+            "total_cameras": n_cams,
+            "overall_progress_pct": 100.0,
+            "updated_at": time.time(),
+        })
+        print(f"[capture] done -> {capture_dir}", flush=True)
+    except Exception as exc:
+        _write_status(capture_dir, {
+            "scene_name": scene_name,
+            "status": "failed",
+            "error": str(exc),
+            "updated_at": time.time(),
+        })
+        raise
+    finally:
+        simulation_app.close()
+
+
+def _write_status(capture_dir: str, data: dict) -> None:
+    try:
+        os.makedirs(capture_dir, exist_ok=True)
+        path = os.path.join(capture_dir, "status.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as exc:
+        print(f"[warning] failed to write status.json: {exc}", flush=True)
 
 
 def _write_png(path, img, np):
@@ -419,14 +501,24 @@ def _sample_pointcloud(stage, root, out_dir, n_target, UsdGeom, Usd, np):
     it = stage.Traverse() if root == stage.GetPseudoRoot() else Usd.PrimRange(root)
     lid = 0
     for prim in it:
-        if prim.GetTypeName() != "Mesh":
+        if prim.GetTypeName() == "Mesh":
+            mesh = UsdGeom.Mesh(prim)
+            pts = mesh.GetPointsAttr().Get()
+            if not pts:
+                continue
+            P = np.array([[p[0], p[1], p[2]] for p in pts], dtype=np.float64)
+        elif prim.GetTypeName() == "Cube":
+            cube = UsdGeom.Cube(prim)
+            size = float(cube.GetSizeAttr().Get() or 1.0)
+            hs = size / 2.0
+            grid = np.linspace(-hs, hs, 25)
+            gx, gy, gz = np.meshgrid(grid, grid, grid)
+            mask = (np.abs(gx) == hs) | (np.abs(gy) == hs) | (np.abs(gz) == hs)
+            P = np.column_stack([gx[mask], gy[mask], gz[mask]]).astype(np.float64)
+        else:
             continue
-        mesh = UsdGeom.Mesh(prim)
-        pts = mesh.GetPointsAttr().Get()
-        if not pts:
-            continue
+
         M = xf_cache.GetLocalToWorldTransform(prim)
-        P = np.array([[p[0], p[1], p[2]] for p in pts], dtype=np.float64)
         Pw = np.array([M.Transform((x, y, z)) for x, y, z in P])
         # Use the *parent* Xform's name, not the mesh prim's own name: split_mesh.py builds
         # every part as .../<part_name>/mesh, so prim.GetName() is literally "mesh" for every

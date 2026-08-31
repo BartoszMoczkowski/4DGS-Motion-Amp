@@ -60,7 +60,7 @@ class SegmentMbsStage(Stage):
     # Gaussian count) — far lighter than train/render/amp's full 4DGS forward/backward passes.
     # Rough estimate (T12's resource manager isn't built yet to measure real headroom), padded
     # the same way T09's stages were.
-    resources = ResourceRequest(needs_gpu=True, vram_gb=4.0, ram_gb=4.0)
+    resources = ResourceRequest(needs_gpu=True, vram_gb=2.0, ram_gb=1.0)
 
     def run(self, ctx: StageContext) -> dict[str, Artifact]:
         traj = ctx.inputs["trajectories"]

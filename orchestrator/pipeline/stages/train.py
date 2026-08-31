@@ -50,7 +50,7 @@ class TrainStage(Stage):
     # ~/.wslconfig (memory=20GB), so the cap, not the gate, protects the host. A nonzero
     # estimate just deadlocked batches: vmmemWSL legitimately holds its cap between runs,
     # leaving "host free" permanently below any estimate.
-    resources = ResourceRequest(needs_gpu=True, vram_gb=16.0, ram_gb=0.0)
+    resources = ResourceRequest(needs_gpu=True, vram_gb=8.0, ram_gb=0.0)
 
     def run(self, ctx: StageContext) -> dict[str, Artifact]:
         scene = ctx.inputs["scene"]

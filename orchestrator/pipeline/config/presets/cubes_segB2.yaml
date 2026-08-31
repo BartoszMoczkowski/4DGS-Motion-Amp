@@ -1,0 +1,6 @@
+# Upgraded Option-B segmentation preset for spinning cubes scenes
+extends: cubes
+name: cubes_segB2
+
+segment:
+  impl: rigid2

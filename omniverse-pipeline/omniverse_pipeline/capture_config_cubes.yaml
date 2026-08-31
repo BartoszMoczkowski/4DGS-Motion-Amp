@@ -1,0 +1,41 @@
+# Capture config for the synthetic spinning cubes test scene (omni_capture.py, Isaac Sim).
+# Target: data/scenes/spinning_cubes/spinning_cubes.usd
+#
+# Run:  <isaac-python> omniverse_pipeline/omni_capture.py --config omniverse_pipeline/capture_config_cubes.yaml
+# Then: python omniverse_pipeline/omni_to_4dgs.py --capture Q:/Omniverse/renders/capture_spinning_cubes --out . --name cubes01
+
+app:
+  headless: true
+
+scene:
+  usd_path: "omniverse-pipeline/data/scenes/spinning_cubes/spinning_cubes.usd"
+  subject_prim: "/World/Cubes"
+  semantic_roots: ["/World/Cubes"]
+
+rig:
+  layout: ring
+  n_cameras: 10
+  radius_scale: 1.0
+  height_scale: 0.4
+  world_up: [0, 0, 1]
+
+capture:
+  width: 1600
+  height: 900
+  vfov_deg: 45
+  num_frames: 60
+  rt_subframes: 16
+  near: 0.1
+  far: 20.0
+
+output:
+  capture_dir: "Q:/Omniverse/renders/capture_spinning_cubes"
+  instance_segmentation: true
+  semantic_segmentation: true
+  num_init_points: 50000
+
+lighting:
+  enabled: true
+  force: false
+  add_dome: false
+  add_distant: false

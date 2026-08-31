@@ -34,7 +34,7 @@ class ConvertStage(Stage):
     inputs = ("capture",)
     outputs = ("scene",)
     environment = "host"
-    resources = ResourceRequest(needs_gpu=False, ram_gb=1.0)
+    resources = ResourceRequest(needs_gpu=False, ram_gb=0.0)
 
     def run(self, ctx: StageContext) -> dict[str, Artifact]:
         capture_dir = ctx.inputs["capture"].path

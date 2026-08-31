@@ -3,3 +3,4 @@ Pillow>=10.0
 pyyaml>=6.0
 matplotlib>=3.8
 trimesh>=4.0
+usd-core>=24.0

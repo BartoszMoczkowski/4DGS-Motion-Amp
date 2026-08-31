@@ -221,14 +221,40 @@ def get_orbit(poses, N_views=300, n_rots=1):
     (see multipleview_dataset.get_video_cam_infos / dataset_readers' `[c1,-c0,c2,c3]` remap).
     """
     centers = poses[:, :, 3]                         # (N_cams, 3)
-    scene_center = centers.mean(0)
+    fwd = -poses[:, :, 2]                            # (N_cams, 3) - camera forward directions
     up = normalize(poses[:, :, 1].sum(0))             # consistent with get_spiral's `up`
 
-    rel = centers - scene_center
-    height = rel @ up                                 # signed offset along up axis
-    rel_perp = rel - np.outer(height, up)             # component in the orbit plane
-    radius = np.linalg.norm(rel_perp, axis=1).mean()
-    avg_height = height.mean()
+    # Solve for the focus target point closest to all camera optical axes (least-squares ray intersection)
+    A = np.zeros((3, 3))
+    b = np.zeros(3)
+    for C, d in zip(centers, fwd):
+        dn = normalize(d)
+        proj = np.eye(3) - np.outer(dn, dn)
+        A += proj
+        b += proj @ C
+
+    if np.linalg.cond(A) < 1e5:
+        target = np.linalg.solve(A, b)
+    else:
+        target = centers.mean(0)
+
+    # Calculate distance and height relative to the focus target (brought ~1m closer)
+    rel = centers - target
+    heights = rel @ up
+    dists = np.linalg.norm(rel, axis=1)
+    radius_3d = max(float(dists.mean()) - 1.0, 0.5)
+    elevations = np.arcsin(np.clip(heights / (dists + 1e-12), -1.0, 1.0))
+
+    # For an elevated dome/ring capture (min elevation > 0), orbit at the lowest ring's elevation
+    # so the camera stays low and level with the subject instead of floating high above.
+    min_elev = float(np.min(elevations))
+    if min_elev > 0:
+        orbit_elev = min(min_elev, np.deg2rad(15.0))
+    else:
+        orbit_elev = max(min_elev, 0.0)
+
+    orbit_height = radius_3d * np.sin(orbit_elev)
+    orbit_radius = radius_3d * np.cos(orbit_elev)
 
     # Orthonormal basis for the orbit plane (perpendicular to `up`).
     world_ref = np.array([0.0, 0.0, 1.0]) if abs(up[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
@@ -238,8 +264,8 @@ def get_orbit(poses, N_views=300, n_rots=1):
     render_poses = []
     for i in range(N_views):
         theta = 2.0 * np.pi * n_rots * i / N_views
-        pos = scene_center + up * avg_height + radius * (np.cos(theta) * e1 + np.sin(theta) * e2)
-        z = normalize(pos - scene_center)             # "back" axis, matches render_path_spiral
+        pos = target + up * orbit_height + orbit_radius * (np.cos(theta) * e1 + np.sin(theta) * e2)
+        z = normalize(pos - target)                  # "back" axis looking at target
         render_poses.append(viewmatrix(z, up, pos))
     return np.stack(render_poses)
 

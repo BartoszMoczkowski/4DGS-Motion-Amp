@@ -1,0 +1,13 @@
+# MultiBodySync (MBS) MotNet segmentation preset for spinning cubes scenes
+extends: cubes
+name: cubes_segA
+
+segment:
+  impl: mbs
+  mbs:
+    checkpoint: "submodules/multibody-sync-4dgs/ckpt/mbs_full.pth.tar"
+    n_points: 4000
+    n_views: 4
+    n_sub: 256
+    opacity_thresh: 0.1
+    alpha: 0.05

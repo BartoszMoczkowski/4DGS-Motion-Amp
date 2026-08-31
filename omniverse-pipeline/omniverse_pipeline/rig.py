@@ -66,19 +66,97 @@ def dome(center, radius, n, world_up=(0, 0, 1), n_rings=3, min_elev_deg=10, max_
     return poses
 
 
+def stacked_arcs(center, radius, n, height_lower=0.8, height_upper=1.6, arc_deg=60.0,
+                 center_deg=0.0, world_up=(0, 0, 1)):
+    """n cameras in two stacked elevation arcs spanning arc_deg on one side of center."""
+    center = np.asarray(center, float)
+    up = np.asarray(world_up, float)
+    a = np.array([1.0, 0, 0]) if abs(up[0]) < 0.9 else np.array([0, 1.0, 0])
+    e1 = np.cross(up, a); e1 /= np.linalg.norm(e1)
+    e2 = np.cross(up, e1); e2 /= np.linalg.norm(e2)
+
+    n_lower = n // 2
+    n_upper = n - n_lower
+    poses = []
+
+    # Lower arc
+    angles_lower = np.linspace(center_deg - arc_deg / 2.0, center_deg + arc_deg / 2.0, n_lower)
+    for deg in angles_lower:
+        ang = np.deg2rad(deg)
+        eye = center + radius * (np.cos(ang) * e1 + np.sin(ang) * e2) + height_lower * up
+        poses.append(look_at_opencv(eye, center, up))
+
+    # Upper arc
+    angles_upper = np.linspace(center_deg - arc_deg / 2.0, center_deg + arc_deg / 2.0, n_upper)
+    for deg in angles_upper:
+        ang = np.deg2rad(deg)
+        eye = center + radius * (np.cos(ang) * e1 + np.sin(ang) * e2) + height_upper * up
+        poses.append(look_at_opencv(eye, center, up))
+
+    return poses
+
+
+def stacked_ring(center, radius, n, height_lower=0.8, height_upper=1.3,
+                 world_up=(0, 0, 1), start_deg=0.0):
+    """n cameras in two stacked 360-degree rings (half on lower tier, half on upper tier)."""
+    center = np.asarray(center, float)
+    up = np.asarray(world_up, float)
+    a = np.array([1.0, 0, 0]) if abs(up[0]) < 0.9 else np.array([0, 1.0, 0])
+    e1 = np.cross(up, a); e1 /= np.linalg.norm(e1)
+    e2 = np.cross(up, e1); e2 /= np.linalg.norm(e2)
+
+    n_lower = n // 2
+    n_upper = n - n_lower
+    poses = []
+
+    # Lower tier
+    for i in range(n_lower):
+        ang = np.deg2rad(start_deg) + 2 * np.pi * i / n_lower
+        eye = center + radius * (np.cos(ang) * e1 + np.sin(ang) * e2) + height_lower * up
+        poses.append(look_at_opencv(eye, center, up))
+
+    # Upper tier (offset by half step for uniform coverage)
+    offset = np.pi / n_upper
+    for i in range(n_upper):
+        ang = np.deg2rad(start_deg) + 2 * np.pi * i / n_upper + offset
+        eye = center + radius * (np.cos(ang) * e1 + np.sin(ang) * e2) + height_upper * up
+        poses.append(look_at_opencv(eye, center, up))
+
+    return poses
+
+
 def build_rig(cfg: dict, bbox_center, bbox_radius):
-    """cfg keys: layout(ring|dome), n_cameras, radius_scale, height_scale, world_up,
-    (ring: start_deg) (dome: n_rings, min_elev_deg, max_elev_deg).
+    """cfg keys: layout(ring|dome|stacked_arcs|stacked_ring), n_cameras, radius_scale, height_scale, world_up,
+    (ring: start_deg) (dome: n_rings, min_elev_deg, max_elev_deg)
+    (stacked_arcs: arc_deg, center_deg, height_lower, height_upper)
+    (stacked_ring: height_lower, height_upper), (optional: radius, height, center).
     Returns list of OpenCV c2w (4x4 np arrays)."""
-    center = np.asarray(bbox_center, float)
+    center = np.asarray(cfg.get("center", bbox_center), float)
     up = np.asarray(cfg.get("world_up", [0, 0, 1]), float)
-    radius = bbox_radius * float(cfg.get("radius_scale", 2.5))
+    radius = float(cfg["radius"]) if "radius" in cfg else bbox_radius * float(cfg.get("radius_scale", 2.5))
     n = int(cfg.get("n_cameras", 8))
     layout = cfg.get("layout", "ring")
     if layout == "dome":
         return dome(center, radius, n, up, int(cfg.get("n_rings", 3)),
                     cfg.get("min_elev_deg", 10), cfg.get("max_elev_deg", 70))
-    height = bbox_radius * float(cfg.get("height_scale", 0.3))
+    if layout in ("stacked_ring", "ring_stacked"):
+        return stacked_ring(
+            center, radius, n,
+            height_lower=float(cfg.get("height_lower", 0.8)),
+            height_upper=float(cfg.get("height_upper", 1.3)),
+            world_up=up,
+            start_deg=float(cfg.get("start_deg", 0.0)),
+        )
+    if layout in ("stacked_arcs", "arc_stacked"):
+        return stacked_arcs(
+            center, radius, n,
+            height_lower=float(cfg.get("height_lower", 0.8)),
+            height_upper=float(cfg.get("height_upper", 1.6)),
+            arc_deg=float(cfg.get("arc_deg", 60.0)),
+            center_deg=float(cfg.get("center_deg", 0.0)),
+            world_up=up,
+        )
+    height = float(cfg["height"]) if "height" in cfg else bbox_radius * float(cfg.get("height_scale", 0.3))
     return ring(center, radius, n, height, up, float(cfg.get("start_deg", 0.0)))
 
 
