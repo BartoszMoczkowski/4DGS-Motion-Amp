@@ -270,20 +270,40 @@ class SegmentKabschConfig(StrictModel):
     rng_seed: int = 0
 
 
+class SegmentMulticutConfig(StrictModel):
+    """T23 ``segment.multicut``: multi-channel affinity graph fusion with lifted multicut solver."""
+
+    k: int = 12
+    radius_max: float = 0.05
+    drive_freq: Optional[float] = 10.0
+    use_appearance: bool = True
+    use_motion: bool = True
+    lifted_edges: bool = False
+    lifted_k: int = 4
+    lifted_min_dist: float = 0.05
+    min_size: int = 15
+    opacity_thresh: float = 0.1
+    refine_kl: bool = True
+    calibrate_on_gt: bool = False
+    # Optional per-run GT path for diagnostic/calibration
+    gt_segmentation_path: str = ""
+
+
 class SegmentConfig(StrictModel):
     """Role ``segment``: picks + configures one of the segmentation implementations.
 
     This is the "role -> impl selection" the config layer owns (T02 scope) — the registry
     (T04) resolves ``impl`` to an actual registered stage class named e.g. ``segment.rigid`` /
-    ``segment.mbs`` / ``segment.rigid2`` / ``segment.kabsch``; this model only validates that
+    ``segment.mbs`` / ``segment.rigid2`` / ``segment.kabsch`` / ``segment.multicut``; this model only validates that
     the choice is coherent.
     """
 
-    impl: Literal["rigid", "mbs", "rigid2", "kabsch"] = "rigid"
+    impl: Literal["rigid", "mbs", "rigid2", "kabsch", "multicut"] = "rigid"
     rigid: SegmentRigidConfig = Field(default_factory=SegmentRigidConfig)
     mbs: SegmentMbsConfig = Field(default_factory=SegmentMbsConfig)
     rigid2: SegmentRigid2Config = Field(default_factory=SegmentRigid2Config)
     kabsch: SegmentKabschConfig = Field(default_factory=SegmentKabschConfig)
+    multicut: SegmentMulticutConfig = Field(default_factory=SegmentMulticutConfig)
 
     @model_validator(mode="after")
     def _check_impl_ready(self) -> "SegmentConfig":

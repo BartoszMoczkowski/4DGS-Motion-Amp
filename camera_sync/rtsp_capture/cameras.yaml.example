@@ -1,0 +1,26 @@
+# Copy this file to cameras.yaml and fill in real credentials.
+# cameras.yaml is gitignored -- never commit real credentials.
+#
+# Credentials may also be supplied via the RTSP_CAM_USER / RTSP_CAM_PASSWORD
+# environment variables (they override this file).
+
+credentials:
+  user: admin
+  password: "CHANGEME"
+
+cameras:
+  cam01:
+    ip: 192.168.3.183
+    subtype: 0          # 0 = main stream, 1 = sub stream
+  cam02:
+    ip: 192.168.3.159
+    subtype: 0
+  cam03:
+    ip: 192.168.3.184
+    subtype: 0
+  cam04:
+    ip: 192.168.3.162
+    subtype: 0
+  # Any entry may instead give a full URL:
+  # cam05:
+  #   url: rtsp://user:pass@192.168.3.170:554/cam/realmonitor?channel=1&subtype=0

@@ -15,6 +15,7 @@ members = [
     "camera-sync-analyzer",
     "camera-sync-display",
     "camera-sync-recorder",
+    "camera-sync-rtcp",
     "diff-gaussian-rasterization",
     "motion-seg",
     "omniverse-pipeline",
@@ -225,6 +226,17 @@ requires-dist = [
 name = "camera-sync-recorder"
 version = "0.1.0"
 source = { editable = "camera_sync/recorder" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = ">=6.0" }]
+
+[[package]]
+name = "camera-sync-rtcp"
+version = "0.1.0"
+source = { editable = "camera_sync/rtsp_capture" }
 dependencies = [
     { name = "pyyaml" },
 ]

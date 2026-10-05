@@ -79,6 +79,7 @@ SEGMENT_STAGE: dict[str, str] = {
     "rigid2_roi": "segment.rigid2",
     "mask_lift_oracle": "segment.rigid2",
     "mask_lift": "segment.rigid2",
+    "multicut": "segment.multicut",
 }
 
 RESULTS_CSV = {
@@ -89,17 +90,19 @@ RESULTS_CSV = {
     "rigid2_roi": REPO_ROOT / "runs" / "grid_seg_rigid2_roi_results.csv",
     "mask_lift_oracle": REPO_ROOT / "runs" / "grid_seg_mask_lift_oracle_results.csv",
     "mask_lift": REPO_ROOT / "runs" / "grid_seg_mask_lift_results.csv",
+    "multicut": REPO_ROOT / "runs" / "grid_seg_multicut_results.csv",
 }
 
 STAGES = {
     "rigid": ["seg_extract.default", "segment.rigid", "seg_eval.default"],
-    # Option A, T18's rigid2, and T20's kabsch reuse trajectories.npz already extracted.
+    # Option A, T18's rigid2, T20's kabsch, and T23's multicut reuse trajectories.npz already extracted.
     "mbs": ["segment.mbs", "seg_eval.default"],
     "rigid2": ["segment.rigid2", "seg_eval.default"],
     "kabsch": ["segment.kabsch", "seg_eval.default"],
     "rigid2_roi": ["roi.motion_gate", "segment.rigid2", "seg_eval.default"],
     "mask_lift_oracle": ["roi.mask_oracle", "segment.rigid2", "seg_eval.default"],
     "mask_lift": ["roi.mask_lift", "segment.rigid2", "seg_eval.default"],
+    "multicut": ["segment.multicut", "seg_eval.default"],
 }
 
 PRESET = {
@@ -110,6 +113,7 @@ PRESET = {
     "rigid2_roi": "pump01_roi_gate",
     "mask_lift_oracle": "pump01_mask_oracle",
     "mask_lift": "pump01_mask_lift",
+    "multicut": "pump01_multicut",
 }
 
 RUN_IDS = [
@@ -250,7 +254,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--impl",
                     choices=["rigid", "mbs", "rigid2", "kabsch", "rigid2_roi",
-                             "mask_lift_oracle", "mask_lift"],
+                             "mask_lift_oracle", "mask_lift", "multicut"],
                     default="rigid",
                     help="segmentation backend: rigid = Option B rigidity graph (default), "
                          "mbs = Option A MultiBodySync MotNet, "
@@ -258,7 +262,8 @@ def main() -> None:
                          "kabsch = T20 Kabsch EM, "
                          "rigid2_roi = T19 ROI motion gate + rigid2, "
                          "mask_lift_oracle = T22 perfect GT ROI ceiling, "
-                         "mask_lift = T22 multi-view mask lifting")
+                         "mask_lift = T22 multi-view mask lifting, "
+                         "multicut = T23 multi-channel affinity graph multicut")
     ap.add_argument("--masks-dir", type=str, default="",
                     help="per-camera mask directory (required for --impl mask_lift)")
     args = ap.parse_args()

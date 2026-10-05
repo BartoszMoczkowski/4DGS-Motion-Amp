@@ -37,6 +37,7 @@ SEGMENT_STAGE: dict[str, str] = {
     "rigid2_roi": "segment.rigid2",
     "mask_lift_oracle": "segment.rigid2",
     "mbs": "segment.mbs",
+    "multicut": "segment.multicut",
 }
 
 RESULTS_CSV: dict[str, Path] = {
@@ -46,6 +47,7 @@ RESULTS_CSV: dict[str, Path] = {
     "rigid2_roi": REPO_ROOT / "runs" / "cubes_seg_rigid2_roi_results.csv",
     "mask_lift_oracle": REPO_ROOT / "runs" / "cubes_seg_mask_lift_oracle_results.csv",
     "mbs": REPO_ROOT / "runs" / "cubes_seg_mbs_results.csv",
+    "multicut": REPO_ROOT / "runs" / "cubes_seg_multicut_results.csv",
 }
 
 SUMMARY_CSV = REPO_ROOT / "runs" / "cubes_seg_summary.csv"
@@ -57,6 +59,7 @@ STAGES: dict[str, list[str]] = {
     "rigid2_roi": ["roi.motion_gate", "segment.rigid2", "seg_eval.default"],
     "mask_lift_oracle": ["roi.mask_oracle", "segment.rigid2", "seg_eval.default"],
     "mbs": ["segment.mbs", "seg_eval.default"],
+    "multicut": ["segment.multicut", "seg_eval.default"],
 }
 
 PRESET: dict[str, str] = {
@@ -66,6 +69,7 @@ PRESET: dict[str, str] = {
     "rigid2_roi": "cubes_roi_gate",
     "mask_lift_oracle": "cubes_mask_oracle",
     "mbs": "cubes_segA",
+    "multicut": "cubes_multicut",
 }
 
 
@@ -158,16 +162,26 @@ def run_one(run_id: str, k: int, impl: str) -> dict:
     summary = json.loads(eval_path.read_text(encoding="utf-8")) if eval_path.is_file() else {}
     seg_stage = SEGMENT_STAGE[impl]
 
+    sep_path = run_dir / "separability.json"
+    sep_auroc = ""
+    if sep_path.is_file():
+        try:
+            sep_data = json.loads(sep_path.read_text(encoding="utf-8"))
+            sep_auroc = sep_data.get("denoised_z", {}).get("auroc", "")
+        except Exception:
+            pass
+
     row = {
         "run_id": run_id,
         "k": k,
         "impl": impl,
         "status": status,
         "ari": summary.get("ari", ""),
+        "ari_within_roi": summary.get("ari_within_roi", ""),
         "mean_iou": summary.get("mean_iou", ""),
         "n_gt": summary.get("n_gt", ""),
         "n_pred": summary.get("n_pred", ""),
-        "ari_within_roi": summary.get("ari_within_roi", ""),
+        "separability_auroc": sep_auroc,
         "n_roi_points": summary.get("n_roi_points", ""),
         "segment_s": getattr(stages_rec.get(seg_stage), "wall_time_s", "") or "",
         "error": error,
@@ -212,14 +226,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--impl",
-        choices=["all", "rigid", "rigid2", "kabsch", "rigid2_roi", "mask_lift_oracle", "mbs"],
+        choices=["all", "rigid", "rigid2", "kabsch", "rigid2_roi", "mask_lift_oracle", "mbs", "multicut"],
         default="all",
         help="Segmentation backend to run (default: all)",
     )
     args = parser.parse_args()
 
     impls = (
-        ["rigid", "rigid2", "kabsch", "rigid2_roi", "mask_lift_oracle", "mbs"]
+        ["rigid", "rigid2", "kabsch", "rigid2_roi", "mask_lift_oracle", "mbs", "multicut"]
         if args.impl == "all"
         else [args.impl]
     )

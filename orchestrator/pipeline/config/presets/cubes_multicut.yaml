@@ -1,0 +1,15 @@
+# Multicut segmentation preset for spinning cubes scenes
+extends: cubes
+name: cubes_multicut
+
+segment:
+  impl: multicut
+  multicut:
+    k: 12
+    radius_max: 0.25
+    use_appearance: true
+    use_motion: true
+    lifted_edges: false
+    min_size: 15
+    opacity_thresh: 0.1
+    refine_kl: true

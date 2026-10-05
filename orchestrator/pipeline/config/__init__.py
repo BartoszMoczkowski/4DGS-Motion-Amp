@@ -38,6 +38,7 @@ from .models import (
     SegExtractConfig,
     SegmentConfig,
     SegmentMbsConfig,
+    SegmentMulticutConfig,
     SegmentRigidConfig,
     TrainConfig,
 )

@@ -67,6 +67,7 @@ from . import seg_eval  # noqa: F401
 from . import seg_extract  # noqa: F401
 from . import segment_kabsch  # noqa: F401  (T20)
 from . import segment_mbs  # noqa: F401
+from . import segment_multicut  # noqa: F401  (T23)
 from . import segment_rigid  # noqa: F401
 from . import segment_rigid2  # noqa: F401  (T18)
 from . import train  # noqa: F401

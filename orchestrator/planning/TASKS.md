@@ -30,12 +30,30 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T21 | `segment.subspace` spectral (proposal 04) | 7 | T18 | todo |
 | T22 | `roi.mask_lift` multi-view mask lifting (proposal 02) | 7 | T19, T09 | done (sandbox); real GPU run pending |
 | T23 | `segment.seeded` part-focused (proposal 03) | 7 | T19 | todo |
+| T24 | uv workspace restructure & environment cleanup | 8 | — | todo |
+| T25 | amp CLI foundation: root package & Typer skeleton | 8 | T24 | todo |
+| T26 | CLI command migration: kill raw-python invocations | 8 | T25 | todo |
+| T27 | Declarative experiment specs & amp exp run | 9 | T26, T05 | todo |
+| T28 | Local MLflow tracking integration | 9 | T27 | todo |
+| T29 | Standardized metrics registry & report layer | 9 | T28 | todo |
+| T30 | MCP consolidation & report surfaces | 10 | T28, T29, T17 | todo |
+| T31 | Repo layout cleanup & docs alignment | 11 | T26 | todo |
 
 Phase 7 (segmentation rescue — `docs/proposals/IMPLEMENTATION_PLAN.md`): T18–T20 and T22 are
 done (sandbox-verified, some real GPU runs pending Bartosz's machine); T21 (subspace spectral)
 and T23 (seeded part) remain todo. T22's real GPU oracle-ceiling run is the next priority to
 determine whether mask lifting is worth pursuing.
 Kabsch EM, subspace spectral, mask lifting, seeded part) are planned but not yet scheduled.
+
+Phase 8–11 (streamlining — owner directive, Oct 2026): package recurring commands as CLIs/MCP
+tools, clean up the uv workspace, standardize experiments with local MLflow tracking plus
+standardized metrics/reporting, and cut prompt-to-results time. T24–T26 build the `amp` CLI
+(one root `uv sync`, Typer groups over Layer 1); T27–T29 make a grid/sweep experiment one YAML
++ one command with MLflow tracking and one house style for metrics/charts; T30 consolidates the
+MCP surface to intent-level tools; T31 aligns docs with reality. **T17 (cancel hardening) is a
+prerequisite for T30 and should be scheduled first within Phase 10 planning.** Explicitly
+rejected options (do not re-propose): W&B or any cloud/remote tracking, Hydra migration,
+pluggy/entry-point CLI discovery, self-hosted tracking servers.
 
 ## Dependency graph
 
@@ -50,6 +68,10 @@ T05 ── T13 ── T14
 T05, T06 ── T08 ── T09
 T08 ── T16 (deferred, no downstream dependents)
 T07 ── T18
+T24 ── T25 ── T26 ──┬─ T27 ── T28 ── T29 ──┐
+                    │   (also needs T05)    │
+                    └─ T31                  ├─ T30 (also needs T17)
+                                            └─ (T17 itself: T14 ── T17)
 ```
 
 ## Critical path

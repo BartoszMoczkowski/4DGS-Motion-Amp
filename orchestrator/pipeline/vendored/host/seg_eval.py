@@ -60,17 +60,21 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
         "n_pred": len(np.unique(pred_labels)),
     }
 
-    if roi_mask is not None:
-        roi_mask = np.asarray(roi_mask)
-        if len(roi_mask) != len(pred_points):
+    eval_roi_mask = roi_mask
+    if eval_roi_mask is None and (gt_on_pred > 0).any() and (gt_on_pred == 0).any():
+        eval_roi_mask = (gt_on_pred > 0)
+
+    if eval_roi_mask is not None:
+        eval_roi_mask = np.asarray(eval_roi_mask)
+        if len(eval_roi_mask) != len(pred_points):
             raise ValueError(
-                f"roi_mask length {len(roi_mask)} != pred_points length {len(pred_points)}"
+                f"roi_mask length {len(eval_roi_mask)} != pred_points length {len(pred_points)}"
             )
-        in_roi = roi_mask
+        in_roi = eval_roi_mask
         if in_roi.any():
-            result["ari_within_roi"] = adjusted_rand_index(
+            result["ari_within_roi"] = float(adjusted_rand_index(
                 gt_on_pred[in_roi], pred_labels[in_roi]
-            )
+            ))
         else:
             result["ari_within_roi"] = None
         result["n_roi_points"] = int(in_roi.sum())

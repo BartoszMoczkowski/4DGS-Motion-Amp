@@ -16,6 +16,10 @@ viseron/config/postgresql/
 viseron/segments/
 viseron/snapshots/
 viseron/thumbnails/
+camera_sync/**/cameras.yaml
+camera_sync/captures/
+cam_pass.md
 runs/
 LLFF/
 
+weights/sam_vit_b_01ec64.pth

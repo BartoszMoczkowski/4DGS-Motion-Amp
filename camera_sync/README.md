@@ -13,8 +13,17 @@ then analyze the recordings to extract per-camera offsets.
 | `camera-sync-display` | `sync_display/` | Full-screen QR + clock + ArUco display | **Implemented** |
 | `camera-sync-recorder` | `recorder/` | FFmpeg multi-camera recording wrapper | **Implemented** |
 | `camera-sync-analyzer` | `sync_analyzer/` | QR detection, offset fitting, reporting | **Implemented** |
+| `camera-sync-rtcp` | `rtsp_capture/` | Stdlib RTSP recorder with RTCP Sender Report sync | **Implemented** |
 
-## Quick Start
+## RTCP-based capture (preferred when cameras emit Sender Reports)
+
+For cameras that send RTCP Sender Reports (the Dahua cameras on the lab
+LAN do), `rtsp_capture/` is the preferred path: no sync display needed,
+and every frame gets a wall-clock timestamp via RTP→NTP interpolation.
+The QR workflow above remains for cameras that do not emit SRs.
+See `rtsp_capture/README.md` for the probe → record → extract workflow.
+
+## Quick Start (QR workflow)
 
 ### 1. Sync Display
 

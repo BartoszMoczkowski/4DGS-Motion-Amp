@@ -32,17 +32,12 @@ def propagate_labels(src_points, src_labels, dst_points):
     return src_labels[nn]
 
 
-def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: bool = False) -> dict:
-    """Score a predicted segmentation against GT — the logic ``main()`` below drives from the
-    CLI, graduated into an importable function (``planning/INSTRUCTIONS.md``'s "refactor into
-    importable functions only when it clearly pays off" — this is that case: the pipeline
-    orchestrator's ``seg_eval.default`` stage, T07, needs to call this in-process rather than
-    duplicating the propagate/score glue).
+def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: bool = False,
+             roi_mask: np.ndarray | None = None) -> dict:
+    """Score a predicted segmentation against GT.
 
-    Returns a dict with ``ari``, ``mean_iou``, ``matches`` (as :func:`best_iou_matching` returns
-    them), ``gt_on_pred`` (GT labels propagated onto ``pred_points``), the (possibly
-    floater-dropped) ``pred_points``/``pred_labels`` actually scored, and ``n_gt``/``n_pred``
-    instance counts — everything ``main()`` prints or writes a preview from.
+    Returns a dict with ari, mean_iou, matches, gt_on_pred, pred_points, pred_labels,
+    n_gt, n_pred, and optionally ari_within_roi / n_roi_points.
     """
     pred_points = np.asarray(pred_points)
     pred_labels = np.asarray(pred_labels)
@@ -58,7 +53,7 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
     ari = adjusted_rand_index(gt_on_pred, pred_labels)
     mean_iou, matches = best_iou_matching(gt_on_pred, pred_labels)
 
-    return {
+    result = {
         "ari": ari,
         "mean_iou": mean_iou,
         "matches": matches,
@@ -68,6 +63,27 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
         "n_gt": len(np.unique(gt_labels)),
         "n_pred": len(np.unique(pred_labels)),
     }
+
+    eval_roi_mask = roi_mask
+    if eval_roi_mask is None and (gt_on_pred > 0).any() and (gt_on_pred == 0).any():
+        eval_roi_mask = (gt_on_pred > 0)
+
+    if eval_roi_mask is not None:
+        eval_roi_mask = np.asarray(eval_roi_mask)
+        if len(eval_roi_mask) != len(pred_points):
+            raise ValueError(
+                f"roi_mask length {len(eval_roi_mask)} != pred_points length {len(pred_points)}"
+            )
+        in_roi = eval_roi_mask
+        if in_roi.any():
+            result["ari_within_roi"] = float(adjusted_rand_index(
+                gt_on_pred[in_roi], pred_labels[in_roi]
+            ))
+        else:
+            result["ari_within_roi"] = None
+        result["n_roi_points"] = int(in_roi.sum())
+
+    return result
 
 
 def _write_colored_ply(path, xyz, labels):

@@ -1,0 +1,16 @@
+# Experiment preset: multi-channel affinity graph fusion with lifted multicut solver
+extends: pump01
+name: pump01_multicut
+
+segment:
+  impl: multicut
+  multicut:
+    k: 12
+    radius_max: 0.05
+    drive_freq: 10.0
+    use_appearance: true
+    use_motion: true
+    lifted_edges: false
+    min_size: 15
+    opacity_thresh: 0.1
+    refine_kl: true

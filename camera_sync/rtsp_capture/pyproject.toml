@@ -1,0 +1,21 @@
+[project]
+name = "camera-sync-rtcp"
+version = "0.1.0"
+description = "Stdlib-only RTSP recorder with RTCP Sender Report cross-camera sync (Dahua)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+rtsp-probe = "rtsp_capture.probe:main"
+rtsp-record = "rtsp_capture.recorder:main"
+rtsp-extract = "rtsp_capture.sync_extract:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rtsp_capture"]
