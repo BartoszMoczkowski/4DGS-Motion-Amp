@@ -590,18 +590,13 @@ def test_prep_to_convert_chain_runs_end_to_end_via_run_dag(tmp_path, monkeypatch
     assert len(native_calls) == 1  # unchanged
     assert m2.artifacts["scene"].path == m1.artifacts["scene"].path  # reused, not reconverted
 
-    # Changing prep_split's group re-runs it and everything downstream whose *input* content hash
-    # actually changes: segmented_mesh/animated_mesh are `usd`-kind (single-file) artifacts, so
-    # their content hash changes and prep_motion/capture.isaac correctly re-run too. convert.default
-    # stays cached, though: its only input, `capture`, is a `dataset`-kind artifact (a directory),
-    # and `pipeline.artifacts.hashing.hash_path` only ever hashes files, never a directory tree
-    # (see that module's docstring: "the caller's decision to hash per-file or leave content_hash
-    # as None") -- capture's `content_hash` is `None` both times, so convert's cache key input for
-    # it is the same empty string regardless of what actually changed inside the directory. A
-    # real, pre-existing T03/T05 cache-granularity limitation this task's fake exec happens to
-    # expose for the first time (nothing upstream of convert.default was ever a *directory*
-    # artifact before T11), not something T11 fixes -- documented here, same as T07/T09's own
-    # "found, not fixed" notes.
+    # Changing prep_split's group re-runs it and everything downstream, convert.default
+    # included: since 2026-10-05 (review bug 1.3) directory artifacts like `capture` carry a
+    # real content fingerprint (`pipeline.artifacts.hash_directory`), so the re-captured
+    # directory changes convert's cache key input and it correctly re-runs. Before that fix
+    # `capture`'s `content_hash` was always None, convert's key input was a constant "", and
+    # this assertion read "skipped" — a documented cache-granularity limitation that
+    # silently reused the previous capture's converted scene.
     import copy
 
     cfg2 = copy.deepcopy(cfg)
@@ -609,7 +604,7 @@ def test_prep_to_convert_chain_runs_end_to_end_via_run_dag(tmp_path, monkeypatch
     stage_configs2 = {name: _stage_config_for(name, cfg2) for name in NAMES}
     _seed("run3")
     m3 = run_dag("run3", NAMES, cfg2, preset="t11", stage_configs=stage_configs2, runs_root=runs_root)
-    assert [m3.stages[n].status for n in NAMES] == ["success", "success", "success", "skipped"]
+    assert [m3.stages[n].status for n in NAMES] == ["success", "success", "success", "success"]
     assert len(calls) == 4  # two more real execs (split_mesh/add_motion re-ran, container)
     assert len(native_calls) == 2  # one more (capture.isaac re-ran, native)
 
@@ -636,6 +631,13 @@ def test_api_run_pipeline_seeds_external_artifacts_before_run_dag(tmp_path, monk
 
     raw_mesh_path = tmp_path / "assets" / "CONJUNTO_BOMBAS.usd"
     gt_path = tmp_path / "assets" / "gt_segmentation.npz"
+    # run_pipeline now validates external artifacts at seeding time (absolute, existing, under a
+    # known root) -- so the placeholders must actually exist on disk, not just be named.
+    raw_mesh_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_mesh_path.write_text("usd-placeholder", encoding="utf-8")
+    import numpy as np
+
+    np.savez(gt_path, labels=np.zeros(4, dtype="int64"))
     # `only` (below) narrows which stages *execute*, but run_dag's external-input check (T05,
     # pipeline.dag.graph.external_inputs) still runs over the *whole* auto-planned DAG (every
     # non-test role, T11's own `_auto_stage_plan`), not just the `only` subset -- so

@@ -355,6 +355,22 @@ def test_ensure_image_rebuilds_cuda_when_build_hash_stale(manager, fake_client):
     assert len(fake_client.images.build_calls) == 2  # rebuilt automatically, no manual docker rm/rmi
 
 
+def test_stale_cuda_image_is_rebuilt_with_no_env_opt_out(manager, fake_client, monkeypatch):
+    """Round-2 correctness fix (2026-10-05): the hash-mismatch branch used to *reuse* the stale
+    image on any real Docker daemon unless ``PIPELINE_REBUILD_CUDA_IMAGE=1`` was set (keyed off
+    the fake test client's class name, of all things). A stale image must now ALWAYS trigger a
+    rebuild -- there is deliberately no env-var opt-out that could silently resurrect the T11
+    broken-venv incident.
+    """
+    monkeypatch.delenv("PIPELINE_REBUILD_CUDA_IMAGE", raising=False)
+    manager.ensure_image("cuda")
+    fake_client.images.labels[cfg.CUDA_IMAGE] = {CUDA_BUILD_HASH_LABEL: "stale-hash"}
+
+    manager.ensure_image("cuda")
+
+    assert len(fake_client.images.build_calls) == 2
+
+
 def test_ensure_image_stamps_the_current_build_hash_on_a_fresh_build(manager, fake_client):
     manager.ensure_image("cuda")
 
@@ -643,6 +659,21 @@ def test_stop_by_id_looks_up_directly(manager, fake_client):
 
     assert existing.stop_called is True
     assert existing.remove_called is False
+
+
+def test_stop_by_id_refuses_an_unmanaged_container(manager, fake_client):
+    """Round-2 correctness fix (2026-10-05): the MCP ``stop_container`` tool routes here with a
+    client-supplied id -- without the ``pipeline.managed`` label check, that tool could stop ANY
+    container on the host (e.g. an unrelated NVR container)."""
+    from pipeline.containers.manager import ContainerError
+
+    outsider = fake_client.containers.seed("viseron-nvr", "nginx:latest", status="running", labels={})
+
+    with pytest.raises(ContainerError, match="pipeline.managed"):
+        manager.stop_by_id(outsider.id)
+
+    assert outsider.stop_called is False
+    assert outsider.remove_called is False
 
 
 def test_list_containers_reports_only_labelled_ones(manager, fake_client):

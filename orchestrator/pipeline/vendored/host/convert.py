@@ -287,7 +287,10 @@ def convert(capture_dir, out_dir, name, default_near=0.1, default_far=1000.0, ta
               "Provide a mesh-sampled cloud for real training.", file=sys.stderr)
         xyz = np.random.RandomState(0).uniform(-1, 1, size=(2000, 3))
         rgb = np.full((2000, 3), 128, np.uint8)
-    write_ply(os.path.join(scene_dir, "points3D_multipleview.ply"), xyz, rgb / 255.0)
+    # Loader contract (core/scene/dataset_readers.py fetchPly): stored rgb is 0-255 floats —
+    # the loader itself divides by 255 before RGB2SH. A previous `rgb / 255.0` here normalized
+    # twice (0-1 stored -> /255 loaded), initialising all Gaussians ~black; fixed 2026-10-05 (O1).
+    write_ply(os.path.join(scene_dir, "points3D_multipleview.ply"), xyz, rgb)
     write_points3D_bin(os.path.join(sparse_dir, "points3D.bin"), xyz, rgb)
 
     if os.path.exists(labels_src):

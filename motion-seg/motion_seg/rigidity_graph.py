@@ -15,6 +15,8 @@ without a trained 4DGS model.
 """
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
@@ -37,10 +39,14 @@ def build_knn_edges(xyz: np.ndarray, k: int = 12) -> np.ndarray:
 
 
 def edge_rigidity_score(traj: np.ndarray, edges: np.ndarray) -> np.ndarray:
-    """Std-dev of pairwise distance over time for each edge. traj: (N,T,3). Returns (E,)."""
+    """Std-dev of pairwise distance over time for each edge. traj: (N,T,3). Returns (E,).
+    Edges touching a NaN/Inf trajectory score NaN by propagation — callers must handle
+    them (segment_by_rigidity cuts and reports them); the FP warning is suppressed here
+    because that propagation is intentional."""
     i, j = edges[:, 0], edges[:, 1]
-    d = np.linalg.norm(traj[i] - traj[j], axis=-1)  # (E, T)
-    return d.std(axis=1)
+    with np.errstate(invalid="ignore"):
+        d = np.linalg.norm(traj[i] - traj[j], axis=-1)  # (E, T)
+        return d.std(axis=1)
 
 
 def otsu_threshold(values: np.ndarray, n_bins: int = 256) -> float:
@@ -65,7 +71,11 @@ def otsu_threshold(values: np.ndarray, n_bins: int = 256) -> float:
         mu1 = (mu_t - mu) / w1
         between = w0 * w1 * (mu0 - mu1) ** 2
     between[~np.isfinite(between)] = -1
-    return float(centers[np.argmax(between)])
+    # Plateau tie-breaking: argmax returns the FIRST bin of a max plateau, which
+    # hugs the noise cluster on cleanly bimodal distributions and lets far points
+    # leak in.  Use the plateau midpoint instead.
+    idx = np.flatnonzero(between == between.max())
+    return float(0.5 * (centers[idx[0]] + centers[idx[-1]]))
 
 
 def otsu_threshold_log(values: np.ndarray, n_bins: int = 256) -> float:
@@ -96,15 +106,32 @@ def otsu_threshold_log(values: np.ndarray, n_bins: int = 256) -> float:
     return float(np.exp(log_thr) - eps)
 
 
-def merge_small_components(xyz: np.ndarray, labels: np.ndarray, min_size: int) -> np.ndarray:
+def merge_small_components(xyz: np.ndarray, labels: np.ndarray, min_size: int):
     """Fold components smaller than `min_size` into their nearest large-enough neighbor
-    (by canonical-space centroid distance), to avoid a long tail of noise-sized fragments."""
+    (by canonical-space centroid distance), to avoid a long tail of noise-sized fragments.
+
+    Returns (labels, merge_info) where merge_info has:
+      n_small_merged: number of small components folded into a big neighbor
+      merge_skipped_no_big_component: True if merging was requested but NO component
+        reached `min_size` (nothing to merge into) — previously a silent no-op.
+    """
     labels = labels.copy()
     uniq, counts = np.unique(labels, return_counts=True)
     small = uniq[counts < min_size]
     big = uniq[counts >= min_size]
-    if len(small) == 0 or len(big) == 0:
-        return labels
+    merge_info = {"n_small_merged": 0, "merge_skipped_no_big_component": False}
+    if len(small) == 0:
+        return labels, merge_info
+    if len(big) == 0:
+        # No component reaches min_size: there is nothing to merge the small fragments
+        # into. Keep labels as-is but flag it loudly — the output will be a long tail of
+        # tiny fragments and downstream consumers should know.
+        print(f"[warn] merge_small_components: {len(small)} component(s) below "
+              f"min_size={min_size}, but NO component reaches min_size — merging "
+              f"skipped, labels left as-is. Consider lowering --min-size.",
+              file=sys.stderr)
+        merge_info["merge_skipped_no_big_component"] = True
+        return labels, merge_info
     big_mask = np.isin(labels, big)
     tree = cKDTree(xyz[big_mask])
     big_labels = labels[big_mask]
@@ -113,7 +140,8 @@ def merge_small_components(xyz: np.ndarray, labels: np.ndarray, min_size: int) -
         centroid = xyz[pts_idx].mean(axis=0, keepdims=True)
         _, nn = tree.query(centroid, k=1)
         labels[pts_idx] = big_labels[int(np.asarray(nn).reshape(-1)[0])]
-    return labels
+    merge_info["n_small_merged"] = len(small)
+    return labels, merge_info
 
 
 def segment_by_rigidity(
@@ -126,9 +154,48 @@ def segment_by_rigidity(
 ):
     """Full pipeline. xyz: (N,3) canonical positions. traj: (N,T,3) positions over time.
 
+    NaN/Inf handling (added 2026-10-05): points whose canonical position or trajectory
+    contains any non-finite value would otherwise poison edge scores (NaN comparisons are
+    False, so `scores <= thr` silently CUTS every edge touching them, orphaning the point
+    into an arbitrary neighbor). Instead they are handled deterministically and reported:
+    (a) all graph edges touching a non-finite point are cut up front, so it becomes an
+    isolated node; (b) for graph-building/merging purposes its position is replaced by the
+    median of the finite cloud (used only when the position itself is non-finite), so it
+    is folded into the component nearest the cloud center by merge_small_components;
+    (c) the count is reported in info["n_nonfinite_points"].
+
     Returns (labels (N,) int, info dict with edge/threshold/component diagnostics).
     """
-    edges = build_knn_edges(xyz, k=k)
+    n = len(xyz)
+    if n == 0:
+        return np.zeros(0, dtype=np.int64), dict(
+            n_points=0, n_edges=0, n_kept_edges=0, threshold=0.0, score_median=0.0,
+            score_p90=0.0, n_components_raw=0, n_components_final=0,
+            n_nonfinite_points=0, n_small_merged=0, merge_skipped_no_big_component=False,
+        )
+
+    # --- NaN/Inf guard -----------------------------------------------------
+    finite_pts = np.isfinite(xyz).all(axis=1) & np.isfinite(
+        traj.reshape(n, -1)).all(axis=1)
+    n_nonfinite = int((~finite_pts).sum())
+    xyz_graph = xyz
+    if n_nonfinite:
+        n_finite = int(finite_pts.sum())
+        if n_finite == 0:
+            raise ValueError(
+                "segment_by_rigidity: every point has a non-finite position or "
+                "trajectory — nothing to segment. Check extract_trajectories output."
+            )
+        print(f"[warn] {n_nonfinite}/{n} point(s) have NaN/Inf in canonical position or "
+              f"trajectory — cutting all their graph edges and folding them into the "
+              f"component nearest the finite-cloud median (see docstring).",
+              file=sys.stderr)
+        xyz_graph = np.array(xyz, dtype=np.float64, copy=True)
+        median_pos = np.median(xyz[finite_pts], axis=0)
+        bad_xyz = ~np.isfinite(xyz).all(axis=1)
+        xyz_graph[bad_xyz] = median_pos
+
+    edges = build_knn_edges(xyz_graph, k=k)
     scores = edge_rigidity_score(traj, edges)
     # Numerical-noise floor tied to the scene scale: rigid edges are only rigid up to
     # float64 rounding (~1e-16 relative), so on clean data the "rigid" class is a mix of
@@ -137,20 +204,23 @@ def segment_by_rigidity(
     # shattering genuinely rigid parts into singletons. Clamping everything below
     # ~1e-12 of the scene's bounding-box diagonal collapses the noise band into one
     # histogram spike, far below any real non-rigid motion.
-    scale = float(np.linalg.norm(xyz.max(axis=0) - xyz.min(axis=0)))
+    scale = float(np.linalg.norm(xyz_graph.max(axis=0) - xyz_graph.min(axis=0)))
     scores = np.maximum(scores, scale * 1e-12)
     thr = otsu_threshold_log(scores) if threshold is None else threshold
     thr = thr * threshold_mult
     keep = scores <= thr
+    if n_nonfinite:
+        # Cut every edge touching a non-finite point, regardless of score (its score is
+        # NaN/Inf and meaningless). Deterministic: isolated node -> merged by centroid.
+        keep &= finite_pts[edges[:, 0]] & finite_pts[edges[:, 1]]
 
-    n = len(xyz)
     rows = np.concatenate([edges[keep, 0], edges[keep, 1]])
     cols = np.concatenate([edges[keep, 1], edges[keep, 0]])
     data = np.ones(len(rows), dtype=np.int8)
     graph = coo_matrix((data, (rows, cols)), shape=(n, n))
     n_components_raw, labels = connected_components(graph, directed=False)
 
-    labels = merge_small_components(xyz, labels, min_size)
+    labels, merge_info = merge_small_components(xyz_graph, labels, min_size)
     labels = np.unique(labels, return_inverse=True)[1]  # relabel to 0..K-1 contiguous
 
     info = dict(
@@ -158,9 +228,12 @@ def segment_by_rigidity(
         n_edges=len(edges),
         n_kept_edges=int(keep.sum()),
         threshold=float(thr),
-        score_median=float(np.median(scores)),
-        score_p90=float(np.percentile(scores, 90)),
+        score_median=float(np.median(scores[np.isfinite(scores)])) if np.isfinite(scores).any() else float("nan"),
+        score_p90=float(np.percentile(scores[np.isfinite(scores)], 90)) if np.isfinite(scores).any() else float("nan"),
         n_components_raw=int(n_components_raw),
         n_components_final=int(labels.max() + 1) if n else 0,
+        n_nonfinite_points=n_nonfinite,
+        n_small_merged=merge_info["n_small_merged"],
+        merge_skipped_no_big_component=merge_info["merge_skipped_no_big_component"],
     )
     return labels, info

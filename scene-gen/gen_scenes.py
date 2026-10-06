@@ -73,7 +73,9 @@ def author_motion(inp: str, out: str, base_amp_mm: float, multiplier: float,
                   freq_hz: float = 10.0):
     """Write <out> with per-part periodic motion; `amplified_name` scaled by `multiplier`.
 
-    Returns (movable_names, peak_surface_mm dict)."""
+    Returns (movable_names, peak_surface_mm dict) — the peaks are in SUBJECT-internal
+    millimetres; generate_cell multiplies them by SCALE (compose_scene's scale) before
+    recording them as rendered-world motion (see the O3 note there)."""
     from pxr import Gf, Usd, UsdGeom
 
     stage = Usd.Stage.Open(inp)
@@ -216,20 +218,29 @@ def generate_cell(segmented_usd: str, env_usd: str, out_dir: str, amp: float,
                          os.path.abspath(scene).replace(os.sep, "/"), capture_dir,
                          num_frames=num_frames, max_elev_deg=MAX_ELEV_DEG)
 
+    # O3 (reviews/2026-10-05-omniverse-pipeline-review.md): author_motion measures
+    # peak_surface_mm in SUBJECT-internal units, but compose_scene then scales the subject by
+    # SCALE (0.2) — rendered-world motion is 5x smaller than the raw numbers. Record the
+    # scaled (rendered-world) values plus the scale itself. Historical *_motion.json /
+    # grid_manifest.json files (generated before 2026-10-05) carry the UNSCALED
+    # subject-internal values and are therefore exactly 5x too large — divide by 5 (or
+    # multiply by compose_scale=0.2) when comparing against them.
+    peak_world_mm = {k: v * SCALE for k, v in peak_mm.items()}
     groups = {
         "num_frames": num_frames, "fps": fps, "freq_hz": freq_hz,
         "base_amp_mm": amp, "multiplier": mult, "amplified_part": amplified,
-        "seed": seed, "peak_surface_mm": peak_mm,
+        "seed": seed, "compose_scale": SCALE, "peak_surface_mm": peak_world_mm,
     }
     with open(os.path.join(out_dir, f"{name}_motion.json"), "w") as f:
         json.dump(groups, f, indent=2)
 
+    amplified_peak_world = peak_world_mm[amplified]
     info = {"cell": name, "base_amp_mm": amp, "multiplier": mult,
             "animated": animated, "scene": scene, "config": yaml_path,
             "capture_dir": capture_dir, "materials": n_mats,
-            "amplified_peak_mm": peak_mm[amplified]}
+            "amplified_peak_mm": amplified_peak_world}
     print(f"[cell {name}] parts={len(movable)} mats={n_mats} "
-          f"amplified={amplified} peak={peak_mm[amplified]:.1f} mm")
+          f"amplified={amplified} peak={amplified_peak_world:.1f} mm (world, scale={SCALE})")
     return info
 
 

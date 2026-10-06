@@ -264,7 +264,15 @@ class ContainerManager:
 
     def _cuda_image_up_to_date(self, image: str, repo_root: Path) -> bool:
         """``True`` only if ``image`` exists locally *and* its stored build-hash label matches
-        :func:`_cuda_build_hash` right now (or image is already present on a real host).
+        :func:`_cuda_build_hash` right now.
+
+        A mismatch means the image on disk was built from different Dockerfile/
+        ``pyproject.toml``/``uv.lock`` content than what's checked out now — the correct response
+        is to rebuild (``ensure_image``'s docstring: "triggers an automatic rebuild instead of
+        silently reusing a stale image"; the T11 broken-venv incident is what happens otherwise).
+        There is deliberately no "reuse the stale image anyway" branch here — an earlier revision
+        silently reused stale images on real daemons (and keyed that behavior off the *test
+        double's class name*), re-opening the exact bug the hash label was added to close.
         """
         if not self._image_present(image):
             return False
@@ -278,19 +286,7 @@ class ContainerManager:
 
         stored = labels.get(CUDA_BUILD_HASH_LABEL)
         current = _cuda_build_hash(repo_root)
-        if stored == current:
-            return True
-
-        # In unit tests with fake clients, honor the hash strictly
-        if type(self.client).__name__.startswith("_Fake"):
-            return False
-
-        # On a real daemon, if the image already exists and PIPELINE_REBUILD_CUDA_IMAGE is not set,
-        # reuse the existing image rather than blocking on an unexpected ~25m Docker rebuild
-        import os
-        if os.environ.get("PIPELINE_REBUILD_CUDA_IMAGE", "0") == "1":
-            return False
-        return True
+        return stored == current
 
     # --- containers --------------------------------------------------------------------------
 
@@ -466,8 +462,20 @@ class ContainerManager:
         """Stop (and optionally remove) a managed container by id -- what
         ``pipeline.api.stop_container(container_id)`` (Layer 2/3-facing) uses, since callers there
         only ever saw an id from :meth:`list_containers`, not which ``env`` it was.
+
+        Refuses to touch a container that doesn't carry :data:`MANAGED_LABEL` -- the id reaches
+        this method from the MCP ``stop_container`` tool, and without the label check that tool
+        could stop ANY container on the host (e.g. an unrelated NVR container Docker Desktop also
+        runs). ``list_containers`` already filters by the same label, so a legitimately-obtained
+        id always passes.
         """
         container = self.client.containers.get(container_id)
+        labels = getattr(container, "labels", None) or {}
+        if MANAGED_LABEL not in labels:
+            raise ContainerError(
+                f"refusing to stop container {container_id!r}: it does not carry the "
+                f"{MANAGED_LABEL!r} label, so it isn't one this pipeline manages"
+            )
         container.stop()
         if remove:
             container.remove()

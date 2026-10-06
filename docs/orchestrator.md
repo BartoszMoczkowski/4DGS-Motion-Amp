@@ -14,10 +14,20 @@ Three long-standing problems with the original chain of `.sh` scripts + scattere
 
 ## Key rules and decisions
 
-- **"Copy the logic in, don't call the original script."** `omniverse-pipeline/omniverse_pipeline/`, `motion-seg/motion_seg/`, and the `core/` scripts are reference-only; stage logic is vendored verbatim into `pipeline/vendored/{host,cuda,isaac}/`. The only external dependency allowed is the container runtime.
+- **"Copy the logic in, don't call the original script."** `omniverse-pipeline/omniverse_pipeline/`, `motion-seg/motion_seg/`, and the `core/` scripts are reference-only; stage logic is vendored verbatim into `pipeline/vendored/{host,cuda,isaac}/` (modulo intentional divergences documented in the vendored file headers — e.g. `vendored/cuda/amp.py` after the 2026-10-05 motion-amp fixes, and `vendored/host/seg_eval.py`/`metrics.py` re-synced to the fixed scoring conventions on 2026-10-06). The only external dependency allowed is the container runtime.
 - CUDA stages (`train/render/seg_extract/amp`, plus `segment.mbs`) exec as separate processes inside the `cuda` container; a generated "bridge" config file keeps the pydantic config the single source of truth for 4DGS's `merge_hparams` mechanism.
 - `capture.isaac` runs against the **native Windows Isaac Sim install** (subprocess via `python.bat`), not a container — Vulkan rendering is unsupported under WSL2 (hard NVIDIA limitation). CPU-only USD prep stages stay in the `isaac` container.
 - Extensibility proof: `segment.mbs` was added as a second impl behind the `segment` role with zero core edits — just a stage registration + a preset.
+
+## Correctness-review fixes (2026-10-05/06)
+
+A three-round review-and-fix pass (full detail: `reviews/orchestrator-correctness-review.md`) changed the following behaviors:
+
+- **`roi.impl: "none"` emits no roi stage.** Previously `_auto_stage_plan` appended an unregistered `roi.none` stage, making every default preset's `run_pipeline` raise `StageNotFoundError`. Now a `"none"` selector simply omits the role from the DAG.
+- **Stale CUDA images are always rebuilt.** A build-hash label mismatch now unconditionally means "not up to date" — the `PIPELINE_REBUILD_CUDA_IMAGE` opt-out (and a branch keyed on the test double's class name) was removed.
+- **Caching hardened.** Directory artifacts (`capture`, `model`, `scene`, `renders`) are now hashed (`hash_directory`), so a forced upstream rerun invalidates every downstream cache key; cache hits revalidate that recorded artifacts still exist (and file hashes still match) instead of trusting the index; the scheduler verifies declared outputs exist before recording `success` (`StageOutputError`); OOM-fallback results are recorded/cached under the *effective* fallback config's key, not the original config's.
+- **Security guards.** `run_id` and preset names are charset- and confinement-validated (`validate_run_id` / `validate_preset_name`); external artifact paths are gated at seeding time (`validate_external_artifact_path`: absolute, exists, under the runs/repo/assets roots) and at MCP serving time (`resolve_servable_artifact_path`); `stop_container` refuses containers without the `pipeline.managed` label; `run_pipeline(run_id=<existing>)` raises `FileExistsError` instead of clobbering the old run.
+- **Round 3 (2026-10-06), vendored algorithms:** Kabsch EM fixed — malformed BIC (missing the Gaussian 1/σ² factor) replaced by `3TN·log(σ̂²) + (6TK+K)·log(3TN)`, the sigma-annealing start that flattened responsibilities to 1/K removed entirely, and a new `init="spectral"` seed added (ARI 0.9988 after EM refinement on the T20 fixture; FFT-fingerprint init caps at ≈ 0.91 there). Otsu plateau tie-breaking fixed (plateau midpoint) in both rigidity-graph copies; motion-gate precision fixes (readmission anchors on the energy-gated moving set, no-signal detector). The T20 "BIC says 107 parts not resolvable" conclusion is invalidated pending re-measurement — see the dated addendum in `.claude_notes/NOTES_T20_kabsch_em_2026-08-11.md`.
 
 ## Task history
 

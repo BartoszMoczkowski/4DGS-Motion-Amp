@@ -1,0 +1,12 @@
+# Grid-scene segmentation preset (2026-10-05, fixes O2 in
+# reviews/2026-10-05-omniverse-pipeline-review.md): the scene-gen grid captures are
+# 240 frames @ 60 fps with 40 motion cycles/clip, so seg_extract's default n_times=60
+# undersamples 4x and aliases the 40-cycle motion past Nyquist (Nyquist limit at
+# n_times=60 is 30 cycles/unit-t). Extract at the full frame count instead.
+# Used by scene-gen/run_grid_seg.py for the trajectories-extracting ("rigid") pass;
+# the other --impl choices reuse the extracted trajectories.npz.
+extends: pump01
+name: grid_seg
+
+seg_extract:
+  n_times: 240

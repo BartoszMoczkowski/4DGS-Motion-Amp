@@ -29,9 +29,10 @@ def motion_gate(
     *,
     drive_freq: float | None = None,
     harmonics: int = 3,
-    dilation_hops: int = 1,
+    dilation_hops: int = 0,
     readmit_mult: float = 3.0,
     k: int = 12,
+    min_signal_ratio: float = 10.0,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Band-limited energy gate + k-NN dilation + rigidity-lock readmission.
 
@@ -45,6 +46,14 @@ def motion_gate(
             noise-floor sigma (sigma_d from static-static edges).  ``<= 0`` disables
             readmission.
         k: k for the k-NN graph used in dilation + readmission.
+        min_signal_ratio: no-signal detector — if
+            ``energy.max() < min_signal_ratio * q25(energy)`` the scene has no
+            periodic signal above the noise floor (all-static fixture: ratio ≈ 2–3;
+            a real moving scene: ≈ 2600) and the gate falls back to degenerate
+            all-True instead of splitting noise.  The 25th percentile (not the
+            median) is the noise-floor proxy so the detector stays correct when a
+            large fraction of the scene is moving.  This implements the rule the
+            T19 notes documented but never coded.
 
     Returns:
         roi_mask: bool[N] — True = inside machine ROI (moving or readmitted).
@@ -67,9 +76,13 @@ def motion_gate(
     n_moving = int(moving.sum())
 
     # Guard degenerate cases: Otsu threshold >= max energy, no points pass the gate,
-    # or almost everything passes (threshold is splitting noise, not signal).
+    # or almost everything passes (threshold is splitting noise, not signal), or
+    # there is no periodic signal above the noise floor at all (all-static scene —
+    # the T19 notes' documented-but-never-coded no-signal rule).
     moving_frac = n_moving / n if n else 0.0
-    if thr <= 0 or thr >= energy.max() or n_moving == 0 or moving_frac > 0.95:
+    noise_floor = float(np.quantile(energy, 0.25)) if n else 0.0
+    no_signal = float(energy.max()) < min_signal_ratio * max(noise_floor, 1e-300) if n else True
+    if thr <= 0 or thr >= energy.max() or n_moving == 0 or moving_frac > 0.95 or no_signal:
         roi_mask = np.ones(n, dtype=bool)
         snr = np.ones(n, dtype=np.float32)
         return roi_mask, snr, {
@@ -105,10 +118,15 @@ def motion_gate(
 
         n_readmitted = 0
         if readmit_thr > 0 and n_dilated < n:
-            # Candidate edges: one endpoint in ROI, the other static (not in ROI)
-            in_roi_not_other = roi[edges[:, 0]] & ~roi[edges[:, 1]]
-            other_not_roi = ~roi[edges[:, 0]] & roi[edges[:, 1]]
-            cand_mask = in_roi_not_other | other_not_roi
+            # Candidate edges: one endpoint in the ENERGY-GATED `moving` set, the
+            # other outside the (dilated) ROI.  Anchoring candidates on `moving`
+            # rather than the post-dilation `roi` matches the documented intent
+            # ("points rigidly connected to the moving region") and prevents
+            # readmission from cascading through static–static edges that dilation
+            # pulled into the ROI (measured: 61 → 0 readmitted FPs at hops=1).
+            in_mov_not_other = moving[edges[:, 0]] & ~roi[edges[:, 1]]
+            other_not_mov = ~roi[edges[:, 0]] & moving[edges[:, 1]]
+            cand_mask = in_mov_not_other | other_not_mov
             cand_edges = edges[cand_mask]
 
             if len(cand_edges) > 0:

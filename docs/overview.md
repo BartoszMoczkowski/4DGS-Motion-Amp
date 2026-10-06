@@ -11,6 +11,8 @@ synthetic multi-cam capture (Omniverse / Isaac Sim)
   → per-segment Eulerian motion amplification (render_amp.py)
 ```
 
+(2026-10-05 scope note: `render_amp.py`'s `amp_factors` are per *parameter channel* (8 slots), not per motion part — the "segmented" method variants are memory chunking, not segmentation masks. Per-part amplification currently flows through the orchestrator's seg pipeline (`seg_extract → segment.* → amp`), not through `render_amp.py` alone.)
+
 Synthetic data is the enabler: real captures give no ground-truth camera poses and no per-part segmentation labels, so quantitative evaluation (ARI / IoU) is only possible on scenes we author ourselves.
 
 Key design decisions (locked with the author): static segmentation (one labeling per clip), rigid-machine targets, whole-clip periodic small-amplitude motion, position as the segmentation feature, N > 10⁵ Gaussians, retraining MBS is acceptable.
@@ -31,5 +33,5 @@ Key design decisions (locked with the author): static segmentation (one labeling
 ## Status (2026-07-19)
 
 - Omniverse → 4DGS pipeline works end-to-end; the "pump" test asset (107 rigid parts, authored mm-scale periodic motion, exact GT labels) is captured, converted, and trainable.
-- Option B segmentation (`segment.rigid`) is implemented and verified on synthetic data (ARI ≈ 0.999); first real pump run was poor (low reconstruction SNR), log-space Otsu fix applied, quality still gated by training quality. Option A (`segment.mbs`) is wired into the orchestrator but not yet run on real GPU data.
+- Option B segmentation (`segment.rigid`) is implemented and verified on synthetic data (ARI ≈ 0.999); first real pump run was poor (low reconstruction SNR), log-space Otsu fix applied, quality still gated by training quality. Option A (`segment.mbs`) is wired into the orchestrator but not yet run on real GPU data. (2026-10-05/06 updates: the ARI ≈ 0.999 selftest figure came from a fixture whose parts were spatially disjoint, so it never exercised rigidity edge-cutting — the reworked selftest uses adjacent jittered parts, pass bar ARI ≥ 0.99, fixture scores 1.0. Option A has since run on real data with ARI ≈ 0, but that column is substantially a measurement artifact — 4 000 labeled points, ≥98% scored as one −1 segment; re-score with `--drop-floaters`. And the T20 "BIC says 107 parts not resolvable" conclusion was invalidated — malformed BIC + a degenerate sigma-annealing start; fixed code uses a proper Gaussian BIC, no annealing, and a new spectral init reaching ARI 0.9988 on the T20 fixture. See [motion-segmentation.md](motion-segmentation.md) for the dated annotations.)
 - The orchestrator is complete through milestone M5: **the full 9-stage pipeline (`prep_split → prep_motion → capture.isaac → convert → train → render → seg_extract → segment.rigid → amp`) completed end-to-end on real hardware on 2026-07-19**, with cross-run caching working. The MCP server (15 tools, 3 resources) and Streamlit UI are done. Remaining: T17 (cancel/job hardening, open) and T16 (WSL bundling, deferred).

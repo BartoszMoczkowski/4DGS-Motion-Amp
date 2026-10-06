@@ -19,7 +19,14 @@ Design choices (see ``planning/tasks/T05-dag-scheduler-and-cache.md``):
   manifest record (cheap, same-run resume) or a *different* run's success recorded in
   ``pipeline.dag.cache``'s index (cache reuse across runs of the same/similar preset). Either way
   it's recorded as ``status="skipped"`` in *this* run's manifest, referencing the same artifacts
-  (never copied).
+  (never copied). Since 2026-10-05 (``reviews/orchestrator-correctness-review.md`` bugs
+  1.3/1.4/1.8/1.9) freshness additionally requires that (a) directory artifacts carry a real
+  content fingerprint (``pipeline.artifacts.hash_directory``) so forced upstream reruns
+  invalidate downstream keys, (b) a hit's recorded artifact paths still exist (file hashes
+  re-checked; directories existence-only, since ``render``/``amp`` legitimately write into their
+  input model dir in place), (c) a stage's declared outputs exist on disk before a success is
+  recorded, and (d) OOM-fallback successes are recorded/cached under their *effective*
+  (reduced-memory) config's key, not the original config's.
 - **Resume is just caching.** There's no separate "resume" code path: calling ``run_dag`` again
   for the same ``run_id`` re-checks every selected stage's freshness. A stage that previously
   failed, or was left ``running`` by a crash, is never "fresh" (no matching ``success``/``skipped``
@@ -39,11 +46,13 @@ from .. import containers as _containers
 from .. import paths as _paths
 from ..artifacts import (
     FAST_ALGO,
+    FULL_ALGO,
     Artifact,
     RunManifest,
     StageRecord,
     create_run,
     get_git_sha,
+    hash_directory,
     hash_path,
     load_manifest,
     record_stage_result,
@@ -56,6 +65,102 @@ from ..resources import InsufficientResourcesError, ResourceMonitor, check_headr
 from ..stages import StageContext
 from .cache import compute_cache_key, get_cached, put_cached
 from .graph import DAGNode, MissingDependencyError, external_inputs, resolve_nodes, topo_sort
+
+
+class StageOutputError(RuntimeError):
+    """A stage exited 0 / returned normally but one of its declared outputs is missing.
+
+    Raised by the scheduler's post-success output verification (2026-10-05, review bug 1.8):
+    before this, only ``train.default``/``capture.isaac`` checked their own outputs, and a
+    script that exited 0 without writing anything got recorded (and cross-run cached!) as a
+    ``success`` with dead artifact paths — see ``pipeline.stages.train``'s comment for the
+    real-hardware incident that established this pattern.
+    """
+
+
+def _hash_artifact_path(p: Path, *, fast: bool = True) -> Optional[str]:
+    """Content hash/fingerprint for ``p``, whether it's a file or a directory; ``None`` if the
+    path doesn't exist at all (callers treat that as "unknown", never as a hash)."""
+
+    if p.is_file():
+        return hash_path(p, fast=fast)
+    if p.is_dir():
+        return hash_directory(p)
+    return None
+
+
+def _input_hash(art: Artifact) -> str:
+    """The hash ``compute_cache_key`` sees for one input artifact.
+
+    Uses the artifact's recorded ``content_hash`` when present (the common case for
+    stage-produced artifacts, hashed right after the producing stage succeeds). Artifacts with
+    no recorded hash — externally seeded ones (``capture``/``gt_segmentation``/``raw_mesh``) —
+    are hashed on the fly so a re-captured or re-seeded *directory* input (kind
+    ``dataset``/``model``, previously always ``""``) now invalidates downstream cache keys
+    (review bug 1.3). Missing paths keep the old ``""`` behavior: the missing-dependency check
+    upstream is what guards those.
+    """
+
+    if art.content_hash:
+        return art.content_hash
+    return _hash_artifact_path(Path(art.path)) or ""
+
+
+def _artifacts_intact(artifacts: Sequence[Artifact]) -> bool:
+    """``True`` iff every artifact's path still exists and (for files with a recorded hash)
+    still matches it — the revalidation a cache hit never used to do (review bug 1.4).
+
+    Directories are checked for *existence only*: ``render.default``/``amp.default`` write
+    *into* their input model directory in place (see ``pipeline.stages.render``'s docstring),
+    so a recorded directory hash legitimately goes stale while the artifact is still perfectly
+    valid — re-hash-comparing directories would force spurious reruns of ``train`` after every
+    ``render``. File artifacts (``.npz``/``.ply``/``.json``/...) are never mutated in place by
+    downstream stages, so their recorded hash is safe and cheap to recheck (the fast
+    fingerprint reads at most 2 MiB).
+    """
+
+    for art in artifacts:
+        p = Path(art.path)
+        if not p.exists():
+            return False
+        if art.content_hash and p.is_file():
+            current = hash_path(p, fast=(art.hash_algo != FULL_ALGO))
+            if current != art.content_hash:
+                return False
+    return True
+
+
+def _verify_declared_outputs(
+    stage_cls: type, stage_name: str, result: dict[str, Artifact]
+) -> None:
+    """Fail loudly if a nominally successful stage's declared outputs aren't actually on disk.
+
+    Every artifact the stage returned must exist (a non-empty directory for the directory
+    kinds, a file otherwise), and every name in the stage's declared ``outputs`` contract must
+    be present in ``result``. Extra, undeclared keys are allowed (e.g.
+    ``seg_eval.default``'s optional ``recolored_ply``) but must exist too — they're recorded
+    and cached like any other artifact, so a dead path would poison the cache identically.
+    """
+
+    missing_keys = [o for o in getattr(stage_cls, "outputs", ()) if o not in result]
+    if missing_keys:
+        raise StageOutputError(
+            f"stage {stage_name!r} exited successfully but did not return its declared "
+            f"output(s) {missing_keys} (returned: {sorted(result)}) — refusing to record a "
+            f"success without the contracted artifacts"
+        )
+    for art_name, art in result.items():
+        p = Path(art.path)
+        if not p.exists():
+            raise StageOutputError(
+                f"stage {stage_name!r} exited successfully but its output {art_name!r} does "
+                f"not exist at {p} — refusing to record/cache a dead artifact path"
+            )
+        if p.is_dir() and not any(p.iterdir()):
+            raise StageOutputError(
+                f"stage {stage_name!r} exited successfully but its output {art_name!r} is an "
+                f"empty directory ({p}) — refusing to record/cache it"
+            )
 
 
 def _select(
@@ -123,10 +228,19 @@ def _already_recorded(name: str, cache_key: str, manifest: RunManifest) -> bool:
     no-op: a stage that already succeeded here keeps its honest ``"success"`` status rather than
     being overwritten with ``"skipped"`` just because it also happens to satisfy the freshness
     check.
+
+    Since 2026-10-05 (review bug 1.4) the record alone isn't enough: the recorded artifact
+    *paths* must also still exist on disk (and file hashes must still match). A run directory
+    that was partially deleted externally no longer counts as fresh — the stage reruns instead
+    of downstream stages consuming dead paths.
     """
 
     rec = manifest.stages.get(name)
-    return rec is not None and rec.status in ("success", "skipped") and rec.cache_key == cache_key
+    if rec is None or rec.status not in ("success", "skipped") or rec.cache_key != cache_key:
+        return False
+    if any(a not in manifest.artifacts for a in rec.artifacts):
+        return False
+    return _artifacts_intact([manifest.artifacts[a] for a in rec.artifacts])
 
 
 def run_dag(
@@ -204,7 +318,7 @@ def run_dag(
                 f"them yet in run {run_id!r} — include their producing stage(s) in this call "
                 f"(e.g. via `only`/`from_stage`) or run them first"
             )
-        input_hashes = {inp: (art.content_hash or "") for inp, art in declared_inputs.items()}
+        input_hashes = {inp: _input_hash(art) for inp, art in declared_inputs.items()}
         cache_key = compute_cache_key(node.stage_cls, stage_cfg, input_hashes, git_sha)
 
         if not force and _already_recorded(name, cache_key, manifest):
@@ -212,15 +326,25 @@ def run_dag(
 
         cached = None if force else get_cached(cache_key, runs_root=runs_root)
         if cached is not None:
-            manifest = record_stage_result(
-                run_id,
-                name,
-                status="skipped",
-                artifacts=list(cached.values()),
-                cache_key=cache_key,
-                runs_root=runs_root,
+            if _artifacts_intact(list(cached.values())):
+                manifest = record_stage_result(
+                    run_id,
+                    name,
+                    status="skipped",
+                    artifacts=list(cached.values()),
+                    cache_key=cache_key,
+                    runs_root=runs_root,
+                )
+                continue
+            # Review bug 1.4 (2026-10-05): a valid cache index entry whose artifact paths were
+            # deleted/modified externally used to be reused verbatim as dead paths. Treat it as
+            # a cache miss instead and re-run the producing stage (the rerun's put_cached
+            # overwrites the stale entry).
+            stale_logger = _stage_logger(run_id, name, runs_root=runs_root)
+            stale_logger.warning(
+                "cache hit for key %s... but recorded artifact paths no longer exist/match; "
+                "treating as a cache miss and re-running", cache_key[:12]
             )
-            continue
 
         manifest = record_stage_start(run_id, name, runs_root=runs_root)
         logger = _stage_logger(run_id, name, runs_root=runs_root)
@@ -262,6 +386,11 @@ def run_dag(
         monitor.start()
         try:
             result, oom_fallback = run_with_oom_retry(node.stage_cls, ctx, name)
+            # Post-success output verification (review bug 1.8, 2026-10-05): a 0 exit / clean
+            # return is not enough — every declared output must actually exist before the stage
+            # may be recorded (and cross-run cached) as a success. Runs inside this try so a
+            # missing output is recorded exactly like any other stage failure.
+            _verify_declared_outputs(node.stage_cls, name, result)
         except Exception as exc:  # noqa: BLE001 - a failing stage must not crash the scheduler
             peak_vram_mb, peak_ram_mb = monitor.stop()
             manifest = record_stage_result(
@@ -279,24 +408,40 @@ def run_dag(
 
         for art in result.values():
             if art.content_hash is None:
-                p = Path(art.path)
-                if p.is_file():
-                    art.content_hash = hash_path(p)
+                # Files get the fast fingerprint; directory artifacts (capture/model/scene/
+                # renders — kinds dataset/model) get a real directory fingerprint now (review
+                # bug 1.3, 2026-10-05) instead of silently staying unhashed, so a forced rerun
+                # of the producing stage invalidates every downstream cache key.
+                h = _hash_artifact_path(Path(art.path))
+                if h is not None:
+                    art.content_hash = h
                     art.hash_algo = FAST_ALGO
+
+        # Review bug 1.9 (2026-10-05): when the stage only succeeded via run_with_oom_retry's
+        # reduced-memory fallback, ctx.config has been swapped to the fallback config (see
+        # pipeline.resources.oom_retry.run_with_oom_retry — left applied on success). Record and
+        # cache under a key computed from that EFFECTIVE config, not the original one, so a
+        # degraded-output success never poisons the cache entry for identical future runs. The
+        # deliberate consequence: a resume re-runs the stage (its manifest cache_key no longer
+        # matches the original-config key) — it OOMs and falls back again rather than silently
+        # reusing fallback outputs as if they were full-config ones.
+        effective_key = cache_key
+        if oom_fallback is not None:
+            effective_key = compute_cache_key(node.stage_cls, ctx.config, input_hashes, git_sha)
 
         manifest = record_stage_result(
             run_id,
             name,
             status="success",
             artifacts=list(result.values()),
-            cache_key=cache_key,
+            cache_key=effective_key,
             log_path=str(stage_log_path(run_id, name, runs_root=runs_root)),
             peak_vram_mb=peak_vram_mb,
             peak_ram_mb=peak_ram_mb,
             oom_fallback=oom_fallback,
             runs_root=runs_root,
         )
-        put_cached(cache_key, run_id, name, result, runs_root=runs_root)
+        put_cached(effective_key, run_id, name, result, runs_root=runs_root)
 
     if not manifest.stages:
         # An empty DAG (e.g. no real stages registered for any role yet) has nothing to roll its

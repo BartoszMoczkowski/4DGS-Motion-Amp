@@ -1,6 +1,18 @@
 import streamlit as st
-import os 
+import os
+import sys
 import itertools as it
+
+# Resolve paths relative to the repo root (this file lives at amp-ui/amp_ui/,
+# so the repo root is two levels up). Model outputs live in <root>/output and
+# configs in <root>/core/arguments; render_amp.py lives in <root>/core.
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+CORE_DIR = os.path.join(REPO_ROOT, "core")
+OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
+ARGUMENTS_DIR = os.path.join(CORE_DIR, "arguments")
+if CORE_DIR not in sys.path:
+    sys.path.insert(0, CORE_DIR)
+
 from render_amp import load_config, AmpConfig, generate_frame_data, render_data
 from render_amp import amplify_frame_data_eulerian,amplify_frame_data_eulerian_mod,amplify_frame_data_eulerian_abs,amplify_frame_data_eulerian_abs_mod
 import torch
@@ -9,6 +21,14 @@ import io
 import av
 import time
 from PIL import Image
+
+
+def _clone_values(values):
+    # Deep-copy the per-frame parameter structure before amplification: the
+    # amplify_frame_data_* functions mutate the list in place, so passing
+    # self.values directly would re-amplify already amplified data on every
+    # render click. Cloning happens only at render time to keep memory low.
+    return [[(v.clone() if isinstance(v, torch.Tensor) else v) for v in channel] for channel in values]
 
 # Because there are a lot of input parameters for the modified pipeline, A simple GUI was created 
 # in streamlit to make testing easier.
@@ -54,18 +74,28 @@ class AMPUI():
         # the time needed to run the amplification step
         with torch.no_grad():
 
+            # Work on a deep copy so self.values always retains the raw
+            # extracted data (the amplify functions mutate in place).
+            raw_values = _clone_values(self.values)
+
+            # The amplify functions are async CUDA work; synchronize before
+            # starting and before stopping the timer for unbiased timing.
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             start_time = time.time_ns()
 
             if method == "base":
-                amped_values = amplify_frame_data_eulerian(self.values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
+                amped_values = amplify_frame_data_eulerian(raw_values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
             elif method == "base segmented":
-                amped_values = amplify_frame_data_eulerian_mod(self.values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
+                amped_values = amplify_frame_data_eulerian_mod(raw_values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
             elif method == "abs":
-                amped_values = amplify_frame_data_eulerian_abs(self.values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
+                amped_values = amplify_frame_data_eulerian_abs(raw_values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
             elif method == "abs segmented":
-                amped_values = amplify_frame_data_eulerian_abs_mod(self.values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
+                amped_values = amplify_frame_data_eulerian_abs_mod(raw_values, self.config.amp_factors, self.config.freq_list,self.low_vram_mode)
 
 
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
             execution_time = time.time_ns() - start_time
             images, _,_ = render_data(amped_values, self.ras_settings, self.config.scene.getVideoCameras(), "video", self.config.cam_type,self.low_vram_mode, frozen_cam=False)
             del amped_values
@@ -81,19 +111,21 @@ AI = st.session_state["AI"]
 st.title("AMP UI")
 
 # list all models as a dropdown menu
-model_folders = [folder for folder in os.listdir("./output")]
-secondary_model_folders = [list(map(lambda x : os.path.join(folder,x),os.listdir(os.path.join("./output", folder)))) for folder in model_folders] 
+model_folders = [folder for folder in os.listdir(OUTPUT_DIR)]
+secondary_model_folders = [list(map(lambda x : os.path.join(folder,x),os.listdir(os.path.join(OUTPUT_DIR, folder)))) for folder in model_folders] 
 secondary_model_folders = list(it.chain.from_iterable(secondary_model_folders))
 selected_model = st.selectbox("Select Folder", secondary_model_folders)
 
 # list of configs as a dropdown menu
-config_folders = [folder for folder in os.listdir("./arguments") if os.path.isdir(os.path.join("./arguments", folder))]
-secondary_config_folders = [list(map(lambda x : os.path.join(folder,x),os.listdir(os.path.join("./arguments", folder)))) for folder in config_folders] 
+config_folders = [folder for folder in os.listdir(ARGUMENTS_DIR) if os.path.isdir(os.path.join(ARGUMENTS_DIR, folder))]
+secondary_config_folders = [list(map(lambda x : os.path.join(folder,x),os.listdir(os.path.join(ARGUMENTS_DIR, folder)))) for folder in config_folders] 
 secondary_config_folders = list(it.chain.from_iterable(secondary_config_folders))
 selected_config = st.selectbox("Select Folder", secondary_config_folders)
 
 # Create fields in which the user can set the amplification factors and frequency filtering ranges
-chanels_list = ["pos3d","pos2d","rotation","scale","opacity","SHs","color","cov3D"]
+# Labels must match the values_list order in core/render_amp.py:
+# [means3D, means2D, scales, rotations, opacity, shs, colors, cov3D]
+chanels_list = ["pos3d","pos2d","scale","rotation","opacity","SHs","color","cov3D"]
 a_s = [-1.0] * len(chanels_list)
 freq_low_list = [0.0]*len(chanels_list)
 freq_high_list = [1.0]*len(chanels_list)
@@ -111,10 +143,10 @@ AI.low_vram_mode = st.checkbox("Low VRAM mode")
 method = st.selectbox("Select Method", ["base","base segmented","abs", "abs segmented"])
 
 # Button for loading the scene
-if st.button("Load Config", on_click=lambda : AI.load_config(os.path.join("./output", selected_model), os.path.join("./arguments", selected_config),a_s,list(zip(freq_low_list,freq_high_list)))):
+if st.button("Load Config", on_click=lambda : AI.load_config(os.path.join(OUTPUT_DIR, selected_model), os.path.join(ARGUMENTS_DIR, selected_config),a_s,list(zip(freq_low_list,freq_high_list)))):
     print(
-        os.path.join("./output", selected_model), 
-        os.path.join("./arguments", selected_config),
+        os.path.join(OUTPUT_DIR, selected_model), 
+        os.path.join(ARGUMENTS_DIR, selected_config),
         a_s,
         list(zip(freq_low_list,freq_high_list)))
     st.write(AI.config  )

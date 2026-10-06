@@ -54,6 +54,9 @@ class SegEvalStage(Stage):
 
         drop_floaters = bool(ctx.config.get("drop_floaters", False))
         top_n = int(ctx.config.get("top_n", 15))
+        # None (default) => no GT-class exclusion; an int excludes that GT label; "auto"
+        # opts back into the legacy label-0 heuristic (see SegEvalConfig.bg_label).
+        bg_label = ctx.config.get("bg_label", None)
 
         # Optional ROI mask for ARI-within-ROI scoring (T19)
         roi_mask = None
@@ -68,6 +71,7 @@ class SegEvalStage(Stage):
                 pred["points"], pred["labels"], gt["points"], gt["labels"],
                 drop_floaters=drop_floaters,
                 roi_mask=roi_mask,
+                bg_label=bg_label,
             )
         for line in buf.getvalue().splitlines():
             ctx.logger.info(line)
@@ -77,6 +81,9 @@ class SegEvalStage(Stage):
             "mean_iou": result["mean_iou"],
             "n_gt": result["n_gt"],
             "n_pred": result["n_pred"],
+            "n_pred_nonfloater": result["n_pred_nonfloater"],
+            "n_floater_points": result["n_floater_points"],
+            "bg_label_excluded": result["bg_label_excluded"],
             "n_pred_points": int(len(result["pred_labels"])),
             "top_matches": [
                 {
@@ -96,11 +103,17 @@ class SegEvalStage(Stage):
         summary_path = ctx.run_dir / "seg_eval_result.json"
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         ctx.logger.info("wrote %s (ari=%.4f, mean_iou=%.4f)", summary_path, summary["ari"], summary["mean_iou"])
+        if summary["bg_label_excluded"] is not None:
+            ctx.logger.info(
+                "bg_label_excluded=%s: GT label %s was excluded from the ari_within_roi score",
+                summary["bg_label_excluded"], summary["bg_label_excluded"],
+            )
 
         metadata = {"ari": summary["ari"], "mean_iou": summary["mean_iou"]}
         if "ari_within_roi" in summary:
             metadata["ari_within_roi"] = summary["ari_within_roi"]
             metadata["n_roi_points"] = summary["n_roi_points"]
+            metadata["bg_label_excluded"] = summary["bg_label_excluded"]
 
         artifacts: dict[str, Artifact] = {
             "seg_eval_result": Artifact(

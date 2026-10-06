@@ -440,7 +440,12 @@ def test_peak_mem_and_oom_fallback_recorded_via_run_dag(tmp_path, monkeypatch):
                     exc = RuntimeError("simulated OOM")
                     exc._toy_oom = True
                     raise exc
-                return {"o": Artifact(name="o", kind="json", path="o", producing_stage=ctx.stage_name)}
+                # The scheduler now verifies declared outputs exist before recording a success
+                # (2026-10-05, review bug 1.8) — the retry must actually write the file.
+                out = ctx.run_dir / "o.json"
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(json.dumps({"ok": True}))
+                return {"o": Artifact(name="o", kind="json", path=str(out), producing_stage=ctx.stage_name)}
 
     m = run_dag("run_oom", ["test.t12oom"], {}, preset="toy", runs_root=tmp_path)
     rec = m.stages["test.t12oom"]

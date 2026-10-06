@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from .manifest import ManifestCorruptError, load_manifest
 from .models import Artifact, RunManifest
-from .paths import get_runs_root
+from .paths import InvalidRunIdError, get_runs_root
 
 
 class ArtifactNotFoundError(KeyError):
@@ -32,7 +32,7 @@ def list_runs(*, runs_root: Optional[Path] = None) -> list[dict[str, Any]]:
             continue
         try:
             manifest = load_manifest(entry.name, runs_root=root)
-        except (FileNotFoundError, ManifestCorruptError):
+        except (FileNotFoundError, ManifestCorruptError, InvalidRunIdError):
             continue
         summaries.append(
             {

@@ -123,6 +123,10 @@ def _seed_completed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     """
     runs_root = tmp_path / "runs"
     monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(runs_root))
+    # Artifact serving is now confined to the pipeline's known roots (runs/repo/assets); make
+    # tmp_path the assets root so the synthetic artifacts below (under tmp_path/work) are
+    # legitimately servable.
+    monkeypatch.setenv("PIPELINE_ASSETS_ROOT", str(tmp_path))
 
     from pipeline.artifacts import Artifact, create_run, record_stage_result
 
@@ -357,6 +361,52 @@ def test_artifact_resource_returns_raw_bytes(tmp_path, monkeypatch) -> None:
         # functions if a mime type looks textual; png never should, but assert defensively.
         raise AssertionError(f"expected binary resource content, got: {content!r}")
     assert raw == _TINY_PNG_BYTES
+
+
+def test_artifact_resource_refuses_a_path_outside_the_allowed_roots(tmp_path, monkeypatch) -> None:
+    """Round-2 correctness fix (2026-10-05): a path recorded in a manifest is data, not proof of
+    legitimacy -- serving raw bytes is confined to the pipeline's known roots (runs/repo/assets)
+    so a tampered/hand-written manifest can't become an arbitrary host-file read.
+    """
+    run_id = _seed_completed_run(tmp_path, monkeypatch)  # PIPELINE_ASSETS_ROOT := tmp_path
+
+    from pipeline.artifacts import Artifact, update_manifest
+
+    outside = tmp_path.parent / f"outside-{run_id}.png"  # outside tmp_path, repo, and runs root
+    outside.write_bytes(_TINY_PNG_BYTES)
+    try:
+        update_manifest(
+            run_id,
+            lambda m: m.artifacts.update(
+                {"outside": Artifact(name="outside", kind="png", path=str(outside), producing_stage="external")}
+            ),
+        )
+        with _running_server() as url:
+            try:
+                result = anyio.run(_read_resource, url, f"run://{run_id}/artifact/outside")
+            except Exception:
+                return  # the server refusing the read outright is a pass too
+        # FastMCP surfaces a handler exception as a resource-read error, not content bytes.
+        assert not any(
+            getattr(c, "blob", None) for c in result.contents
+        ), "served bytes for a path outside the allowed roots"
+    finally:
+        outside.unlink(missing_ok=True)
+
+
+def test_run_id_traversal_is_a_tool_error(tmp_path, monkeypatch) -> None:
+    """Round-2 correctness fix (2026-10-05): ``run_id`` is interpolated into paths under the runs
+    root; ``../../x``-style ids must be rejected (here: surface as MCP tool errors), not resolved
+    outside the runs tree."""
+    _seed_completed_run(tmp_path, monkeypatch)
+    with _running_server() as url:
+        for tool, args in (
+            ("get_run_status", {"run_id": "../../x"}),
+            ("tail_logs", {"run_id": "../../x", "stage": "seg_eval.default"}),
+            ("list_artifacts", {"run_id": "../../x"}),
+        ):
+            result = anyio.run(_call, url, tool, args)
+            assert result.isError, f"{tool} accepted a traversal run_id"
 
 
 # --- async run lifecycle: real preset, no GPU/Docker touched at all ---------------------------

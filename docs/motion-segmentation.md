@@ -18,16 +18,16 @@ Key mismatches beyond correspondence: MBS assumes piecewise-rigid bodies and N �
 
 - `extract_trajectories.py` — data adapter (needs the GPU env: the package's `core` extra, which pulls in `4dgs-core`). Loads a trained model, samples `get_state_at_time` at T evenly-spaced times, writes `trajectories.npz` (`canonical_xyz`, `traj (N,T,3)`, `opacity`, `times`).
 - `rigidity_graph.py` — Option B core (pure numpy/scipy): k-NN graph in canonical space; per-edge rigidity score = std-dev of pairwise distance over time (exactly 0 for a true rigid pair); **log-space Otsu** auto-threshold; connected components → segments; tiny components folded into nearest neighbor.
-- `segment_rigid.py` — CLI wrapper (opacity-filters floaters, label −1). `--selftest` verifies on a synthetic 7-body scene with no GPU: **ARI 0.9988**.
-- `mbs_infer.py` — Option A adapter: exact flow into MotNet per view pair, `compose_dense` + `sync_motion_seg` imported from MBS source, one shared FPS subsample across views (the "permutation sync is the identity" simplification), 3-NN label propagation back to the full set. Wired into the orchestrator as `segment.mbs` but **not yet run on a real GPU/checkpoint**.
+- `segment_rigid.py` — CLI wrapper (opacity-filters floaters, label −1). `--selftest` verifies on synthetic 7-body scenes with no GPU. **2026-10-05:** the selftest was reworked after a review found the old fixture never exercised the rigidity edge-cutting it claimed to validate (its parts were spatially disjoint, so the kNN graph was already disconnected and every edge was kept). The legacy disjoint scene is kept as Case A (sanity check, bar ARI > 0.99); the new primary Case B places parts *adjacent* (kNN graph bridges part boundaries) with per-point-per-timestep jitter comparable to 4DGS reconstruction noise, so edges must actually be cut — pass bar ARI ≥ 0.99, unreachable without correct edge cutting (cutting nothing yields ARI ≈ 0.84); the fixture scores ARI 1.0.
+- `mbs_infer.py` — Option A adapter: exact flow into MotNet per view pair, `compose_dense` + `sync_motion_seg` imported from MBS source, one shared FPS subsample across views (the "permutation sync is the identity" simplification), 3-NN label propagation back to the full set. Wired into the orchestrator as `segment.mbs`; since run on real GPU data (the 7 grid/sweep pump models, ARI ≈ 0). **2026-10-05 caveat:** those published ARI ≈ 0 numbers substantially measure an *evaluation artifact*, not (only) MotNet quality — with the `pump01_segA` preset's `n_points: 4000`, only 4 000 points get MotNet labels and ≥98% of the ~300 k-Gaussian models are labeled −1 and scored as one giant segment (`drop_floaters=False`). The out-of-distribution conclusion may hold, but the published `mbs ARI` column does not isolate it; remedy: re-score the existing `segmentation_mbs.npz` artifacts with `--drop-floaters`.
 - `metrics.py`, `evaluate_segmentation.py` — ARI + Hungarian IoU against `gt_segmentation.npz` (GT labels nearest-neighbor-propagated from the init cloud onto trained Gaussians), plus colored-PLY and PNG previews (`visualize.py`).
 - `run.sh <scene>` — chains extract → segment → evaluate (`./motion-seg/motion_seg/run.sh pump01`); supports `SKIP_EXTRACT=1` and passthrough tuning args.
 
 ## Results so far
 
-- Synthetic self-test: ARI 0.9988, mean Hungarian IoU 0.982.
+- Synthetic self-test: ARI 0.9988, mean Hungarian IoU 0.982. (Old selftest — pre-2026-10-05 fixture; it never exercised rigidity edge-cutting because its parts were spatially disjoint. See the reworked Case B fixture above, bar ARI ≥ 0.99.)
 - First real `pump01` run (2026-07-06): poor (ARI 0.05, 4–5 segments vs 107 GT). Root cause: linear-histogram Otsu failed on the heavily right-skewed real edge-score distribution — fixed by Otsu in log-space. Residual caveat: the trained model's frame-to-frame position noise is comparable to the true mm-scale motion (median edge score 0.00125 vs p90 0.0035), so segmentation quality is ultimately gated by reconstruction quality; `--threshold-mult` and `-k` are the tuning knobs.
-- A separate numerical quirk: the Otsu-log threshold degenerates (ARI 0.0) on an *exactly noiseless* synthetic scene under some numpy/scipy builds — worked around via `threshold_mult` (documented in the orchestrator's vertical-slice test).
+- A separate numerical quirk: the Otsu-log threshold degenerates (ARI 0.0) on an *exactly noiseless* synthetic scene under some numpy/scipy builds — worked around via `threshold_mult` (documented in the orchestrator's vertical-slice test). (2026-10-06: Otsu plateau tie-breaking was hardened in both `motion_seg/rigidity_graph.py` and the vendored copy — the threshold now uses the plateau midpoint instead of the first max bin, which hugged the noise cluster on cleanly bimodal distributions; the quirk note above reflects pre-fix behavior.)
 
 ### T18 grid benchmark — `segment.rigid2` real-data run (2026-08-11)
 
@@ -44,6 +44,11 @@ T18 (FFT band-pass denoising + per-scene calibrated rigidity z-scores + adaptive
 | sweep-g25000 | −0.01839 | −0.01839 | −0.01580 | 2 | 2 | 0.224 |
 | sweep-g50000 | −0.00372 | −0.00559 | −0.00214 | 2 | 6 | 0.224 |
 | sweep-g100000 | −0.02832 | −0.03290 | −0.00745 | 2 | 10 | 0.227 |
+
+> **2026-10-06 — read this table with care (old measurement conventions):**
+> - The `mean_iou` column uses the **old convention** (mean over Hungarian-matched pairs only), which inflates scores when pred/GT cluster counts differ. The fixed convention is mean over GT classes with unmatched = 0; **old and new `mean_iou` numbers are not comparable** (same applies to the T20 table below). The numbers are kept as originally measured.
+> - The `mbs ARI` column is near-uninformative: only 4 000 points were labeled, ≥98% of points got −1 and were scored as one giant segment (`drop_floaters=False`). Re-score with `--drop-floaters` before citing it.
+> - All trajectories here were extracted at `n_times=60`, undersampling the grid scenes' 40-cycle motion past Nyquist (aliases to ~20 cycles) — a plausible contributor to the near-zero ARIs. The fixed `grid_seg` preset uses `n_times: 240`; a GPU re-run is pending.
 
 **Z-score separability diagnostic (go/no-go for per-edge methods)**
 
@@ -87,17 +92,17 @@ T20 (iterative Kabsch EM — E-step soft assignment by trajectory residual, M-st
 | sweep-g50000 | −0.0049 | −0.00559 | −0.00372 | 30 | — |
 | sweep-g100000 | −0.0456 | −0.03290 | −0.02832 | 89 | — |
 
-\* BIC search on grid-A20mm_M2 (k_range=[20, 150]) found best_k=20 with BIC=61494, vs K=107 BIC=307471. BIC increases monotonically with K, indicating the data does not support 107 rigid bodies at current noise levels.
+\* BIC search on grid-A20mm_M2 (k_range=[20, 150]) found best_k=20 with BIC=61494, vs K=107 BIC=307471. BIC increases monotonically with K, indicating the data does not support 107 rigid bodies at current noise levels. **2026-10-06 — INVALIDATED:** these BIC numbers were computed with a malformed BIC missing the Gaussian 1/σ² likelihood factor, which made BIC monotonically increasing in K *by construction* (residual term O(10–80) vs penalty O(8k–42k)); combined with an EM sigma-annealing start that flattened all responsibilities to 1/K (a degenerate fixed point), the "107 parts not resolvable" conclusion is an artifact of the implementation, not the data. Fixed code: proper Gaussian BIC `3TN·log(σ̂²) + (6TK+K)·log(3TN)`, annealing removed entirely, and a new `init="spectral"` seed (ARI 0.9988 after EM refinement on the T20 fixture). Whether 107 parts are resolvable is an open question again — re-measure before citing; grid reruns should use `init: spectral`. Full detail: dated addendum in `.claude_notes/NOTES_T20_kabsch_em_2026-08-11.md`. The `mean_iou`-convention and `n_times=60` aliasing caveats from the T18 table note apply here too.
 
 **Key findings**
 
 1. **Kabsch EM is only marginally better than per-edge baselines.** Best ARI is 0.019 (grid-A20mm_M2), compared to rigid baseline 0.0018. This is not a qualitative improvement — all methods remain near-zero on real data.
 
-2. **BIC model selection strongly prefers K ≈ 20 over K = 107.** On grid-A20mm_M2, BIC(20) = 61494 vs BIC(107) = 307471. The reconstruction noise is so high that the statistical evidence only supports ~20 motion groups, not the 107 GT parts. This is a fundamental reconstruction-quality ceiling, not a tuning issue.
+2. **BIC model selection strongly prefers K ≈ 20 over K = 107.** On grid-A20mm_M2, BIC(20) = 61494 vs BIC(107) = 307471. The reconstruction noise is so high that the statistical evidence only supports ~20 motion groups, not the 107 GT parts. This is a fundamental reconstruction-quality ceiling, not a tuning issue. **(2026-10-06: INVALIDATED — see the table footnote above. The monotonic BIC curve was produced by a BIC formula missing the 1/σ² factor; the fixed Gaussian BIC has a genuine interior minimum in the sandbox. The "reconstruction-quality ceiling" claim must be re-measured with the fixed code.)**
 
 3. **FPS subsample (5k) + fixed K=107 collapses to 3 clusters** after merge_small_components on all grid models. With 5k subsample points and 107 clusters, the average cluster has only ~47 points — below the min_size=15 threshold, but more importantly, the Kabsch fit on tiny clusters is unstable. The sweep models retain more clusters (30–97) because their lower Gaussian counts allow more stable local fits.
 
-4. **Adaptive sigma annealing works correctly.** EM converges in 4–15 iterations. The sandbox fixture (ARI 0.999+) confirms the algorithm is mathematically correct; the failure is in the data, not the method.
+4. **Adaptive sigma annealing works correctly.** EM converges in 4–15 iterations. The sandbox fixture (ARI 0.999+) confirms the algorithm is mathematically correct; the failure is in the data, not the method. **(2026-10-06: superseded — the annealing start `max(σ, 1.0)` flattened all responsibilities to 1/K, a degenerate fixed point, so these grid runs never really left the uniform-assignment regime. Per proposal 05 the annealing was removed entirely; EM now runs at the calibrated σ from iteration 1, and with the new `init="spectral"` seed reaches ARI 0.9988 after EM refinement on the T20 fixture.)**
 
 **Interpretation and next steps**
 
@@ -123,6 +128,8 @@ T19 (band-limited energy gate + k-NN dilation + rigidity-lock readmission) was s
 | sweep-g25000 | −0.016 | −0.024 | −0.018 | 21,930 | 3 |
 | sweep-g50000 | 0.002 | −0.009 | −0.004 | 40,618 | 3 |
 | sweep-g100000 | −0.029 | −0.028 | −0.028 | 95,067 | 3 |
+
+> **2026-10-05:** `ari_within_roi` semantics have changed. The values in this table (and the T22 table below) used the old implicit heuristic "exclude GT label 0 whenever a positive label exists". The fixed `evaluate_segmentation.py` / vendored `seg_eval.py` require an explicit `bg_label` (`None` default = no exclusion, and `ari_within_roi` is then not computed at all; `"auto"` reproduces the legacy heuristic as an opt-in). These numbers are kept as measured.
 
 **Key findings**
 
@@ -158,12 +165,4 @@ T22's mask-lifting bet was tested at its ceiling first: `roi.mask_oracle` derive
 
 1. **Oracle ARI-within-ROI ≈ 0 on every run (max 0.105).** The higher *global* ARI (0.21–0.29 on grid runs) is an artifact of the label −2 convention: the oracle removes the background cloud, which is then scored as one big correct group. Machine-part clustering still collapses (3–35 clusters vs 107 GT parts).
 2. **Separability AUROC is 0.45–0.67 on all models** (threshold for per-edge viability: 0.8) — the rigidity edge signal itself does not separate same-part from different-part pairs.
-3. **Verdict: the bottleneck was never ROI quality.** T19's gate failed because jitter ≈ motion; the oracle proves even a perfect geometric gate fails because the trajectory signal inside the machine region is already too noisy. T22 mask lifting as a segmentation rescue is dead; `roi.mask_oracle` remains as a diagnostic ceiling stage. Full report: `.claude_notes/NOTES_T22_oracle_results_2026-08-12.md`.
-
-
-
-
-
-- Synthetic self-test: ARI 0.9988, mean Hungarian IoU 0.982.
-- First real `pump01` run (2026-07-06): poor (ARI 0.05, 4–5 segments vs 107 GT). Root cause: linear-histogram Otsu failed on the heavily right-skewed real edge-score distribution — fixed by Otsu in log-space. Residual caveat: the trained model's frame-to-frame position noise is comparable to the true mm-scale motion (median edge score 0.00125 vs p90 0.0035), so segmentation quality is ultimately gated by reconstruction quality; `--threshold-mult` and `-k` are the tuning knobs.
-- A separate numerical quirk: the Otsu-log threshold degenerates (ARI 0.0) on an *exactly noiseless* synthetic scene under some numpy/scipy builds — worked around via `threshold_mult` (documented in the orchestrator's vertical-slice test).
+3. **Verdict: the bottleneck was never ROI quality.** T19's gate failed because jitter ≈ motion; the oracle proves even a perfect geometric gate fails because the trajectory signal inside the machine region is already too noisy. T22 mask lifting as a segmentation rescue is dead; `roi.mask_oracle` remains as a diagnostic ceiling stage. Full report: `.claude_notes/NOTES_T22_oracle_results_2026-08-12.md`. (2026-10-06 caveat: all grid/sweep trajectories underlying this verdict were extracted at `n_times=60` while the grid scenes contain 40 motion cycles per 240-frame clip — the motion aliases past Nyquist at 60 samples. The verdict stands for the measurements as taken, but re-measurement with the `grid_seg` preset (`n_times: 240`) is required before treating "reconstruction-quality-limited" as settled. See `reviews/2026-10-05-omniverse-pipeline-review.md`, finding O2.)

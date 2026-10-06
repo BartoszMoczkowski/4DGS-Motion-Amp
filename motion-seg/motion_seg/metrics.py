@@ -49,9 +49,15 @@ def best_iou_matching(labels_true, labels_pred):
 
     Returns (mean_iou, matches) where matches is a list of
     (gt_label, pred_label, iou, gt_size, pred_size) sorted by GT size descending.
-    Unmatched GT classes / predicted clusters (when counts differ) are not included in the
-    mean but are reported separately for context.
+
+    CONVENTION (changed 2026-10-05, fixes review item M2): `mean_iou` is the mean over
+    **GT classes**, with every GT class that the Hungarian matching leaves unmatched
+    (because there are fewer predicted clusters than GT classes) contributing IoU 0.
+    Before this fix the mean covered only the min(n_gt, n_pred) matched pairs, inflating
+    the score whenever the prediction had fewer clusters than the GT. Numbers produced by
+    this version are NOT comparable to mean_iou values computed before 2026-10-05.
     """
+
     labels_true = np.asarray(labels_true)
     labels_pred = np.asarray(labels_pred)
     classes = np.unique(labels_true)
@@ -72,5 +78,13 @@ def best_iou_matching(labels_true, labels_pred):
         for a, b in zip(row, col)
     ]
     matches.sort(key=lambda m: -m[3])
-    mean_iou = float(np.mean([m[2] for m in matches])) if matches else 0.0
+    matched_rows = set(row.tolist())
+    n_unmatched_gt = len(classes) - len(matched_rows)
+    # Mean over GT classes: unmatched GT classes contribute IoU 0 (see docstring).
+    matched_sum = float(sum(m[2] for m in matches))
+    mean_iou = matched_sum / len(classes) if len(classes) else 0.0
+    if n_unmatched_gt > 0:
+        print(f"[metrics] mean_iou convention: mean over {len(classes)} GT classes, "
+              f"{n_unmatched_gt} unmatched GT class(es) counted as IoU 0 "
+              f"({len(matches)} matched pairs)")
     return mean_iou, matches

@@ -5,6 +5,7 @@ Compiled documentation for the thesis project **Motion Amplification for 4D Gaus
 | Document | Contents |
 |---|---|
 | [overview.md](overview.md) | Project goal, repo map, current status at a glance |
+| [decisions.md](decisions.md) | Distilled decision log, invalidated conclusions, and open questions (compiled 2026-10-06 from `.claude_notes/` + correctness reviews) |
 | [motion-segmentation.md](motion-segmentation.md) | MultiBodySync ↔ 4DGS analysis, adaptation options A/B/C, the `motion-seg/motion_seg/` implementation and results |
 | [omniverse-pipeline.md](omniverse-pipeline.md) | Synthetic-data testing pipeline: Isaac Sim capture, pump asset preparation, conversion to 4DGS format, bugs found and fixed |
 | [orchestrator.md](orchestrator.md) | The three-layer orchestration system (DAG execution module, MCP server, Streamlit UI), task history T01–T17, real-hardware debugging saga, end-to-end milestone |

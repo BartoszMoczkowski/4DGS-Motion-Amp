@@ -10,10 +10,39 @@ module docstring.
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Optional
+
 from ..artifacts import Artifact
 from .base import ResourceRequest, Stage, StageContext
 from .cuda_common import flag, run_cuda_script, write_stage_bridge
 from .registry import register
+
+
+def _capture_frame_count(ctx: StageContext) -> Optional[int]:
+    """Best-effort frame count of the capture this run's model was trained on, from whatever
+    upstream artifacts happen to be in the manifest (``ctx.inputs`` carries *all* run artifacts,
+    not just this stage's declared inputs). ``None`` when nothing usable is present — the guard
+    in ``run()`` then simply doesn't fire, same as before this check existed.
+
+    Prefers the converted ``scene`` (``camNN/frame_*.jpg`` — exactly what training sampled its
+    time base over); falls back to the raw ``capture`` (``camNN/rgb_*.png``, possibly under an
+    ``rgb/`` subfolder — the same convention ``omni_to_4dgs.convert`` itself handles).
+    """
+
+    scene = ctx.inputs.get("scene")
+    if scene is not None:
+        cams = sorted(p for p in Path(scene.path).glob("cam*") if p.is_dir())
+        if cams:
+            return len(list(cams[0].glob("frame_*.jpg")))
+    capture = ctx.inputs.get("capture")
+    if capture is not None:
+        cams = sorted(p for p in Path(capture.path).glob("cam*") if p.is_dir())
+        if cams:
+            cam = cams[0]
+            rgb = cam / "rgb" if (cam / "rgb").is_dir() else cam
+            return len(list(rgb.glob("rgb_*.png")))
+    return None
 
 
 @register("seg_extract.default")
@@ -46,6 +75,26 @@ class SegExtractStage(Stage):
         cfg = ctx.config  # SegExtractConfig's own fields (iteration/n_times); `configs` ignored,
         # same as `render.default` — this stage always generates its own bridge file.
         n_times = int(cfg.get("n_times", 60))
+
+        # O2 (reviews/2026-10-05-omniverse-pipeline-review.md): extracting at fewer timesteps
+        # than the capture has frames aliases fast periodic motion past Nyquist — the grid
+        # scenes (240 frames, 40 motion cycles/clip) were extracted at the default 60, which
+        # every frequency-calibrated downstream stage (rigid2 FFT denoising, kabsch FFT
+        # fingerprint, trajectory_denoise) then operated on the wrong waveform for. Grid runs
+        # now use the `grid_seg` preset (n_times: 240); this guard catches the same mistake for
+        # any future capture/preset combination.
+        frame_count = _capture_frame_count(ctx)
+        if frame_count is not None and n_times < frame_count:
+            ctx.logger.warning(
+                "seg_extract n_times=%d is BELOW the capture's frame count (%d): periodic "
+                "motion faster than ~%.3g cycles/clip will alias past Nyquist in the extracted "
+                "trajectories. Set seg_extract.n_times >= the frame count (e.g. the grid_seg "
+                "preset's 240 for grid captures).",
+                n_times,
+                frame_count,
+                n_times / 2.0,
+            )
+
         args = [
             *flag("model_path", str(model_container)),
             *flag("iteration", cfg.get("iteration", -1)),

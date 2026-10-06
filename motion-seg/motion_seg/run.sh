@@ -5,10 +5,13 @@
 #
 #   ./motion-seg/motion_seg/run.sh pump01
 #   ./motion-seg/motion_seg/run.sh pump01 --threshold-mult 2 --opacity-thresh 0.2   # re-tune, skip re-extract
+#   EXTRACT_ARGS="--n-times 120" ./motion-seg/motion_seg/run.sh pump01              # scenes trained on !=60 frames
 #
 # Extra args after the scene name are forwarded to segment_rigid.py (--k, --min-size,
 # --threshold-mult, --opacity-thresh) so you can re-tune without re-running the GPU extraction
-# step. Set SKIP_EXTRACT=1 to reuse an existing trajectories.npz.
+# step. Options for the extractor (e.g. --n-times, --iteration) go in the EXTRACT_ARGS
+# environment variable — they CANNOT be passed positionally because that would be ambiguous
+# with segment_rigid's own flags. Set SKIP_EXTRACT=1 to reuse an existing trajectories.npz.
 set -euo pipefail
 
 NAME="${1:-pump01}"
@@ -23,12 +26,18 @@ CONFIG="core/arguments/multipleview/$NAME.py"
 test -d "$MODEL_DIR" || { echo "ERROR: $MODEL_DIR not found — train the scene first (train_pump.sh $NAME)"; exit 1; }
 test -f "$CONFIG" || { echo "ERROR: $CONFIG not found"; exit 1; }
 
+# shellcheck disable=SC2206
+EXTRACT_ARGS_ARR=(${EXTRACT_ARGS:-})
+
 if [ "${SKIP_EXTRACT:-0}" = "1" ] && [ -f "$MODEL_DIR/trajectories.npz" ]; then
     echo "[1/3] SKIP_EXTRACT=1 — reusing existing $MODEL_DIR/trajectories.npz"
 else
     echo "[1/3] extracting per-Gaussian trajectories (GPU) -> $MODEL_DIR/trajectories.npz"
+    if [ "${#EXTRACT_ARGS_ARR[@]}" -gt 0 ]; then
+        echo "      extractor args (EXTRACT_ARGS): ${EXTRACT_ARGS_ARR[*]}"
+    fi
     uv run --package motion-seg --extra core python -m motion_seg.extract_trajectories \
-        --model_path "$MODEL_DIR" --configs "$CONFIG"
+        --model_path "$MODEL_DIR" --configs "$CONFIG" "${EXTRACT_ARGS_ARR[@]}"
 fi
 
 echo "[2/3] rigid motion segmentation -> $MODEL_DIR/segmentation.npz"

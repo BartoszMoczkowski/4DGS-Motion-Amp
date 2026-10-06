@@ -80,7 +80,11 @@ def read_artifact_summary(artifact: Artifact) -> dict[str, Any]:
         "producing_stage": artifact.producing_stage,
         "content_hash": artifact.content_hash,
     }
-    path = Path(artifact.path)
+    # Confinement gate (round-2 correctness fix): never open an artifact path that isn't under
+    # the pipeline's known roots — a manifest-recorded path is data, not proof of legitimacy.
+    from pipeline.artifacts import resolve_servable_artifact_path
+
+    path = resolve_servable_artifact_path(artifact.path)
 
     if artifact.kind == "json":
         base.update(_summarize_json(path))

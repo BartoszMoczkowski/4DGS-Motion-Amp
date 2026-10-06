@@ -213,6 +213,45 @@ def _init_kmeans_spatial(xyz: np.ndarray, n_clusters: int, rng: np.random.Genera
     return labels
 
 
+def _init_spectral(
+    xyz: np.ndarray,
+    traj: np.ndarray,
+    n_clusters: int,
+    drive_freq: float | None,
+    harmonics: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Spectral-seed initialisation — proposal 05 §4's "seed from proposal 04's spectral
+    result", using the calibrated rigidity-affinity spectral partition already implemented
+    as :func:`rigidity_graph2.segment_by_rigidity2` (``partition="spectral"``).
+
+    Why: FFT-fingerprint init caps at ARI ≈ 0.91 on the all-rotations fixture because
+    fingerprints vary *within* parts (Gap C); the rigidity-affinity spectral seed has no
+    such ceiling (measured ARI 1.0 alone, 0.9988 after EM refinement on the T20 fixture).
+    """
+    from .rigidity_graph2 import segment_by_rigidity2
+
+    labels, _ = segment_by_rigidity2(
+        xyz, traj, drive_freq=drive_freq, harmonics=harmonics,
+        partition="spectral", n_clusters=n_clusters, min_size=1,
+        rng_seed=int(rng.integers(2**31)),
+    )
+    labels = np.unique(labels, return_inverse=True)[1]
+    # The spectral partition can return more clusters than requested (per-component
+    # sub-splits).  Fold the smallest overflow clusters into the nearest kept centroid
+    # (canonical space) so the one-hot initialisation covers exactly n_clusters bodies.
+    uniq, counts = np.unique(labels, return_counts=True)
+    if len(uniq) > n_clusters:
+        keep = uniq[np.argsort(counts)[::-1][:n_clusters]]
+        kept_cent = np.array([xyz[labels == k].mean(axis=0) for k in keep])
+        for d in np.setdiff1d(uniq, keep):
+            c = xyz[labels == d].mean(axis=0)
+            nearest = keep[int(((kept_cent - c) ** 2).sum(axis=1).argmin())]
+            labels[labels == d] = nearest
+        labels = np.unique(labels, return_inverse=True)[1]
+    return labels
+
+
 def _init_from_labels(
     traj: np.ndarray,
     xyz: np.ndarray,
@@ -236,11 +275,25 @@ def _init_from_labels(
 
 
 def _bic(residuals: np.ndarray, gamma: np.ndarray, n_clusters: int, t_frames: int) -> float:
-    """BIC(K) = Σ_i,k γ_ik r_ik² + (6·T·K + K)·log(N).  Lower is better."""
+    """Proper Gaussian BIC for the mixture model of proposal 05 §1.
+
+    The log-likelihood of the generative model is
+
+        ℓ = −(3TN/2)·(log(2πσ̂²) + 1),   σ̂² = Σ_i,k γ_ik r_ik² / (3TN),
+
+    so (dropping constants)  BIC = 3TN·log(σ̂²) + ν_K·log(3TN), ν_K = 6TK + K.
+
+    The previous form (``weighted_r + ν_K·log(N)``) omitted the Gaussian 1/σ²
+    likelihood factor: the residual term is O(10–80) while the penalty is
+    O(8k–42k), so BIC was monotonically increasing in K *by construction* and
+    model selection always collapsed to the smallest K.  Lower is better.
+    """
     N = len(residuals)
     weighted_r = float((gamma * residuals).sum())
+    dof = 3 * t_frames * max(N, 1)
+    sigma2 = max(weighted_r / dof, 1e-300)
     n_params = 6 * t_frames * n_clusters + n_clusters
-    return weighted_r + n_params * np.log(max(N, 1))
+    return dof * np.log(sigma2) + n_params * np.log(dof)
 
 
 # ---------------------------------------------------------------------------
@@ -272,25 +325,26 @@ def _em_single(
     # --- initialise --------------------------------------------------------
     if init == "fft":
         labels = _init_fft(xyz, traj, n_clusters, drive_freq, harmonics, rng)
+    elif init == "spectral":
+        labels = _init_spectral(xyz, traj, n_clusters, drive_freq, harmonics, rng)
     else:
         labels = _init_kmeans_spatial(xyz, n_clusters, rng)
 
     gamma, R, tau = _init_from_labels(traj, xyz, labels, n_clusters)
 
-    # Annealing: start with a softer temperature (larger sigma) and tighten
-    sigma_current = max(sigma, 1.0)
+    # Proposal 05 specifies a fixed, per-scene-calibrated σ — no annealing.
+    # (The previous version started annealing at σ=1.0; residuals are sums of
+    # squares over 3T≈180 dims with per-coord σ≈0.008–0.01, so σ=1.0 flattened
+    # all responsibilities to 1/K — a degenerate fixed point that destroyed any
+    # initialisation.  Verified empirically: GT init + σ=1.0 start → ARI −0.003;
+    # data-scaled σ → ARI 0.9988.)
 
     # --- EM iterations -----------------------------------------------------
+    max_shift = np.inf
     for it in range(max_iter):
         residuals = _compute_residuals(traj, R, tau, xyz)
-        gamma_new = _e_step(residuals, sigma_current)
+        gamma_new = _e_step(residuals, sigma)
         R_new, tau_new = _m_step(traj, xyz, gamma_new, min_weight=min_weight)
-
-        # Adaptive sigma: ML estimate from weighted residuals
-        weighted_r = float((gamma_new * residuals).sum())
-        sigma_est = np.sqrt(weighted_r / max(3 * T * N, 1))
-        # Anneal toward the data-driven estimate
-        sigma_current = 0.7 * sigma_current + 0.3 * max(sigma_est, sigma * 0.5)
 
         # Convergence: maximum responsibility shift
         max_shift = float(np.abs(gamma_new - gamma).max())
@@ -429,7 +483,9 @@ def segment_by_kabsch(
         traj: (N, T, 3) deformed trajectories.
         n_clusters: fixed K (overrides BIC search if > 0).
         k_range: candidate K values for BIC search; default [2, 200].
-        init: ``"fft"`` (fingerprint + k-means++), ``"kmeans"`` (spatial k-means++).
+        init: ``"fft"`` (fingerprint + k-means++), ``"spectral"`` (rigidity-affinity
+            spectral partition seed — proposal 05 §4; does not suffer the FFT-fingerprint
+            ARI ≈ 0.91 ceiling on all-rotations scenes), ``"kmeans"`` (spatial k-means++).
         max_iter: EM iterations per K.
         sigma: per-coordinate noise std; ``None`` => auto from trajectory energy.
         spatial_prior: (not yet implemented) Potts smoothness on k-NN graph.

@@ -1,6 +1,9 @@
 """Vendored, verbatim copy of ``motion-seg/motion_seg/evaluate_segmentation.py``'s ``propagate_labels()``,
 ``evaluate()``, and ``_write_colored_ply()`` (2026-07-14 copy-in rework of T07; see
-``pipeline.vendored``'s module docstring). Function bodies are byte-for-byte the reference
+``pipeline.vendored``'s module docstring; re-synced 2026-10-06 to pick up the reference's
+2026-10-05 fixes: explicit ``bg_label`` exclusion instead of the implicit label-0 heuristic,
+and honest floater reporting via ``n_pred_nonfloater``/``n_floater_points``).
+Function bodies are byte-for-byte the reference
 script's; the only change is importing ``adjusted_rand_index``/``best_iou_matching`` from the
 sibling vendored module (:mod:`pipeline.vendored.host.metrics`) instead of
 ``motion_seg.metrics``. The reference script's CLI/argparse/``main`` are intentionally not
@@ -11,6 +14,8 @@ T19 addition: ``evaluate()`` gains an optional ``roi_mask`` argument for ARI-wit
 scoring.
 """
 from __future__ import annotations
+
+import sys
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -26,14 +31,20 @@ def propagate_labels(src_points, src_labels, dst_points):
 
 
 def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: bool = False,
-             roi_mask: np.ndarray | None = None) -> dict:
+             roi_mask: np.ndarray | None = None, bg_label=None) -> dict:
     """Score a predicted segmentation against GT.
 
-    Returns a dict with ``ari``, ``mean_iou``, ``matches`` (as :func:`best_iou_matching` returns
-    them), ``gt_on_pred`` (GT labels propagated onto ``pred_points``), the (possibly
-    floater-dropped) ``pred_points``/``pred_labels`` actually scored, and ``n_gt``/``n_pred``
-    instance counts.  When ``roi_mask`` is provided, also returns ``ari_within_roi`` computed
-    on the subset inside the ROI.
+    `bg_label` selects a GT class to exclude from the additional `ari_within_roi` score:
+    - None (default): no exclusion, no ROI score is computed.
+    - an integer: exclude that GT label.
+    - "auto": legacy heuristic — exclude GT label 0 whenever label 0 and any positive
+      label coexist. WARNING: label 0 is just the first mesh in USD traversal order (see
+      omni_capture.py); it has no background semantics. Only use "auto" when you have
+      verified label 0 really is the background for this scene.
+
+    Returns a dict with ari, mean_iou, matches, gt_on_pred, pred_points, pred_labels,
+    n_gt, n_pred, n_pred_nonfloater, and optionally ari_within_roi / n_roi_points /
+    bg_label_excluded.
     """
     pred_points = np.asarray(pred_points)
     pred_labels = np.asarray(pred_labels)
@@ -49,6 +60,8 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
     ari = adjusted_rand_index(gt_on_pred, pred_labels)
     mean_iou, matches = best_iou_matching(gt_on_pred, pred_labels)
 
+    uniq_pred = np.unique(pred_labels)
+    n_floaters = int((pred_labels == -1).sum())
     result = {
         "ari": ari,
         "mean_iou": mean_iou,
@@ -57,12 +70,36 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
         "pred_points": pred_points,
         "pred_labels": pred_labels,
         "n_gt": len(np.unique(gt_labels)),
-        "n_pred": len(np.unique(pred_labels)),
+        "n_pred": len(uniq_pred),
+        # Predicted segments excluding the floater label -1 (honest segment count).
+        "n_pred_nonfloater": int(len(uniq_pred[uniq_pred != -1])),
+        "n_floater_points": n_floaters,
+        "bg_label_excluded": None,
     }
 
     eval_roi_mask = roi_mask
-    if eval_roi_mask is None and (gt_on_pred > 0).any() and (gt_on_pred == 0).any():
-        eval_roi_mask = (gt_on_pred > 0)
+    excluded = None
+    if eval_roi_mask is None and bg_label is not None:
+        if bg_label == "auto":
+            # Legacy heuristic (pre-2026-10-05 default): exclude GT label 0 when it
+            # coexists with positive labels. Label 0 has NO background semantics — it is
+            # the first mesh in USD traversal order — so this is only correct by
+            # coincidence. Kept for backward comparability; prefer an explicit integer.
+            if (gt_on_pred > 0).any() and (gt_on_pred == 0).any():
+                excluded = 0
+        else:
+            excluded = int(bg_label)
+            if not (gt_on_pred == excluded).any():
+                print(f"[warn] --bg-label {excluded}: no GT points carry that label; "
+                      f"ROI = whole cloud", file=sys.stderr)
+                excluded = None
+        if excluded is not None:
+            eval_roi_mask = gt_on_pred != excluded
+            print(f"[eval] ari_within_roi: EXCLUDING GT label {excluded} "
+                  f"({int((gt_on_pred == excluded).sum())} of {len(gt_on_pred)} points) "
+                  f"from the ROI score (bg_label={bg_label!r})")
+
+    result["bg_label_excluded"] = excluded
 
     if eval_roi_mask is not None:
         eval_roi_mask = np.asarray(eval_roi_mask)

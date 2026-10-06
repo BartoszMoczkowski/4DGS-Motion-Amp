@@ -15,6 +15,8 @@ synthetic multi-cam capture (NVIDIA Omniverse / Isaac Sim)
   → per-segment Eulerian motion amplification (render_amp.py)
 ```
 
+(2026-10-05 scope note: `render_amp.py`'s `amp_factors` are per *parameter channel*, not per part — there is no per-motion-segment amplification in `render_amp.py` itself; per-part amplification flows through the orchestrator's seg pipeline (`seg_extract → segment.* → amp`).)
+
 Synthetic data is the enabler: real captures have no ground-truth camera poses or per-part labels, so quantitative evaluation (ARI / IoU) is only possible on scenes authored in Omniverse.
 
 The codebase is a fork of [4DGaussians](https://github.com/hustvl/4DGaussians), reorganized as a `uv` workspace of separately installable packages. Most of the 4DGS code in `core/` is upstream; the author's additions are concentrated in:
@@ -45,7 +47,7 @@ The codebase is a fork of [4DGaussians](https://github.com/hustvl/4DGaussians), 
 | Path | Purpose |
 |------|---------|
 | `core/` (package `4dgs-core`) | Upstream 4DGS core + author's motion amp: `train.py`, `render.py`, `render_amp.py`, `export_perframe_3DGS.py`, `merge_many_4dgs.py`, `scene/`, `gaussian_renderer/`, `utils/`, `arguments/` (configs), `lpipsPyTorch/`, `motion_amp/`. torch/CUDA heavy |
-| `core/render_amp.py` | **Motion-amplified rendering**. Extracts per-frame Gaussian parameters, applies FFT-based amplification (Eulerian / absolute / segmented), then renders a video |
+| `core/render_amp.py` | **Motion-amplified rendering**. Extracts per-frame Gaussian parameters, applies FFT-based amplification (Eulerian / absolute / chunked variants), then renders a video. 2026-10-05: all four methods were reimplemented as mean-anchored Eulerian *displacement* amplification (`out[t] = mean + a·filter(v[t] − mean)`; previously `eulerian*` amplified frame-to-frame velocity, so effective gain was ≪ `a`). `amp_factors` is per **parameter channel** (8 slots), not per motion part — the "segmented" method names mean Gaussian-chunked memory processing, not segmentation masks; per-part amplification flows through the orchestrator's seg pipeline |
 | `core/motion_amp/renderer.py` | Low-level helper used by `render_amp.py`; returns raw pre-rasterization Gaussian parameters |
 | `amp-ui/` (package `amp-ui`) | `amp_ui/ampUI.py` (standalone Streamlit UI for `render_amp.py`), `amp_ui/cameras.py` (USB multi-camera recorder, OpenCV), `amp_ui/run_renders_auto.py` (benchmark harness writing `results.csv`) |
 | `omniverse-pipeline/` (package `omniverse-pipeline`) | Isaac Sim capture + USD prep + conversion to 4DGS `multipleview` format; scripts in `omniverse-pipeline/omniverse_pipeline/` |
@@ -142,6 +144,8 @@ uv run --package 4dgs-core python core/render_amp.py -m output/dnerf/lego --conf
     --method eulerian --video_path out.mp4
 ```
 
+Since 2026-10-05 `render_amp.py` validates its arguments (`validate_amp_args`: `amp_factors` must be exactly 8 values with `-1` as the only allowed negative / skip sentinel; `--freq_low`/`--freq_high` length 1 or 8 with broadcast) and `load_config` imports `mmengine.config.Config` first with an `mmcv` fallback (the pinned `mmcv==2.2.0` no longer ships `Config`). Unknown `--method` values now raise instead of silently rendering unamplified.
+
 ### 5.4 Motion segmentation (reference scripts)
 
 ```bash
@@ -212,7 +216,7 @@ $env:PIPELINE_TEST_ISAAC = "1"
 pytest -q -s tests/test_stages_isaac_gpu.py
 ```
 
-- `motion-seg/motion_seg/segment_rigid.py` has a built-in `--selftest` that verifies on a synthetic 7-body scene with no GPU (expected ARI ≈ 0.999).
+- `motion-seg/motion_seg/segment_rigid.py` has a built-in `--selftest` that verifies on synthetic 7-body scenes with no GPU. 2026-10-05: the selftest was reworked — the legacy disjoint-parts scene (which never exercised edge-cutting) is kept as Case A (sanity, bar ARI > 0.99); the primary Case B uses adjacent, jittered parts whose kNN graph bridges part boundaries, genuinely requiring rigidity edge-cutting (bar ARI ≥ 0.99; fixture scores ARI 1.0, cutting nothing yields ≈ 0.84).
 - `omniverse-pipeline/omniverse_pipeline/rig.py` also supports `--selftest`.
 - GPU/Isaac tests auto-skip unless the corresponding environment flags are set.
 
@@ -220,7 +224,7 @@ pytest -q -s tests/test_stages_isaac_gpu.py
 
 These conventions are locked in `orchestrator/planning/INSTRUCTIONS.md` and apply especially to the orchestrator, but the mindset is useful across the repo:
 
-- **Copy the logic in, don't call the original script.** `omniverse-pipeline/omniverse_pipeline/`, `motion-seg/motion_seg/`, and `core/` scripts are reference/testing code. Orchestrator stages must not shell out to them or `sys.path`-hack imports. Verified logic is vendored into `orchestrator/pipeline/vendored/{host,cuda,isaac}/`.
+- **Copy the logic in, don't call the original script.** `omniverse-pipeline/omniverse_pipeline/`, `motion-seg/motion_seg/`, and `core/` scripts are reference/testing code. Orchestrator stages must not shell out to them or `sys.path`-hack imports. Verified logic is vendored into `orchestrator/pipeline/vendored/{host,cuda,isaac}/`. The vendored copies are kept identical to the reference apart from intentional divergences documented in the vendored file headers (e.g. `vendored/cuda/amp.py` after the 2026-10-05 motion-amp fixes; `vendored/host/seg_eval.py`/`metrics.py` re-synced to the fixed scoring conventions on 2026-10-06). Keep reference and vendored copies in sync when fixing bugs — several 2026-10-05 review bugs existed in both.
 - **Config is the single source of truth.** New experiments are declared as YAML presets under `orchestrator/pipeline/config/presets/` (layered via `extends:`), not as new `.sh` files or scattered `core/arguments/*.py` overrides.
 - **Path translation lives in exactly one module:** `orchestrator/pipeline/paths.py`. Do not hardcode `Q:\`, `/workspace`, or `/omniverse` elsewhere.
 - **Light package imports.** Do not import `torch`, `docker`, `pynvml`, or `psutil` at module scope inside the orchestrator; import them inside functions to keep Layer 1 importable in sandbox tests.
@@ -232,7 +236,7 @@ These conventions are locked in `orchestrator/planning/INSTRUCTIONS.md` and appl
 
 - **MCP server bearer token.** The HTTP MCP server requires `PIPELINE_MCP_TOKEN`. Generate it with `secrets.token_urlsafe(32)` and treat it like an API key. Do not commit tokens or hardcode defaults.
 - **Docker socket access.** The orchestrator drives Docker Desktop directly. Running it grants container-management privileges equivalent to the user account.
-- **Path traversal.** The orchestrator resolves external artifact paths (`raw_mesh`, `gt_segmentation`, capture directories). Do not pass untrusted paths into `run_pipeline`/`run_stage` without validation.
+- **Path traversal.** The orchestrator resolves external artifact paths (`raw_mesh`, `gt_segmentation`, capture directories). Since 2026-10-05 these are gated at seeding time (`validate_external_artifact_path`: absolute, must exist, confined to the runs/repo/assets roots) and at MCP serving time (`resolve_servable_artifact_path`); `run_id` and preset names are charset- and confinement-validated (`validate_run_id` / `validate_preset_name`), and `stop_container` refuses containers without the `pipeline.managed` label. Do not pass untrusted paths into `run_pipeline`/`run_stage` regardless.
 - **Native subprocess execution.** `capture.isaac` executes Isaac Sim's `python.bat` as a native Windows subprocess. Ensure `PIPELINE_ISAAC_NATIVE_PYTHON` points to a trusted binary.
 - **CUDA extension builds.** The editable submodules compile native CUDA code at install time. Builds happen inside the local repo; do not point the build at untrusted source trees.
 
@@ -243,7 +247,7 @@ These conventions are locked in `orchestrator/planning/INSTRUCTIONS.md` and appl
 - **The `cuda` Dockerfile builds the venv in `/opt/build`, not `/workspace`**, because `/workspace` is bind-mounted from the live repo at runtime and would shadow anything built there. Do not move the build back into `/workspace`.
 - **`requirements.txt` at the repo root is stale** (torch 1.13.1, mmcv 1.6.0). The authoritative dependency set is the workspace `pyproject.toml` files + `uv.lock`.
 - **`motion-seg/motion_seg/checkpoint-best.pth.tar` is not used.** The MultiBodySync checkpoint lives at `submodules/multibody-sync-4dgs/ckpt/mbs_full.pth.tar` (downloaded from the Google Drive link in `orchestrator/planning/WINDOWS_SETUP.md` §7; gitignored, not vendored).
-- **Option-A segmentation (`mbs_infer.py`) now runs on real data** (checkpoint downloaded to the expected path; ran on the 7 grid/sweep pump models via `scene-gen/run_grid_seg.py --impl mbs`), but segments poorly on these scenes (ARI ≈ 0, 2–8 clusters vs 107 GT parts — MotNet is out-of-distribution for mm-scale 4DGS trajectories, see `orchestrator/planning/WINDOWS_SETUP.md` §7). Option B (`segment_rigid.py`) remains the default.
+- **Option-A segmentation (`mbs_infer.py`) now runs on real data** (checkpoint downloaded to the expected path; ran on the 7 grid/sweep pump models via `scene-gen/run_grid_seg.py --impl mbs`), but segments poorly on these scenes (ARI ≈ 0, 2–8 clusters vs 107 GT parts — MotNet is out-of-distribution for mm-scale 4DGS trajectories, see `orchestrator/planning/WINDOWS_SETUP.md` §7). 2026-10-05 caveat: the published ARI ≈ 0 numbers substantially measure an evaluation artifact — the preset labels only 4 000 points, so ≥98% of points are labeled −1 and scored as one giant segment (`drop_floaters=False`); the out-of-distribution conclusion may hold but is not isolated by those numbers. Re-score the existing `segmentation_mbs.npz` artifacts with `--drop-floaters` before citing them. Option B (`segment_rigid.py`) remains the default.
 - **The pump01 scene is the primary real-hardware benchmark:** 107 rigid parts, 10 cameras, 60 frames, mm-scale periodic motion.
 
 ## 10. Where to read more

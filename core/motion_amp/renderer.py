@@ -117,6 +117,7 @@ def render_mod(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tens
             # shs = 
     else:
         colors_precomp = override_color
+        shs_final = None # parity with upstream gaussian_renderer/__init__.py (bug 20)
 
     return means3D_final,means2D, scales_final, rotations_final, opacity, shs_final,colors_precomp,cov3D_precomp, raster_settings
 

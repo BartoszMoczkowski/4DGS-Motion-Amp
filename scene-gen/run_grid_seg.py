@@ -39,10 +39,12 @@ T22's oracle-mask ceiling (``roi.mask_oracle`` + ``segment.rigid2``, proposal 02
 reuses extracted trajectories and uses GT labels directly as a perfect ROI mask.
 
 Idempotent: a run whose manifest already has a successful ``seg_eval.default`` is skipped.
-``force=True`` for the same reason as in ``run_grid_4dgs.py`` — the cross-run cache keys on
-resolved config + input content hashes, the seg configs are identical across runs and the
-``model`` directory artifact carries no hash, so without force all runs would reuse the first
-run's trajectories/segmentation.
+``force=True`` historically worked around the cross-run cache keying on resolved config +
+input content hashes while directory artifacts (``model``) carried no hash — identical seg
+configs across runs would all reuse the first run's trajectories/segmentation. Directory
+artifacts are content-hashed since 2026-10-05 (review bug 1.3), so the cache keys now differ
+per run on their own; force is kept as belt-and-braces (it also guarantees a fresh seg_eval
+result file per run, which the metrics gating below relies on).
 
 Usage (from the repo root, workspace venv):
 
@@ -106,7 +108,11 @@ STAGES = {
 }
 
 PRESET = {
-    "rigid": "pump01",
+    # "rigid" is the only impl that runs seg_extract (the others reuse its trajectories.npz).
+    # It uses the grid_seg preset: grid captures are 240 frames, and seg_extract's default
+    # n_times=60 aliases the 40-cycle motion past Nyquist (O2 in
+    # reviews/2026-10-05-omniverse-pipeline-review.md).
+    "rigid": "grid_seg",
     "mbs": "pump01_segA",
     "rigid2": "pump01_segB2",
     "kabsch": "pump01_kabsch",
@@ -224,7 +230,17 @@ def run_one(run_id: str, resolved: dict, impl: str) -> None:
         print(f"[FAIL] {run_id}: {error}")
 
     stages_rec = (manifest.stages if manifest else {})
-    summary = json.loads(eval_path.read_text(encoding="utf-8")) if eval_path.is_file() else {}
+    # O5 (reviews/2026-10-05-omniverse-pipeline-review.md): only trust seg_eval_result.json
+    # when THIS run's seg_eval stage actually succeeded — the file is shared across impls and
+    # only overwritten on success, so reading it unconditionally pairs a failed run with the
+    # previous impl's metrics. Failed runs get empty metric cells (status/error carry the info).
+    seg_eval_rec = stages_rec.get("seg_eval.default")
+    seg_eval_ok = seg_eval_rec is not None and seg_eval_rec.status in ("success", "skipped")
+    summary = (
+        json.loads(eval_path.read_text(encoding="utf-8"))
+        if seg_eval_ok and eval_path.is_file()
+        else {}
+    )
     seg_stage = SEGMENT_STAGE[impl]
     row = {
         "run_id": run_id,

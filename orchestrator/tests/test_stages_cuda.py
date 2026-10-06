@@ -72,6 +72,16 @@ class _FakeContainers:
             ckpt_dir = model_host / "point_cloud" / "iteration_1"
             ckpt_dir.mkdir(parents=True, exist_ok=True)
             (ckpt_dir / "point_cloud.ply").write_text("stub")
+        if self.exit_code == 0 and any(str(c).endswith("render.py") for c in cmd):
+            # RenderStage now verifies the expected <model_path>/<split>/ours_<it>/ dirs after
+            # a 0 exit (2026-10-05, review bug 1.8) — stub all three splits.
+            import pipeline.paths as paths_mod
+
+            model_host = paths_mod.to_host(_flag_value(cmd, "model_path"))
+            for split in ("train", "test", "video"):
+                split_dir = model_host / split / "ours_1"
+                split_dir.mkdir(parents=True, exist_ok=True)
+                (split_dir / "stub.png").write_text("stub")
         return ExecResult(exit_code=self.exit_code, log_path=log_path)
 
 
@@ -397,6 +407,13 @@ def test_train_then_render_via_run_dag_with_caching(tmp_path, monkeypatch):
                 ckpt_dir = Path(model_host) / "point_cloud" / "iteration_1"
                 ckpt_dir.mkdir(parents=True, exist_ok=True)
                 (ckpt_dir / "point_cloud.ply").write_text("stub")
+            if any(str(c).endswith("render.py") for c in cmd):
+                # RenderStage likewise checks the <split>/ours_<it>/ dirs it asked for
+                # (2026-10-05, review bug 1.8) -- stub them.
+                for split in ("train", "test", "video"):
+                    split_dir = Path(model_host) / split / "ours_1"
+                    split_dir.mkdir(parents=True, exist_ok=True)
+                    (split_dir / "stub.png").write_text("stub")
         return ExecResult(exit_code=0, log_path=log_path)
 
     monkeypatch.setattr(containers_mod, "exec_in_container", fake_exec)

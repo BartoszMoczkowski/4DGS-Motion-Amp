@@ -81,9 +81,11 @@ def make_capture_variant(src: Path, dst: Path, n_points: int, seed: int = 0) -> 
 
 def base_resolved(cell: str, sweep: bool, smoke: bool, target: int | None = None) -> dict:
     resolved = validate_config("pump01").model_dump()
-    # Unique convert name per variant: the cross-run DAG cache keys stages on their resolved
-    # config alone (externally-seeded directory artifacts carry no content hash), so two runs
-    # sharing a convert/train config would silently reuse each other's outputs.
+    # Unique convert name per variant. Historically the cross-run DAG cache keyed stages on
+    # their resolved config alone (externally-seeded directory artifacts carried no content
+    # hash), so two runs sharing a convert/train config would silently reuse each other's
+    # outputs; directory artifacts are hashed since 2026-10-05 (review bug 1.3), but the
+    # distinct names stay — they also keep each variant's converted scene self-describing.
     resolved["convert"]["name"] = cell if target is None else f"{cell}_g{target}"
     # The upstream render script accumulates every frame of a set on GPU/host before writing;
     # 2400-view train/test sets OOM the Docker VM (exit 137 at ~26%). The 300-view video set
@@ -101,7 +103,14 @@ def base_resolved(cell: str, sweep: bool, smoke: bool, target: int | None = None
 
 
 def count_gaussians(run_dir: Path) -> int | None:
-    plys = sorted(run_dir.glob("train_out/point_cloud/iteration_*/point_cloud.ply"))
+    # O6 (reviews/2026-10-05-omniverse-pipeline-review.md): sort by the NUMERIC iteration
+    # suffix — a plain lexicographic sorted() ranks "iteration_7000" after "iteration_30000".
+    def _iteration(p: Path) -> int:
+        return int(p.parent.name.rsplit("_", 1)[1])
+
+    plys = sorted(
+        run_dir.glob("train_out/point_cloud/iteration_*/point_cloud.ply"), key=_iteration
+    )
     if not plys:
         return None
     with open(plys[-1], "rb") as f:
@@ -138,10 +147,10 @@ def run_one(run_id: str, cell: str, target: int | None, capture_dir: Path, resol
     )
     error = ""
     try:
-        # force=True: the cross-run stage cache keys on resolved config only and directory
-        # artifacts carry no content hash, so without force a later run whose config matches an
-        # earlier run's (same convert name / same train bridge) silently reuses that run's
-        # scene/model instead of building its own.
+        # force=True: belt-and-braces against stale cross-run cache reuse (see the comment in
+        # base_resolved — directory artifacts are content-hashed since 2026-10-05, so configs
+        # alone no longer need to be unique, but a forced rerun also refreshes every per-run
+        # output this script then reads back).
         manifest = run_dag(run_id, STAGES, resolved, preset="pump01", force=True, stage_configs={
             name: _stage_config_for(name, resolved) for name in STAGES
         })

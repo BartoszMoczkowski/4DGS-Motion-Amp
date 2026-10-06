@@ -30,7 +30,6 @@ when FastMCP inspects each tool's signature at registration time).
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP, Image
@@ -295,15 +294,18 @@ def build_mcp() -> FastMCP:
         other artifact kind (use ``read_artifact`` instead).
         """
         from pipeline.artifacts import get_artifact as _get_artifact
+        from pipeline.artifacts import resolve_servable_artifact_path
 
         from .artifact_view import preview_kind
 
         artifact = _get_artifact(run_id, artifact_name)
         kind = preview_kind(artifact)  # raises ArtifactNotPreviewableError for anything else
+        # Confinement gate (round-2 correctness fix): serve only paths under the pipeline's
+        # known roots — the manifest alone must not be enough to read an arbitrary host file.
+        path = resolve_servable_artifact_path(artifact.path)
         if kind == "image":
-            return Image(path=artifact.path)
+            return Image(path=str(path))
 
-        path = Path(artifact.path)
         return {
             "kind": "video",
             "path": artifact.path,
@@ -344,9 +346,13 @@ def build_mcp() -> FastMCP:
         raises for a ``dataset``/``model`` directory artifact (use ``read_artifact`` for those).
         """
         from pipeline.artifacts import get_artifact as _get_artifact
+        from pipeline.artifacts import resolve_servable_artifact_path
 
         artifact = _get_artifact(run_id, artifact_name)
-        path = Path(artifact.path)
+        # Confinement gate (round-2 correctness fix): raw bytes only for paths under the
+        # pipeline's known roots (runs/repo/assets) — otherwise any path recorded in any
+        # manifest would be an arbitrary file read.
+        path = resolve_servable_artifact_path(artifact.path)
         if not path.is_file():
             raise FileNotFoundError(
                 f"artifact {artifact_name!r} (kind={artifact.kind!r}) isn't a single file at "

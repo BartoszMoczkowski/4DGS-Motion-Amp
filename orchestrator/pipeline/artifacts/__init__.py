@@ -7,7 +7,7 @@ Deliberately import-light: no torch/CUDA/docker/pynvml anywhere in this package.
 
 from __future__ import annotations
 
-from .hashing import FAST_ALGO, FULL_ALGO, hash_path
+from .hashing import FAST_ALGO, FULL_ALGO, hash_directory, hash_path
 from .manifest import (
     ManifestCorruptError,
     ManifestError,
@@ -23,13 +23,19 @@ from .manifest import (
 from .models import Artifact, ArtifactKind, RunManifest, RunState, StageRecord, StageState
 from .paths import (
     DEFAULT_RUNS_ROOT,
+    ArtifactPathError,
+    InvalidRunIdError,
+    allowed_artifact_roots,
     config_snapshot_path,
     ensure_run_dirs,
     get_runs_root,
     log_dir,
     manifest_path,
+    resolve_servable_artifact_path,
     run_dir,
     stage_log_path,
+    validate_external_artifact_path,
+    validate_run_id,
 )
 from .store import ArtifactNotFoundError, get_artifact, get_manifest, list_artifacts, list_runs
 
@@ -43,6 +49,7 @@ __all__ = [
     "StageState",
     # hashing
     "hash_path",
+    "hash_directory",
     "FAST_ALGO",
     "FULL_ALGO",
     # paths
@@ -54,6 +61,12 @@ __all__ = [
     "log_dir",
     "stage_log_path",
     "ensure_run_dirs",
+    "validate_run_id",
+    "InvalidRunIdError",
+    "allowed_artifact_roots",
+    "validate_external_artifact_path",
+    "resolve_servable_artifact_path",
+    "ArtifactPathError",
     # manifest read/write
     "ManifestError",
     "ManifestCorruptError",

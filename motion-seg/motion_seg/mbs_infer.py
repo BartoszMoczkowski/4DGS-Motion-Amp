@@ -169,8 +169,23 @@ def run_mbs_segmentation(
 
     # K evenly-spaced timesteps ("views"). `times` are the sample points extract_trajectories
     # used (np.linspace(0,1,n_times,endpoint=False)); pick the closest available indices.
+    if n_views > len(times):
+        raise ValueError(
+            f"--n-views {n_views} exceeds the number of sampled timesteps "
+            f"({len(times)}) in the trajectories file: views would repeat, producing "
+            f"duplicate view pairs with zero flow and corrupting MotNet's affinity "
+            f"matrix. Lower --n-views or re-run extract_trajectories with more "
+            f"--n-times."
+        )
     target_t = np.linspace(0.0, 1.0, n_views, endpoint=False)
     view_t_idx = [int(np.argmin(np.abs(times - t))) for t in target_t]
+    if len(set(view_t_idx)) != len(view_t_idx):
+        raise ValueError(
+            f"view selection collapsed to duplicate timesteps {sorted(view_t_idx)} "
+            f"(n_views={n_views}, only {len(times)} timesteps available): duplicate "
+            f"pairs have zero flow and corrupt MotNet's affinity matrix. Lower "
+            f"--n-views."
+        )
     print(f"[mbs] using {n_views} views at t={times[view_t_idx]}")
 
     xyz_np = traj[working_idx][:, view_t_idx, :]  # (N', K, 3)

@@ -24,6 +24,12 @@ _READ_CHUNK_BYTES = 1024 * 1024  # 1 MiB
 FAST_ALGO = "fast-sha256-v1"
 FULL_ALGO = "sha256"
 
+#: Files larger than this contribute only size+mtime to a directory fingerprint; smaller
+#: files get their full content hashed in. Keeps ``hash_directory`` cheap on multi-GB capture
+#: dirs (thousands of frame PNGs) while still content-verifying the small metadata files
+#: (``cameras_gt.json``, ``*.npy``, ...) that actually define a dataset's identity.
+_DIR_CONTENT_HASH_MAX_BYTES = 4 * 1024 * 1024  # 4 MiB
+
 
 def hash_path(path: str | Path, *, fast: bool = True) -> str:
     """Return a content hash/fingerprint for a file.
@@ -53,6 +59,45 @@ def _fast_fingerprint(p: Path) -> str:
             f.seek(max(size - _FAST_CHUNK_BYTES, 0))
             digest.update(f.read(_FAST_CHUNK_BYTES))
     return f"{FAST_ALGO}:{size}:{stat.st_mtime_ns}:{digest.hexdigest()}"
+
+
+def hash_directory(path: str | Path) -> str:
+    """Return a content fingerprint for a whole directory tree (``dataset``/``model`` artifacts).
+
+    ``hash_path`` raises on directories by design, which left directory artifacts with
+    ``content_hash=None`` — and the scheduler's ``art.content_hash or ""`` then contributed a
+    constant ``""`` to every downstream cache key, so force-rerunning ``capture.isaac``/
+    ``train.default`` never invalidated ``convert``/``render``/``seg_extract`` (see
+    ``reviews/orchestrator-correctness-review.md`` bug 1.3). This is the pragmatic fix promised
+    there: a SHA-256 over the sorted relative file paths, each with its size, mtime, and — for
+    files up to ``_DIR_CONTENT_HASH_MAX_BYTES`` — full content hash; larger files (the actual
+    frame/megabyte payload) contribute size+mtime only, mirroring ``_fast_fingerprint``'s
+    "detect change, don't read gigabytes" tradeoff.
+
+    Raises ``FileNotFoundError`` if ``path`` doesn't exist or isn't a directory.
+    """
+
+    p = Path(path)
+    if not p.is_dir():
+        raise FileNotFoundError(f"hash_directory: not a directory: {p}")
+
+    digest = hashlib.sha256()
+    n_files = 0
+    total_bytes = 0
+    files = sorted(
+        (f for f in p.rglob("*") if f.is_file()),
+        key=lambda f: f.relative_to(p).as_posix(),
+    )
+    for f in files:
+        stat = f.stat()
+        rel = f.relative_to(p).as_posix()
+        n_files += 1
+        total_bytes += stat.st_size
+        digest.update(f"{rel}\t{stat.st_size}\t{stat.st_mtime_ns}".encode("utf-8"))
+        if stat.st_size <= _DIR_CONTENT_HASH_MAX_BYTES:
+            digest.update(_full_sha256(f).encode("ascii"))
+        digest.update(b"\n")
+    return f"{FAST_ALGO}:dir:{n_files}:{total_bytes}:{digest.hexdigest()}"
 
 
 def _full_sha256(p: Path) -> str:

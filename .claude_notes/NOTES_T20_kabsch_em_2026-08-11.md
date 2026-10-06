@@ -74,3 +74,34 @@ Per `IMPLEMENTATION_PLAN.md`:
 - `runs/<run_id>/segmentation_colored_kabsch.ply` — 7 colored PLYs
 - `orchestrator/tests/test_segment_kabsch.py` — sandbox tests
 - `docs/motion-segmentation.md` — updated with T20 results
+
+---
+
+## Addendum 2026-10-06 — the "BIC says 107 parts are not resolvable" conclusion is INVALIDATED
+
+The monotonic-BIC result above ("Key finding: BIC says 107 parts are not resolvable",
+BIC(K) = 61494 → 461206 for K = 20 → 150) was an **artifact of two implementation bugs**
+in `orchestrator/pipeline/vendored/host/kabsch_em.py`, not a property of the data:
+
+1. **Bug A — sigma-annealing start destroyed every initialisation.** `_em_single` started
+   annealing at `sigma_current = max(sigma, 1.0)`. Residuals are sums of squares over
+   3T≈180 dims with per-coord σ≈0.008–0.01, so σ=1.0 flattened all responsibilities to
+   1/K — a degenerate fixed point. Verified: ground-truth init + σ=1.0 start → ARI −0.003;
+   data-scaled σ → ARI 0.9988. Fix (following proposal 05, which specifies a fixed
+   per-scene-calibrated σ and no annealing): the annealing was dropped entirely; EM now
+   runs at the calibrated σ from iteration 1.
+2. **Bug B — BIC omitted the Gaussian 1/σ² likelihood factor.** The old form
+   `weighted_r + ν_K·log(N)` compared a residual term of O(10–80) against a penalty of
+   O(8k–42k), so BIC was monotonically increasing in K *by construction* — exactly the
+   curve quoted above. The proper Gaussian BIC,
+   `3TN·log(σ̂²) + (6TK + K)·log(3TN)` with `σ̂² = Σγr²/(3TN)`, has a genuine interior
+   minimum (sandbox: minimum at/near the true K=7).
+
+**Consequence for the thesis:** whether the pump01/grid reconstructions can statistically
+resolve the 107 GT parts is an **open question again**. The BIC numbers in the table above
+were computed with the broken formula and must be re-measured with the fixed code before
+any "reconstruction-quality ceiling" claim is made. Note the FFT-fingerprint init still
+caps at ARI ≈ 0.91 on the all-rotations sandbox fixture (Gap C — fingerprints vary within
+parts); the new `init="spectral"` seed (rigidity-affinity spectral partition, proposal 05
+§4) reaches ARI 0.9988 after EM refinement on the same fixture, so grid reruns should use
+`init: spectral`.

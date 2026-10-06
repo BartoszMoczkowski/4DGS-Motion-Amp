@@ -111,14 +111,17 @@ def test_em_single_converges_and_improves_likelihood():
     K = 7  # 1 base + 6 parts
     sigma = 0.01
 
+    # FFT init (kept here for coverage of that path).  With the fixed, data-scaled
+    # sigma of proposal 05 (no annealing — see Bug A fix note in kabsch_em.py),
+    # convergence from the FFT seed takes ~43 iterations, so max_iter=60.
     gamma, R, tau, residuals, it, info = _em_single(
         xyz, traj, K, sigma, init="fft", drive_freq=DRIVE_FREQ, harmonics=3,
-        max_iter=30, tol=1e-4, rng=np.random.default_rng(0),
+        max_iter=60, tol=1e-4, rng=np.random.default_rng(0),
     )
     assert gamma.shape == (len(xyz), K)
     assert R.shape == (K, T, 3, 3)
     assert tau.shape == (K, T, 3)
-    assert it <= 30
+    assert it <= 60
     assert info["converged"]
 
     # Likelihood should be higher (residuals lower) than a random initialisation
@@ -135,8 +138,11 @@ def test_segment_by_kabsch_recovers_parts():
     from pipeline.vendored.host.kabsch_em import segment_by_kabsch
 
     xyz, traj, gt = _make_t20_scene()
+    # init="spectral" (proposal 05 §4 seed): FFT-fingerprint init caps at ARI ≈ 0.91
+    # on this all-rotations fixture (Gap C — fingerprints vary within parts); the
+    # rigidity-affinity spectral seed does not have that ceiling.
     labels, info = segment_by_kabsch(
-        xyz, traj, n_clusters=7, init="fft", drive_freq=DRIVE_FREQ,
+        xyz, traj, n_clusters=7, init="spectral", drive_freq=DRIVE_FREQ,
         harmonics=3, max_iter=30, sigma=0.01, rng_seed=0,
     )
     assert labels.shape == (len(xyz),)
@@ -153,7 +159,7 @@ def test_bic_prefers_correct_k():
     bics = {}
     for k in [3, 5, 7, 10, 15]:
         gamma, R, tau, residuals, _, _ = _em_single(
-            xyz, traj, k, sigma, init="fft", drive_freq=DRIVE_FREQ,
+            xyz, traj, k, sigma, init="spectral", drive_freq=DRIVE_FREQ,
             max_iter=20, rng=np.random.default_rng(0),
         )
         bics[k] = _bic(residuals, gamma, k, T)
@@ -184,7 +190,7 @@ def test_fps_subsample_path():
 
     xyz, traj, gt = _make_t20_scene()
     labels, info = segment_by_kabsch(
-        xyz, traj, n_clusters=7, init="fft", drive_freq=DRIVE_FREQ,
+        xyz, traj, n_clusters=7, init="spectral", drive_freq=DRIVE_FREQ,
         fps_subsample=800, propagate_q=3, max_iter=20, sigma=0.01, rng_seed=0,
     )
     assert labels.shape == (len(xyz),)
@@ -213,6 +219,8 @@ def test_segment_kabsch_stage_runs_end_to_end(tmp_path):
     assert resolved["segment"]["impl"] == "kabsch"
     resolved["segment"]["kabsch"]["n_clusters"] = 7
     resolved["segment"]["kabsch"]["fps_subsample"] = 0  # full set for accuracy
+    # Spectral seed (proposal 05 §4): FFT init caps at ARI ≈ 0.91 here (Gap C).
+    resolved["segment"]["kabsch"]["init"] = "spectral"
 
     names = ["segment.kabsch", "seg_eval.default"]
     stage_configs = {n: _stage_config_for(n, resolved) for n in names}

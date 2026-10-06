@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 
 import numpy as np
 from scipy.spatial import cKDTree
@@ -33,11 +34,20 @@ def propagate_labels(src_points, src_labels, dst_points):
 
 
 def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: bool = False,
-             roi_mask: np.ndarray | None = None) -> dict:
+             roi_mask: np.ndarray | None = None, bg_label=None) -> dict:
     """Score a predicted segmentation against GT.
 
+    `bg_label` selects a GT class to exclude from the additional `ari_within_roi` score:
+    - None (default): no exclusion, no ROI score is computed.
+    - an integer: exclude that GT label.
+    - "auto": legacy heuristic — exclude GT label 0 whenever label 0 and any positive
+      label coexist. WARNING: label 0 is just the first mesh in USD traversal order (see
+      omni_capture.py); it has no background semantics. Only use "auto" when you have
+      verified label 0 really is the background for this scene.
+
     Returns a dict with ari, mean_iou, matches, gt_on_pred, pred_points, pred_labels,
-    n_gt, n_pred, and optionally ari_within_roi / n_roi_points.
+    n_gt, n_pred, n_pred_nonfloater, and optionally ari_within_roi / n_roi_points /
+    bg_label_excluded.
     """
     pred_points = np.asarray(pred_points)
     pred_labels = np.asarray(pred_labels)
@@ -53,6 +63,8 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
     ari = adjusted_rand_index(gt_on_pred, pred_labels)
     mean_iou, matches = best_iou_matching(gt_on_pred, pred_labels)
 
+    uniq_pred = np.unique(pred_labels)
+    n_floaters = int((pred_labels == -1).sum())
     result = {
         "ari": ari,
         "mean_iou": mean_iou,
@@ -61,12 +73,36 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
         "pred_points": pred_points,
         "pred_labels": pred_labels,
         "n_gt": len(np.unique(gt_labels)),
-        "n_pred": len(np.unique(pred_labels)),
+        "n_pred": len(uniq_pred),
+        # Predicted segments excluding the floater label -1 (honest segment count).
+        "n_pred_nonfloater": int(len(uniq_pred[uniq_pred != -1])),
+        "n_floater_points": n_floaters,
+        "bg_label_excluded": None,
     }
 
     eval_roi_mask = roi_mask
-    if eval_roi_mask is None and (gt_on_pred > 0).any() and (gt_on_pred == 0).any():
-        eval_roi_mask = (gt_on_pred > 0)
+    excluded = None
+    if eval_roi_mask is None and bg_label is not None:
+        if bg_label == "auto":
+            # Legacy heuristic (pre-2026-10-05 default): exclude GT label 0 when it
+            # coexists with positive labels. Label 0 has NO background semantics — it is
+            # the first mesh in USD traversal order — so this is only correct by
+            # coincidence. Kept for backward comparability; prefer an explicit integer.
+            if (gt_on_pred > 0).any() and (gt_on_pred == 0).any():
+                excluded = 0
+        else:
+            excluded = int(bg_label)
+            if not (gt_on_pred == excluded).any():
+                print(f"[warn] --bg-label {excluded}: no GT points carry that label; "
+                      f"ROI = whole cloud", file=sys.stderr)
+                excluded = None
+        if excluded is not None:
+            eval_roi_mask = gt_on_pred != excluded
+            print(f"[eval] ari_within_roi: EXCLUDING GT label {excluded} "
+                  f"({int((gt_on_pred == excluded).sum())} of {len(gt_on_pred)} points) "
+                  f"from the ROI score (bg_label={bg_label!r})")
+
+    result["bg_label_excluded"] = excluded
 
     if eval_roi_mask is not None:
         eval_roi_mask = np.asarray(eval_roi_mask)
@@ -120,6 +156,13 @@ def main():
     ap.add_argument("--gt", required=True, help="gt_segmentation.npz (points, labels) from omni_to_4dgs.py")
     ap.add_argument("--drop-floaters", action="store_true",
                      help="exclude predicted label == -1 (floaters) from scoring")
+    ap.add_argument("--bg-label", default=None, metavar="LABEL|auto",
+                     help="GT label to exclude from the additional ari_within_roi score. "
+                          "Default: no exclusion. Pass an integer to exclude that GT class, "
+                          "or 'auto' for the legacy heuristic (exclude GT label 0 when it "
+                          "coexists with positive labels — only valid if you have verified "
+                          "label 0 is really background; USD traversal order assigns labels "
+                          "arbitrarily). The excluded label is always printed loudly.")
     ap.add_argument("--recolored-ply", default=None,
                      help="optional: write a PLY colored by predicted label for visual QA")
     ap.add_argument("--comparison-png", default=None,
@@ -128,20 +171,41 @@ def main():
     ap.add_argument("--top-n", type=int, default=15, help="how many best/worst matches to print")
     args = ap.parse_args()
 
+    bg_label = args.bg_label
+    if bg_label is not None and bg_label != "auto":
+        try:
+            bg_label = int(bg_label)
+        except ValueError:
+            ap.error(f"--bg-label must be an integer or 'auto', got {bg_label!r}")
+
     pred = np.load(args.pred)
     gt = np.load(args.gt)
 
     result = evaluate(
         pred["points"], pred["labels"], gt["points"], gt["labels"],
-        drop_floaters=args.drop_floaters,
+        drop_floaters=args.drop_floaters, bg_label=bg_label,
     )
     ari, mean_iou, matches = result["ari"], result["mean_iou"], result["matches"]
     pred_points, pred_labels = result["pred_points"], result["pred_labels"]
-    n_gt, n_pred = result["n_gt"], result["n_pred"]
+    n_gt = result["n_gt"]
+    n_pred_seg = result["n_pred_nonfloater"]
+    n_floater = result["n_floater_points"]
 
-    print(f"GT instances: {n_gt}  |  predicted segments: {n_pred}  |  predicted points: {len(pred_labels)}")
+    print(f"GT instances: {n_gt}  |  predicted segments: {n_pred_seg}  |  "
+          f"predicted points: {len(pred_labels)}")
+    if n_floater > 0 and not args.drop_floaters:
+        print(f"NOTE: {n_floater} floater point(s) carry predicted label -1 and are NOT "
+              f"counted in 'predicted segments' above. In the ARI score below, -1 is "
+              f"treated as one ordinary cluster (it absorbs all unmatched/unsampled "
+              f"points); pass --drop-floaters to exclude them from scoring entirely.")
     print(f"Adjusted Rand Index: {ari:.4f}")
-    print(f"Mean best-match IoU (Hungarian, {min(n_gt, n_pred)} matches): {mean_iou:.4f}")
+    n_matched = len(matches)
+    print(f"Mean best-match IoU: {mean_iou:.4f}  [convention: mean over {n_gt} GT classes, "
+          f"{n_matched} Hungarian-matched pair(s), unmatched GT classes count as IoU 0]")
+    if result.get("ari_within_roi") is not None or result.get("bg_label_excluded") is not None:
+        print(f"ARI within ROI (GT label {result['bg_label_excluded']} excluded, "
+              f"{result.get('n_roi_points', 0)} points): "
+              f"{result.get('ari_within_roi')}")
 
     print(f"\nTop {args.top_n} GT parts by size and their best-matching predicted segment:")
     print(f"{'gt_label':>10} {'gt_size':>8} {'pred_label':>11} {'pred_size':>10} {'iou':>7}")

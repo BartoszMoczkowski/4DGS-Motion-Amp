@@ -7,6 +7,21 @@
 
 ---
 
+## ⚠ 2026-10-06 correctness addendum — read before citing
+
+> **This document was prepared 2026-08-12. Correctness reviews on 2026-10-05/06 invalidated or qualified several of its conclusions. The original text below is kept intact for the record; dated "2026-10-06" notes mark every affected claim. Do not cite a number or conclusion from this document without checking for an attached note.**
+>
+> - **(a) Aliasing confound on ALL grid/sweep measurements (review bug O2).** Every grid/sweep trajectory was extracted at `n_times=60`, but the grid scenes contain 40 motion cycles per 240-frame clip — sampling at 60 points aliases past Nyquist (~20 cycles). Every grid/sweep ARI / AUROC / BIC number in this document carries this confound. Fix in place: preset `grid_seg.yaml` (`seg_extract.n_times: 240`); the GPU re-run is pending.
+> - **(b) The T20 BIC conclusion ("107 parts not resolvable") is INVALIDATED.** The BIC formula was malformed (missing the Gaussian 1/σ² likelihood factor → penalty dominates → BIC monotonic in K by construction) and the EM sigma-annealing start collapsed every initialization to a degenerate 1/K mixture (even ground-truth init → ARI −0.003). Both fixed 2026-10-06: proper Gaussian BIC, annealing removed per proposal 05, and a new `init="spectral"` seed that reaches ARI 0.9988 after EM refinement on the T20 fixture. Whether the 107 parts are resolvable is an open question again.
+> - **(c) The MBS "ARI ≈ 0" numbers are substantially a measurement artifact** — only 4 000 of ~300 k points were labeled; ≥98% of points were scored as one giant −1 segment (`drop_floaters=False`). Remedy: re-score the existing `segmentation_mbs.npz` artifacts with `--drop-floaters`.
+> - **(d) The thesis-level conclusion ("reconstruction-quality-limited", §4) is therefore CONTESTED.** It stands for the measurements as taken, but requires re-measurement (n_times=240 re-run + fixed-Kabsch re-measurement) before it can be cited as settled.
+> - **(e) Metric conventions changed:** `mean_iou` is now the mean over GT classes (unmatched GT classes count as IoU 0) and `ari_within_roi` requires an explicit `bg_label`. Pre-2026-10-05 numbers — including this document's tables — are not comparable with new runs.
+> - **(f) `render_amp.py` amplifies per PARAMETER channel, not per part.** Per-part amplification was never wired into `render_amp.py`; it exists only conceptually via the orchestrator seg pipeline (see §4 item 1).
+>
+> Full detail: `docs/decisions.md` §3 (invalidated conclusions), the review files `reviews/2026-10-05-motion-seg-review.md`, `reviews/2026-10-05-omniverse-pipeline-review.md`, `reviews/orchestrator-correctness-review.md` (round 3), and the dated addendum in `.claude_notes/NOTES_T20_kabsch_em_2026-08-11.md`.
+
+---
+
 ## 1. Problem statement
 
 Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment the Gaussians into rigid motion groups that correspond to the physical parts of the machine. This is a prerequisite for **per-part motion amplification** (the thesis's core contribution): we can only amplify motion part-by-part if we know which Gaussians belong to which part.
@@ -23,7 +38,7 @@ Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment
 
 **Method:** Build a k-NN graph (k=12) in canonical space. For each edge, compute the rigidity score = std-dev of the pairwise 3D distance over time. True rigid pairs have score ≈ 0;跨-part pairs have higher variance. Threshold edges via log-space Otsu, then extract connected components.
 
-**Why it was chosen:** Pure numpy/scipy, no GPU for clustering, no ML model to train. The synthetic self-test (7-body scene) gives ARI 0.9988.
+**Why it was chosen:** Pure numpy/scipy, no GPU for clustering, no ML model to train. The synthetic self-test (7-body scene) gives ARI 0.9988. **2026-10-06:** that old fixture never exercised the rigidity edge-cutting it claimed to validate — its parts were spatially disjoint, so the kNN graph was already disconnected and every edge was kept. The reworked 2026-10-05 selftest places parts *adjacent* (the kNN graph bridges part boundaries) with reconstruction-scale jitter, so edges must actually be cut: pass bar ARI ≥ 0.99, the fixture scores 1.0, and cutting nothing yields ≈ 0.84.
 
 **Results on real pump01 (7 trained models: 3 grid + 4 sweep):**
 
@@ -71,7 +86,7 @@ Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment
 | sweep-g50000 | −0.0021 | 2 |
 | sweep-g100000 | −0.0075 | 2 |
 
-**Interpretation:** MotNet is out-of-distribution for mm-scale 4DGS trajectories. Even with exact flow (no FlowNet noise), the learned affinity does not separate same-part from different-part pairs. The checkpoint was not fine-tuned (Option C — full retrain — was deferred as too high effort). MultiBodySync's relevance to this project is therefore **as a reference baseline that confirms learning-based affinity does not automatically solve the problem when the training domain mismatches**.
+**Interpretation:** MotNet is out-of-distribution for mm-scale 4DGS trajectories. Even with exact flow (no FlowNet noise), the learned affinity does not separate same-part from different-part pairs. The checkpoint was not fine-tuned (Option C — full retrain — was deferred as too high effort). MultiBodySync's relevance to this project is therefore **as a reference baseline that confirms learning-based affinity does not automatically solve the problem when the training domain mismatches**. **2026-10-06 caveat (review M4):** the ARI ≈ 0 numbers above substantially measure an *evaluation artifact* — the preset labeled only 4 000 of the ~300 k points, and ≥98% of points got label −1, scored as one giant segment (`drop_floaters=False`). The out-of-distribution conclusion may well hold (the MBS adapter is verified line-by-line faithful to upstream), but this table does not isolate it. Remedy: re-score the existing `segmentation_mbs.npz` artifacts with `--drop-floaters`.
 
 ---
 
@@ -101,7 +116,7 @@ Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment
 **Interpretation:**
 - **AUROC < 0.8 on every model.** Best is 0.671 (grid-A40mm_M8). The per-edge signal is fundamentally insufficient.
 - **Denoising provides only marginal benefit.** ΔAUROC (denoised − raw) is 0.001–0.013.
-- **Drive-frequency auto-detection is unreliable** (reports 1 cycle/clip when true motion is ~10 cycles/clip over 60 frames), but even raw AUROC is poor — fixing f0 won't save per-edge methods.
+- **Drive-frequency auto-detection is unreliable** (reports 1 cycle/clip when true motion is ~10 cycles/clip over 60 frames), but even raw AUROC is poor — fixing f0 won't save per-edge methods. **2026-10-06 (review O2):** all T18 trajectories were extracted at `n_times=60` while the grid scenes contain 40 motion cycles per 240-frame clip — so both the auto-detected f0 values AND the FFT denoising operated on aliased waveforms. Every AUROC number in this table carries this confound; the fixed `grid_seg` preset (`n_times: 240`) + GPU re-run is pending.
 
 ---
 
@@ -127,7 +142,7 @@ Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment
 
 ### 2.5 T20 — Kabsch EM (proposal 05)
 
-**Method:** Iterative rigid-body fitting. E-step: soft assignment by trajectory residual to candidate rigid bodies. M-step: weighted per-frame Kabsch (SVD) to fit per-body rigid transforms. FFT-fingerprint init, BIC model selection, adaptive sigma annealing.
+**Method:** Iterative rigid-body fitting. E-step: soft assignment by trajectory residual to candidate rigid bodies. M-step: weighted per-frame Kabsch (SVD) to fit per-body rigid transforms. FFT-fingerprint init, BIC model selection, adaptive sigma annealing. **(2026-10-06: the BIC formula and the sigma annealing described here were both implementation bugs — fixed and removed respectively; see the footnote and interpretation below.)**
 
 **Hypothesis:** Kabsch pools evidence across T=60 frames, so std(residual) should shrink by √(2/(3T)) ≈ 0.1 relative to single-pair edge scores. This should be more robust than per-edge methods.
 
@@ -145,7 +160,9 @@ Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment
 
 \* BIC(20) = 61494 vs BIC(107) = 307471 — the statistical evidence only supports ~20 motion groups, not 107.
 
-**Interpretation:** Kabsch EM is mathematically correct (sandbox ARI 0.999+) but the data does not support 107 rigid bodies at current noise levels. **The noise floor is too high for any rigid-body-fitting approach.**
+\* **2026-10-06 — INVALIDATED.** These BIC numbers were computed with a malformed BIC that omitted the Gaussian 1/σ² likelihood factor — the O(8k–42k) penalty term dominated the O(10–80) residual term, so BIC was monotonically increasing in K *by construction* and model selection always collapsed to the smallest K. The fixed code uses the proper Gaussian BIC `3TN·log(σ̂²) + (6TK+K)·log(3TN)`, which has a genuine interior minimum (sandbox: at/near the true K). See the interpretation note below and the dated addendum in `.claude_notes/NOTES_T20_kabsch_em_2026-08-11.md`.
+
+**Interpretation:** Kabsch EM is mathematically correct (sandbox ARI 0.999+) but the data does not support 107 rigid bodies at current noise levels. **The noise floor is too high for any rigid-body-fitting approach.** **2026-10-06 — INVALIDATED:** two implementation bugs, not the data, produced this result. (1) The malformed BIC (footnote above) made "BIC prefers K≈20" a foregone conclusion. (2) The EM's sigma-annealing start (`max(σ, 1.0)`) flattened all responsibilities to 1/K — a degenerate fixed point that collapsed *any* initialization (even ground-truth init → ARI −0.003); these grid runs never really left the uniform-assignment regime. Also, the "sandbox ARI 0.999+" claim never reproduced — the tests asserting it were committed red. Fixed 2026-10-06: proper Gaussian BIC, annealing removed entirely per proposal 05 (EM now runs at the calibrated σ from iteration 1), and a new `init="spectral"` seed (ARI 0.9988 after EM refinement on the T20 fixture). Whether 107 parts are resolvable is an open question again; grid re-run with `init: spectral` + `n_times: 240` is pending. Full detail: dated addendum in `.claude_notes/NOTES_T20_kabsch_em_2026-08-11.md`.
 
 ---
 
@@ -176,29 +193,37 @@ Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment
 ```
 1. Baseline rigidity graph (Option B)            → ARI ≈ 0  (near-random)
 2. MultiBodySync MotNet (Option A)               → ARI ≈ 0  (OOD, no fine-tuning)
+   └─ 2026-10-06: substantially a measurement artifact — only 4 000 points
+      labeled, ≥98% scored as one −1 segment (see §2.2, review M4)
 3. T18 rigid2 (denoised + calibrated z)          → ARI ≈ 0, AUROC 0.45–0.67
    └─ Separability diagnostic: edge signal insufficient on ALL models
 4. T19 motion-gate ROI                           → keeps 100% of points
    └─ Jitter ≈ motion; no static background to remove
 5. T20 Kabsch EM                                 → ARI ≈ 0, BIC prefers K≈20 not 107
    └─ Noise too high for rigid-body fitting
+   └─ 2026-10-06: INVALIDATED — malformed BIC + EM sigma-annealing collapse
+      measured the bugs, not the data (see §2.5, NOTES_T20 addendum)
 6. T22 oracle ceiling (perfect ROI)              → ARI-within-ROI ≈ 0
    └─ Even perfect geometric gating fails
 
 → CONCLUSION: reconstruction jitter ≈ true mm-scale motion amplitude
 → All per-point-trajectory clustering methods are capped
+→ 2026-10-06: CONTESTED — items 2 and 5 measure artifacts/bugs as much as
+→ data, and every row rode on aliased n_times=60 trajectories (O2).
+→ The chain's logic stands; its conclusion awaits re-measurement
+→ (see the addendum at the top of this document).
 ```
 
 ---
 
 ## 4. What this means for the thesis
 
-**Negative result (but a rigorous one):** Motion-only segmentation of 4DGS at ~10⁵ Gaussians is **reconstruction-quality-limited** on mm-scale industrial scenes. The synthetic-data framework (Omniverse/Isaac Sim capture → 4DGS train → GT labels) was essential to reach this verdict quantitatively — on real captures without GT, we would never know whether the segmentation failure was a method problem or a data problem.
+**Negative result (but a rigorous one):** Motion-only segmentation of 4DGS at ~10⁵ Gaussians is **reconstruction-quality-limited** on mm-scale industrial scenes. The synthetic-data framework (Omniverse/Isaac Sim capture → 4DGS train → GT labels) was essential to reach this verdict quantitatively — on real captures without GT, we would never know whether the segmentation failure was a method problem or a data problem. **2026-10-06: CONTESTED — see the addendum at the top of this document.** The evidence chain behind this verdict rests on aliased trajectories (review O2: `n_times=60` on 40-cycle-per-240-frame scenes) and a broken BIC/EM (§2.5). The negative-result framing may survive re-measurement, but it cannot currently be cited as settled; treat "reconstruction-quality-limited" as the current best hypothesis, pending the `n_times=240` re-run and the fixed-Kabsch re-measurement.
 
 **Positive contributions that stand:**
-1. **Per-part motion amplification pipeline** — works. `render_amp.py` amplifies per-segment deformation channels, producing visually compelling amplified videos.
+1. **Per-part motion amplification pipeline** — works. `render_amp.py` amplifies per-segment deformation channels, producing visually compelling amplified videos. **2026-10-06 correction (factual):** `render_amp.py` amplifies per PARAMETER channel, not per motion segment — `--amp_factors` indexes the 8 parameter slots (means3D, means2D, scales, rotations, opacity, SHs, ...), and the "segmented" method variants are memory chunking, not segmentation masks. Per-part amplification flows through the orchestrator seg pipeline and was never wired into `render_amp.py`; the sentence above overstates what the script does. Also fixed 2026-10-05: the `eulerian` methods now do true mean-anchored displacement amplification (`out[t] = mean + a·filter(v[t] − mean)`); previously they amplified velocity, with a frequency-dependent gain far below `a` — every amp video rendered before that date embodies the old semantics and is not directly comparable to new output.
 2. **Synthetic-data generation framework** — enables quantitative evaluation (ARI, IoU, separability AUROC) that is impossible on real captures.
-3. **The negative result itself** — a principled demonstration of where 4DGS reconstruction quality caps downstream analysis, with a full diagnostic chain (separability AUROC → BIC → oracle ceiling).
+3. **The negative result itself** — a principled demonstration of where 4DGS reconstruction quality caps downstream analysis, with a full diagnostic chain (separability AUROC → BIC → oracle ceiling). **(2026-10-06: the BIC link in this chain was broken at measurement time — see §2.5; the chain's diagnostic logic is sound, but its 2026-08 values are provisional per the CONTESTED note above.)**
 
 **What was NOT tried (and why):**
 - **T21 subspace spectral (proposal 04)** — PCA + local subspace fits. Skipped because T22 oracle proved the bottleneck is not the clustering algorithm but the trajectory signal itself.
@@ -219,7 +244,7 @@ Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment
 **Why it failed here:**
 1. **Training domain mismatch.** MotNet was trained on synthetic scenes with unit-scale objects and FlowNet-noisy flow. Pump01 is ~meter-scale with ~mm motion and exact flow. The learned features do not transfer.
 2. **Scale mismatch.** MBS is designed for N ≈ 256–1024. We FPS-subsampled to 4k, but the full cloud is ~10⁵. The subsample loses fine structure.
-3. **No fine-tuning.** The original checkpoint was used as-is. Fine-tuning on synthetic 4DGS trajectories might help, but the T18 separability diagnostic (AUROC < 0.8 on all models) suggests the edge signal is fundamentally insufficient — no affinity function can separate what is not separable.
+3. **No fine-tuning.** The original checkpoint was used as-is. Fine-tuning on synthetic 4DGS trajectories might help, but the T18 separability diagnostic (AUROC < 0.8 on all models) suggests the edge signal is fundamentally insufficient — no affinity function can separate what is not separable. **2026-10-06:** the AUROC measurements behind this argument carry the O2 aliasing confound (trajectories extracted at `n_times=60` on 40-cycle-per-240-frame scenes). The go/no-go threshold logic (AUROC ≥ 0.8) is sound, but the measured values need re-measurement at `n_times=240` before they can gate anything.
 
 **Relevance going forward:** MultiBodySync remains a valid reference method for point-cloud motion segmentation, but its **direct application to 4DGS without domain adaptation is not viable**. If future work retrains MotNet on 4DGS-specific trajectories, the T18 separability diagnostic provides a clear go/no-go signal (AUROC ≥ 0.8 needed).
 
@@ -245,6 +270,8 @@ Given a 4DGS reconstruction (canonical Gaussians + deformation network), segment
 ---
 
 ## 7. Open questions for future work
+
+0. **2026-10-06:** this list is superseded/extended by `docs/decisions.md` §4 (open questions / known gaps), which is the current authoritative list — consult it first. In particular, the grid re-run at `n_times=240` (review O2) and the Kabsch EM re-measurement with fixed BIC + `init: spectral` (§2.5) now gate every question below, and the MBS re-scoring with `--drop-floaters` (§2.2) gates the Option-A question.
 
 1. **Does reconstruction quality improve with more training iterations or different hyperparameters?** The sweep models (g10000–g100000) show slightly worse AUROC than grid models, suggesting more Gaussians do not help if the noise floor scales with density.
 2. **Can a stronger prior (e.g., known CAD mesh topology) guide segmentation?** The GT labels come from the USD mesh; using mesh adjacency as a graph prior was not tried.

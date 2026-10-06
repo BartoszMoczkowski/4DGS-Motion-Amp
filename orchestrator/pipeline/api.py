@@ -38,10 +38,10 @@ def _auto_stage_plan(resolved_config: dict[str, Any]) -> list[str]:
     the registry (T04's stated design). Raises ``ValueError`` if a multi-impl role has no such
     selector — a config gap, not something to guess at.
 
-    Right now this returns ``[]`` for every preset: no real role besides ``test`` (deliberately
-    excluded) is registered until T07 wraps the first real stages. That's fine — an empty DAG is
-    a valid, trivially-successful run (see ``pipeline.dag.scheduler.run_dag``); the plan becomes
-    meaningful the moment T07/T09/T10/T11 register real stage classes, with no change needed here.
+    A selector impl of ``"none"`` (``RoiConfig``'s default — "the DAG contains no ``roi`` stage",
+    ``pipeline/config/models.py``) means the role is *disabled*, not a stage to run: no stage is
+    emitted for that role at all (``"none"`` is never a registered impl, so emitting
+    ``f"{role}.none"`` would fail stage resolution for every preset that just left the default).
     """
     from .stages import list_roles
 
@@ -54,6 +54,8 @@ def _auto_stage_plan(resolved_config: dict[str, Any]) -> list[str]:
             continue
         selector = resolved_config.get(role)
         impl = selector.get("impl") if isinstance(selector, dict) else None
+        if impl == "none":
+            continue  # role explicitly disabled — no stage emitted (see docstring)
         if not impl:
             raise ValueError(
                 f"role {role!r} has multiple registered impls {impls} and resolved_config[{role!r}] "
@@ -159,8 +161,28 @@ def run_pipeline(
     Artifact(...)}``, keyed by artifact name) and seeds them into the fresh run's manifest before
     ``run_dag`` executes — the exact same seed-then-run_dag sequence ``_seed_run`` already proved
     out, just promoted from a test helper into the real API.
+
+    External artifact paths are validated at seeding time
+    (:func:`pipeline.artifacts.validate_external_artifact_path`): each must be absolute, must
+    exist (a directory for ``dataset``/``model`` kinds, a file otherwise), and must resolve under
+    one of the pipeline's known roots (repo/assets/runs — see
+    ``pipeline.artifacts.paths.allowed_artifact_roots``). An unconstrained path would otherwise
+    let an MCP client turn this parameter into an arbitrary-host-file read via the artifact
+    resources.
+
+    ``run_id`` collision: passing a ``run_id`` that already exists on disk is an error
+    (``FileExistsError``), not a silent reset — ``create_run`` would otherwise overwrite the old
+    run's ``manifest.json``/``config_snapshot.json`` with an all-pending manifest, destroying its
+    recorded history before ``run_dag``'s resume logic ever sees it. To deliberately re-run, mint
+    a fresh id (or delete the old run directory first).
     """
-    from .artifacts import create_run, update_manifest
+    from .artifacts import (
+        create_run,
+        manifest_path,
+        update_manifest,
+        validate_external_artifact_path,
+        validate_run_id,
+    )
     from .config import validate_config
     from .dag import run_dag
 
@@ -169,6 +191,23 @@ def run_pipeline(
     stage_names = _auto_stage_plan(resolved)
     stage_configs = {name: _stage_config_for(name, resolved) for name in stage_names}
     run_id = run_id or new_run_id(preset)
+
+    validate_run_id(run_id)  # fail fast with a clear error before any directory is created
+    if manifest_path(run_id).exists():
+        raise FileExistsError(
+            f"run_id {run_id!r} already exists ({manifest_path(run_id)}); run_pipeline always "
+            "starts a NEW run — pass a fresh run_id (or none) rather than clobbering an existing "
+            "run's manifest"
+        )
+    if external_artifacts:
+        from .artifacts import Artifact
+
+        normalized: dict[str, Any] = {}
+        for name, art in external_artifacts.items():
+            art = art if isinstance(art, Artifact) else Artifact.model_validate(art)
+            validate_external_artifact_path(art.path, art.kind)
+            normalized[name] = art
+        external_artifacts = normalized
 
     create_run(run_id, preset, resolved, stage_names=stage_names)
     if external_artifacts:

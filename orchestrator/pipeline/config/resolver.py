@@ -7,11 +7,18 @@ handed to :class:`pipeline.config.models.PipelineConfig` for validation.
 
 Only pure dict/YAML logic lives here — no filesystem side effects beyond reading preset files, no
 CUDA/torch/docker imports, so this module stays importable on the CPU-only host/sandbox.
+
+Preset *names* are validated here too (:func:`validate_preset_name`, called by ``_preset_path`` —
+the single choke point every preset read goes through): the name becomes a filename under
+``presets/`` and also ends up embedded in run ids (``pipeline.api.new_run_id``), so it gets the
+same strict charset as ``pipeline.artifacts.paths.validate_run_id`` — no separators, no ``..``,
+no loading ``../../foo.yaml``.
 """
 
 from __future__ import annotations
 
 import copy
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +27,23 @@ import yaml
 from .models import PipelineConfig
 
 PRESETS_DIR = Path(__file__).parent / "presets"
+
+#: Same charset as run ids (``pipeline.artifacts.paths.validate_run_id``): letters, digits,
+#: ``_``, ``-``, ``.`` — no path separators. ``..`` is rejected separately below.
+_PRESET_NAME_CHARSET = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+def validate_preset_name(name: str) -> str:
+    """Return ``name`` unchanged if it's a safe preset name; raise ``ValueError`` otherwise."""
+    if (
+        not isinstance(name, str)
+        or not _PRESET_NAME_CHARSET.fullmatch(name)
+        or ".." in name
+    ):
+        raise ValueError(
+            f"invalid preset name {name!r}: must match [A-Za-z0-9_.-]+ and contain no '..'"
+        )
+    return name
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -34,7 +58,12 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _preset_path(name: str) -> Path:
+    validate_preset_name(name)
     path = PRESETS_DIR / f"{name}.yaml"
+    # Belt-and-suspenders behind validate_preset_name's charset check: prove the resolved path
+    # stays under presets/ even if the charset rule is ever loosened.
+    if not path.resolve().is_relative_to(PRESETS_DIR.resolve()):
+        raise ValueError(f"preset name {name!r} resolves outside {PRESETS_DIR}")
     if not path.exists():
         raise FileNotFoundError(
             f"unknown preset {name!r} (looked for {path}); "

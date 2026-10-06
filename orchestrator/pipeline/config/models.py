@@ -254,7 +254,7 @@ class SegmentKabschConfig(StrictModel):
 
     n_clusters: int = 0                     # 0 => BIC search over k_range
     k_range: list[int] = Field(default_factory=lambda: [2, 200])
-    init: Literal["fft", "kmeans"] = "fft"  # "spectral" can be added later
+    init: Literal["fft", "kmeans", "spectral"] = "fft"  # "spectral" = rigidity-affinity spectral seed (proposal 05 §4)
     max_iter: int = 30
     # Per-coordinate noise std; None => auto from trajectory energy median.
     sigma: Optional[float] = None
@@ -378,6 +378,12 @@ class SegEvalConfig(StrictModel):
     # None => script computes "<pred-without-ext>_vs_gt.png"; "" explicitly skips.
     comparison_png: Optional[str] = None
     top_n: int = 15
+    # ``--bg-label LABEL|auto`` (2026-10-05 convention): None (default) = no GT-class
+    # exclusion and no ari_within_roi score; an int excludes that GT label; "auto" opts
+    # back into the legacy heuristic (exclude GT label 0 when it coexists with positive
+    # labels — only valid if label 0 was verified to be background; USD traversal order
+    # assigns labels arbitrarily).
+    bg_label: Optional[int | Literal["auto"]] = None
 
 
 # --- amplification ----------------------------------------------------------------------------

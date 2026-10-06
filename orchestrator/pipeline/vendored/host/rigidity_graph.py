@@ -1,7 +1,19 @@
-"""Vendored, verbatim copy of ``motion_seg/rigidity_graph.py`` (2026-07-14 copy-in rework of T07;
-see ``pipeline.vendored``'s module docstring). Only the module path changed — every function body
-below is byte-for-byte the reference script's, per the "copy, don't reimplement or redesign the
-logic while porting it" rule.
+"""Vendored copy of ``motion_seg/rigidity_graph.py`` (2026-07-14 copy-in rework of T07;
+see ``pipeline.vendored``'s module docstring). Only the module path changed; function bodies
+track the reference per the "copy, don't reimplement or redesign the logic while porting it" rule.
+
+Known divergence (as of the 2026-10-05/06 correction operation, documented 2026-10-21): the
+reference gained fixes that have NOT been ported here yet —
+  * ``segment_by_rigidity``: NaN/Inf trajectory guard (count, warn, cut edges up-front,
+    median-position fold-in, raise when all-non-finite) and an empty-input guard, plus new
+    ``n_nonfinite_points`` / ``n_small_merged`` / ``merge_skipped_no_big_component`` info keys;
+  * ``merge_small_components``: now returns ``(labels, merge_info)`` and warns when no big
+    component exists (vendored consumers ``kabsch_em.py`` and ``rigidity_graph2.py`` still use
+    the old single-return API, which is why this sync is deferred);
+  * ``edge_rigidity_score``: ``np.errstate(invalid="ignore")`` around the division;
+  * ``otsu_threshold_log``: degenerate-input guard for ``v.max() == v.min()`` (missing in the
+    vendored copy since before the correction operation).
+The Otsu plateau fix below (:72-76) IS synced. Sync the rest together with the consumer updates.
 
 Core, GPU-free motion-segmentation logic ("Option B" in
 .claude_notes/NOTES_4dgs_motion_segmentation.md): build a local k-NN graph in canonical
@@ -69,7 +81,11 @@ def otsu_threshold(values: np.ndarray, n_bins: int = 256) -> float:
         mu1 = (mu_t - mu) / w1
         between = w0 * w1 * (mu0 - mu1) ** 2
     between[~np.isfinite(between)] = -1
-    return float(centers[np.argmax(between)])
+    # Plateau tie-breaking: argmax returns the FIRST bin of a max plateau, which
+    # hugs the noise cluster on cleanly bimodal distributions and lets far points
+    # leak in.  Use the plateau midpoint instead.
+    idx = np.flatnonzero(between == between.max())
+    return float(0.5 * (centers[idx[0]] + centers[idx[-1]]))
 
 
 def otsu_threshold_log(values: np.ndarray, n_bins: int = 256) -> float:

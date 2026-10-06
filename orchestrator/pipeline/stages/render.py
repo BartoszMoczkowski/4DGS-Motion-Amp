@@ -7,9 +7,11 @@ general CLI-invocation-in-a-container design this follows.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..artifacts import Artifact
 from .base import ResourceRequest, Stage, StageContext
-from .cuda_common import bool_flag, flag, run_cuda_script, write_stage_bridge
+from .cuda_common import CudaStageError, bool_flag, flag, run_cuda_script, write_stage_bridge
 from .registry import register
 
 
@@ -57,6 +59,33 @@ class RenderStage(Stage):
         ]
 
         run_cuda_script(ctx, "render", args, log_name="render")
+
+        # Same exit-0-isn't-success principle as train.default/capture.isaac (see
+        # pipeline/stages/train.py's comment): render.py writes <model_path>/<split>/ours_<it>/
+        # per non-skipped split — if none of the expected split dirs appeared, the run rendered
+        # nothing and must not be recorded/cached as a success. The scheduler's own
+        # declared-outputs check can't catch this: `renders` re-registers the (pre-existing,
+        # non-empty) model directory, so plain existence says nothing.
+        expected_splits = [
+            split
+            for split, skipped in (
+                ("train", cfg.get("skip_train", False)),
+                ("test", cfg.get("skip_test", False)),
+                ("video", cfg.get("skip_video", False)),
+            )
+            if not skipped
+        ]
+        missing = [
+            split
+            for split in expected_splits
+            if not (Path(model_host) / split).is_dir() or not any((Path(model_host) / split).iterdir())
+        ]
+        if missing:
+            raise CudaStageError(
+                f"render.default exited 0 but wrote no render output for split(s) {missing} "
+                f"under {model_host} (expected <model_path>/<split>/ours_<iteration>/) — see "
+                f"logs/render.log"
+            )
 
         return {
             "renders": Artifact(
