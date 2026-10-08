@@ -19,7 +19,6 @@ from argparse import ArgumentParser, Namespace
 import csv
 import datetime
 import os
-import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -27,8 +26,6 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "core"))
-sys.path.insert(0, str(REPO_ROOT / "scene-gen"))
 
 from identity.mask_provider import OracleMaskProvider, create_sam_mask_provider
 from identity.train import train_identity_encodings

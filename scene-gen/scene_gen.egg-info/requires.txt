@@ -1,0 +1,10 @@
+pipeline
+omniverse-pipeline
+4dgs-core
+motion-seg
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.8
+opencv-python>=4.9.0
+plyfile>=1.1.4
+scikit-learn>=1.5

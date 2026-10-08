@@ -1,0 +1,58 @@
+[project]
+name = "scene-gen"
+version = "0.1.0"
+description = "Parametric test-scene generation (Omniverse USD) + grid/sweep experiment drivers for 4DGS motion segmentation"
+requires-python = "==3.12.12"
+# NOTE: `pxr` (OpenUSD) is NOT pip-installable — the USD-authoring scripts
+# (gen_scenes.py, gen_cubes_dataset_all.py, gen_spinning_cubes.py, ...) must run
+# under Isaac Sim's own python (see AGENTS.md §4.4 / §5.5). `segment_anything`
+# (identity/mask_provider.py) is likewise a lazy optional import.
+dependencies = [
+    "pipeline",
+    "omniverse-pipeline",
+    "4dgs-core",
+    "motion-seg",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.8",
+    "opencv-python>=4.9.0",
+    "plyfile>=1.1.4",
+    "scikit-learn>=1.5",
+]
+
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# Flat script-style layout (same rationale as 4dgs-core): the loose scripts
+# import each other as top-level modules; installing them as py-modules makes
+# them importable from anywhere without sys.path hacks. `identity/` stays a
+# real package so its modules never collide with core's top-level `train`.
+[tool.setuptools]
+py-modules = [
+    "analyze_complexity_ladder",
+    "build_gt_motion_classes",
+    "check_capture_progress",
+    "export_cube_gt_pointcloud",
+    "frames_to_mp4",
+    "gen_cubes_dataset_all",
+    "gen_scenes",
+    "gen_spinning_cubes",
+    "partition_swap",
+    "re_render_grid_runs",
+    "render_seg_visualizations",
+    "rescore_motion_classes",
+    "run_cubes_4dgs",
+    "run_cubes_capture",
+    "run_cubes_seg",
+    "run_grid_4dgs",
+    "run_grid_identity",
+    "run_grid_multicut_calibrated",
+    "run_grid_seg",
+    "run_partition_swap_exp",
+    "run_pump01_boundary_refine",
+    "run_pump01_spatial_cc",
+    "show_cubes_seg",
+    "view_gaussians_open3d",
+]
+packages = ["identity"]

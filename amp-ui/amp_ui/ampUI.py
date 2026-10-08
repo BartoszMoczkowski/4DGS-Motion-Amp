@@ -10,8 +10,6 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CORE_DIR = os.path.join(REPO_ROOT, "core")
 OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
 ARGUMENTS_DIR = os.path.join(CORE_DIR, "arguments")
-if CORE_DIR not in sys.path:
-    sys.path.insert(0, CORE_DIR)
 
 from render_amp import load_config, AmpConfig, generate_frame_data, render_data
 from render_amp import amplify_frame_data_eulerian,amplify_frame_data_eulerian_mod,amplify_frame_data_eulerian_abs,amplify_frame_data_eulerian_abs_mod

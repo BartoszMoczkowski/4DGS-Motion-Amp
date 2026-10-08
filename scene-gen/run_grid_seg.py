@@ -61,11 +61,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "orchestrator"))
 
 from pipeline.api import _stage_config_for  # noqa: E402
 from pipeline.artifacts import Artifact, load_manifest, update_manifest  # noqa: E402

@@ -51,6 +51,11 @@ COPY motion-seg/pyproject.toml ./motion-seg/pyproject.toml
 COPY omniverse-pipeline/pyproject.toml ./omniverse-pipeline/pyproject.toml
 COPY amp-ui/pyproject.toml ./amp-ui/pyproject.toml
 COPY orchestrator/pyproject.toml ./orchestrator/pyproject.toml
+COPY scene-gen/pyproject.toml ./scene-gen/pyproject.toml
+COPY camera_sync/sync_display/pyproject.toml ./camera_sync/sync_display/pyproject.toml
+COPY camera_sync/recorder/pyproject.toml ./camera_sync/recorder/pyproject.toml
+COPY camera_sync/sync_analyzer/pyproject.toml ./camera_sync/sync_analyzer/pyproject.toml
+COPY camera_sync/rtsp_capture/pyproject.toml ./camera_sync/rtsp_capture/pyproject.toml
 RUN ls -la /*
 
 # `docker build` never has GPU passthrough (only `docker run --gpus` does), so torch can't

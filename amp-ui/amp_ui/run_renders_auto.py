@@ -10,8 +10,6 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 CORE_DIR = os.path.join(REPO_ROOT, "core")
 OUTPUT_DIR = os.path.join(REPO_ROOT, "output")
 ARGUMENTS_DIR = os.path.join(CORE_DIR, "arguments")
-if CORE_DIR not in sys.path:
-    sys.path.insert(0, CORE_DIR)
 
 import torch
 

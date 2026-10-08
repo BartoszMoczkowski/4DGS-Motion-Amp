@@ -40,6 +40,8 @@ Light Gaussian implementation: [This link](https://github.com/pablodawson/4DGaus
 
 Please follow the [3D-GS](https://github.com/graphdeco-inria/gaussian-splatting) to install the relative packages.
 
+This repository no longer uses the upstream conda/pip flow below — install with `uv sync` (see `AGENTS.md` §4). The upstream instructions are kept for reference:
+
 ```bash
 git clone https://github.com/hustvl/4DGaussians
 cd 4DGaussians
@@ -47,7 +49,7 @@ git submodule update --init --recursive
 conda create -n Gaussians4D python=3.7 
 conda activate Gaussians4D
 
-pip install -r requirements.txt
+pip install -r requirements.txt  # upstream-only; deleted in this fork
 pip install -e submodules/depth-diff-gaussian-rasterization
 pip install -e submodules/simple-knn
 ```

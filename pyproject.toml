@@ -1,22 +1,67 @@
 [project]
 name = "4dgs-motion-amp"
 version = "0.1.0"
-description = "Workspace root for the 4DGS motion-amplification project — no runtime deps; sync individual members (see [tool.uv.workspace])"
+description = "Per-part motion amplification of 4D Gaussian Splatting reconstructions (workspace root)"
 readme = "README.md"
 requires-python = "==3.12.12"
-dependencies = []
+# Thin aggregator: depending on every workspace member makes a plain `uv sync`
+# at the root install the whole project. `uv sync --package X` remains the
+# exception for special environments (Docker builds).
+dependencies = [
+    "4dgs-core",
+    "motion-seg",
+    "omniverse-pipeline",
+    "amp-ui",
+    "pipeline",
+    "scene-gen",
+    "mbs-bootstrap",
+    "camera-sync-display",
+    "camera-sync-recorder",
+    "camera-sync-analyzer",
+    "camera-sync-rtcp",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Minimal root package body (T25 puts the `amp` CLI entry point here).
+[tool.hatch.build.targets.wheel]
+packages = ["src/amp"]
+
+[dependency-groups]
+# Dev/test tooling (PEP 735). Runtime members stay lean; `uv run --group test`
+# (or the default `dev` group, which includes it) is the test-setup path.
+test = ["pytest>=8"]
+dev = [{ include-group = "test" }]
 
 [[tool.uv.index]]
 name = "pytorch-cu126"
 url = "https://download.pytorch.org/whl/cu126"
 explicit = true  # Prevents uv from using this index for non-PyTorch packages
 
-# 2. Bind the PyTorch packages directly to that index
+# torch/torchvision/torchaudio are unconditionally sourced from the cu126
+# index: GPU is the canonical default for every sync path (plain root sync and
+# `uv sync --package 4dgs-core` alike). NOTE (T24): a CPU-only variant cannot
+# be expressed as an opt-in extra/group fork alongside an unconditional
+# default source — uv 0.9.13 treats the unqualified source as conflicting in
+# the extra/group fork (verified for both extras and groups). For a CPU-only
+# environment, sync normally then swap torch in place:
+#   uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu126" }]
-torchvision = [{ index = "pytorch-cu126" }]
+torchvision = [
+    # Pin 0.28.0+cu126 by direct URL on win32/linux (keeps the version uniform
+    # across platforms — and torchvision 0.28.0 requires torch==2.13.0, which
+    # is the validated stack — plus works around the cu126 index publishing the
+    # cp312 win_amd64 wheel WITHOUT a #sha256 fragment, which trips uv's hash
+    # verification). Other platforms fall back to the index.
+    { url = "https://download-r2.pytorch.org/whl/cu126/torchvision-0.28.0%2Bcu126-cp312-cp312-win_amd64.whl", marker = "sys_platform == 'win32'" },
+    { url = "https://download-r2.pytorch.org/whl/cu126/torchvision-0.28.0%2Bcu126-cp312-cp312-manylinux_2_28_x86_64.whl", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" },
+    { url = "https://download-r2.pytorch.org/whl/cu126/torchvision-0.28.0%2Bcu126-cp312-cp312-manylinux_2_28_aarch64.whl", marker = "sys_platform == 'linux' and platform_machine == 'aarch64'" },
+    { index = "pytorch-cu126", marker = "sys_platform != 'win32' and sys_platform != 'linux'" },
+]
 torchaudio = [{ index = "pytorch-cu126" }]
-depth-diff-gaussian-rasterization = { workspace = true, editable = true }
 diff-gaussian-rasterization = { workspace = true, editable = true }
 simple-knn = { workspace = true, editable = true }
 pipeline = { workspace = true, editable = true }
@@ -24,11 +69,19 @@ pipeline = { workspace = true, editable = true }
 motion-seg = { workspace = true, editable = true }
 omniverse-pipeline = { workspace = true, editable = true }
 amp-ui = { workspace = true, editable = true }
+scene-gen = { workspace = true, editable = true }
+mbs-bootstrap = { workspace = true, editable = true }
 "camera-sync-display" = { workspace = true, editable = true }
 "camera-sync-recorder" = { workspace = true, editable = true }
 "camera-sync-analyzer" = { workspace = true, editable = true }
 "camera-sync-rtcp" = { workspace = true, editable = true }
+# Known risk (T24): no cu126 / torch>=2.5 mmcv wheel exists on
+# download.openmmlab.com (checked 2026-10-06); this cu121/torch2.4 wheel is the
+# newest cp312 manylinux build available. mmcv is Linux-only (CUDA container).
 mmcv = { url = "https://download.openmmlab.com/mmcv/dist/cu121/torch2.4.0/mmcv-2.2.0-cp312-cp312-manylinux1_x86_64.whl" }
+
+[tool.uv]
+no-build-isolation-package = ["diff-gaussian-rasterization", "simple-knn"]
 
 [tool.uv.workspace]
 members = [
@@ -38,12 +91,11 @@ members = [
     "amp-ui",
     "submodules/depth-diff-gaussian-rasterization",
     "submodules/simple-knn",
+    "submodules/multibody-sync-4dgs",
     "orchestrator",
     "camera_sync/sync_display",
     "camera_sync/recorder",
     "camera_sync/sync_analyzer",
     "camera_sync/rtsp_capture",
+    "scene-gen",
 ]
-
-[tool.uv]
-no-build-isolation-package = ["diff-gaussian-rasterization", "simple-knn"]

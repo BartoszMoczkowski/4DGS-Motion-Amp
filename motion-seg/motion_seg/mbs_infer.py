@@ -85,24 +85,12 @@ import sys
 
 import numpy as np
 
-# Make sure the `motion_seg` package is importable regardless of how this file is invoked.
-# `python -m motion_seg.mbs_infer` already puts it on sys.path, but running the file directly
-# (`python motion-seg/motion_seg/mbs_infer.py`, or some `uv run` invocations) sets sys.path[0]
-# to this file's own directory instead — which is exactly what caused "No module named
-# 'motion_seg'" when the lazy `from motion_seg.visualize import ...` ran at the end of main().
-# The package lives one directory up (motion-seg/); the repo root (for submodules/) is two up.
-_PACKAGE_PARENT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if _PACKAGE_PARENT not in sys.path:
-    sys.path.insert(0, _PACKAGE_PARENT)
+# The MultiBodySync submodule uses bare top-level modules (models, utils, ext)
+# that can't be pip-installed (its `utils` would collide with 4dgs-core's);
+# the `mbs-bootstrap` workspace package puts the submodule dir on sys.path.
+import mbs_bootstrap
 
-_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-MBS_ROOT = os.path.join(_REPO_ROOT, "submodules", "multibody-sync-4dgs")
-
-
-def _add_mbs_to_path():
-    path = os.path.abspath(MBS_ROOT)
-    if path not in sys.path:
-        sys.path.insert(0, path)
+MBS_ROOT = mbs_bootstrap.register()
 
 
 def _load_mot_net(checkpoint_path: str):
@@ -110,7 +98,7 @@ def _load_mot_net(checkpoint_path: str):
     (state dict keys prefixed `mot_net.`, alongside `flow_net.`/`conf_net.` we don't need)."""
     import torch
 
-    from models.mot_net import MotNet  # noqa: E402 (needs _add_mbs_to_path() first)
+    from models.mot_net import MotNet  # needs mbs_bootstrap.register() (module level)
 
     mot_net = MotNet().cuda().eval()
     state = torch.load(checkpoint_path, map_location="cuda")
@@ -155,7 +143,6 @@ def run_mbs_segmentation(
 ):
     """Returns (labels (N_total,) int, working_idx (subset actually processed)) — labels for
     points outside `working_idx` are -1 (not processed)."""
-    _add_mbs_to_path()
     import torch
 
     from models.full_net import compose_dense, feature_propagation

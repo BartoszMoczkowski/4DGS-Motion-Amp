@@ -3,7 +3,7 @@ name = "camera-sync-rtcp"
 version = "0.1.0"
 description = "Stdlib-only RTSP recorder with RTCP Sender Report cross-camera sync (Dahua)"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = "==3.12.12"
 dependencies = [
     "pyyaml>=6.0",
 ]

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import csv
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +31,6 @@ from scipy.sparse import csgraph, csr_matrix
 from scipy.optimize import linear_sum_assignment
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "orchestrator"))
-sys.path.insert(0, str(REPO_ROOT / "scene-gen"))
 
 from pipeline.vendored.host.metrics import adjusted_rand_index
 

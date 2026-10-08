@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: scene-gen
+Version: 0.1.0
+Summary: Parametric test-scene generation (Omniverse USD) + grid/sweep experiment drivers for 4DGS motion segmentation
+Requires-Python: ==3.12.12
+Requires-Dist: pipeline
+Requires-Dist: omniverse-pipeline
+Requires-Dist: 4dgs-core
+Requires-Dist: motion-seg
+Requires-Dist: numpy>=1.24
+Requires-Dist: scipy>=1.10
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: opencv-python>=4.9.0
+Requires-Dist: plyfile>=1.1.4
+Requires-Dist: scikit-learn>=1.5

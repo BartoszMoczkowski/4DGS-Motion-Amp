@@ -17,7 +17,6 @@ from __future__ import annotations
 import csv
 import json
 import logging
-import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -28,8 +27,6 @@ from scipy.spatial import cKDTree
 from scipy.sparse import csgraph, csr_matrix
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "orchestrator"))
-sys.path.insert(0, str(REPO_ROOT / "scene-gen"))
 
 from pipeline.vendored.host.metrics import adjusted_rand_index
 from pipeline.vendored.host.multicut import (

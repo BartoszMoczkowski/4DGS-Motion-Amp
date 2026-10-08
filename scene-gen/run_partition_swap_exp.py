@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """run_partition_swap_exp.py — Benchmark baseline graph partitions vs rigid-body-prior partition swaps."""
 
-import sys
 from pathlib import Path
 import csv
 import numpy as np
 from scipy.spatial import cKDTree
 
 repo_root = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(repo_root / 'scene-gen'))
 
 from pipeline.vendored.host.metrics import adjusted_rand_index, best_iou_matching
 from pipeline.vendored.host.trajectory_denoise import trajectory_energy

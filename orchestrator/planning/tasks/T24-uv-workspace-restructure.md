@@ -1,6 +1,6 @@
 # T24 — uv workspace restructure & environment cleanup
 
-- Status: todo
+- Status: done (2026-10-06)
 - Phase: 8 (streamlining)
 - Depends on: —
 - Environment: sandbox-testable (fresh venv, `uv lock`, import smoke tests); the Dockerfile change is

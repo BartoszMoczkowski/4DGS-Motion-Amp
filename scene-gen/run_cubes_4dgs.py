@@ -17,11 +17,9 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "orchestrator"))
 
 from pipeline.api import _stage_config_for
 from pipeline.artifacts import Artifact, create_run, update_manifest

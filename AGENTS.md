@@ -65,24 +65,32 @@ The codebase is a fork of [4DGaussians](https://github.com/hustvl/4DGaussians), 
 
 ### 4.1 Workspace packages
 
-The root `pyproject.toml` is a thin `uv` workspace aggregator with **no runtime dependencies of its own** — install only the package(s) you need:
+**A plain `uv sync` at the repo root is the default install** — the root project depends on every workspace member, so one sync installs the whole project into `.venv` (GPU torch from the cu126 index by default):
 
 ```bash
-# Motion segmentation, CPU-only (numpy/scipy/matplotlib — no torch/CUDA)
-uv sync --package motion-seg
+# Everything (default, GPU)
+uv sync
 
-# Full 4DGS stack (torch, CUDA rasterizers; needs a CUDA-capable GPU, Python 3.12.12)
+# CPU-only torch: sync normally, then swap the torch build in place
+# (uv 0.9.13 cannot express "unconditional cu126 default + opt-in cpu fork"
+# in one lockfile — see .claude_notes T24 entry)
+uv sync
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+# Single package only (special environments, e.g. the Docker build)
 uv sync --package 4dgs-core
 
-# Everything
-uv sync --all-packages
+# Orchestrator test tooling (pytest) lives in the root `test` dependency group
+uv run --group test pytest -q   # from orchestrator/
 ```
 
 Key editable workspace members (declared in root `pyproject.toml`):
 
 - `submodules/depth-diff-gaussian-rasterization` → package `diff_gaussian_rasterization`
 - `submodules/simple-knn` → package `simple_knn`
+- `submodules/multibody-sync-4dgs` → package `mbs-bootstrap` (a shim that puts the submodule on `sys.path`; MBS's own flat top-level modules are intentionally NOT installed — its `utils` would collide with core's)
 - `orchestrator` → package `pipeline`
+- `scene-gen` → package `scene-gen` (flat py-modules + `identity/` package)
 
 These submodules are **CUDA extensions** built by `torch.utils.cpp_extension`. They compile on first `uv sync --package 4dgs-core`. The Dockerfile hard-codes `TORCH_CUDA_ARCH_LIST="8.6+PTX"` for the author's RTX 3090; adjust if you target a different GPU.
 
@@ -115,6 +123,8 @@ Q:\Omniverse\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat
 ```
 
 Override with the environment variable `PIPELINE_ISAAC_NATIVE_PYTHON`.
+
+This is the **accepted remaining multi-environment case** (T24): after the uv workspace restructure, the root `.venv` covers every other workflow, but Isaac Sim's own `python.bat` can never share the project venv (it bundles its own Python 3.11 runtime with `pxr`/`omni`). USD-authoring scripts in `omniverse-pipeline` (`split_mesh.py`, `add_motion.py`, `omni_capture.py`) and `scene-gen` (`gen_scenes.py`, `gen_cubes_dataset_all.py`, `build_gt_motion_classes.py`, `export_cube_gt_pointcloud.py`) therefore run under the Isaac Python; everything else runs in the workspace venv.
 
 First-time Windows machine setup is documented in `orchestrator/planning/WINDOWS_SETUP.md`.
 
@@ -242,10 +252,12 @@ These conventions are locked in `orchestrator/planning/INSTRUCTIONS.md` and appl
 
 ## 9. Common pitfalls / gotchas
 
-- **Plain `uv sync` now installs almost nothing.** The root `pyproject.toml` is a workspace aggregator with no runtime dependencies; the old root extras `orchestrator`/`orchestrator-mcp`/`orchestrator-ui` are gone. Use `uv sync --package <name>` (e.g. `motion-seg`, `4dgs-core`, `pipeline`) or `uv sync --all-packages`.
+- **`uv sync` at the root installs everything** (the root project depends on all workspace members). `uv sync --package <name>` is now the exception, for special environments (the Docker build). After any member pyproject change, re-run `uv lock` and check `uv lock --check` before committing.
+- **The CUDA extensions are linux-only dependencies** (`diff-gaussian-rasterization` / `simple-knn` carry `sys_platform == 'linux'` markers in `core/pyproject.toml`): there is no CUDA toolkit on the Windows host, so they only build inside the Docker image. Consequently core's renderer modules (`scene`, `gaussian_renderer`, `train`, `render_amp`, ...) are not importable in a Windows venv — they never were. `scripts/smoke_workspace_imports.py` treats them as expected skips off-linux.
+- **torchvision is pinned by direct wheel URL on win32/linux** (root `[tool.uv.sources]`) because the cu126 index publishes the cp312 win_amd64 wheel of 0.28.0+cu126 without a `#sha256` fragment, which trips uv's hash verification; the URL pins also keep torch at the validated 2.13.0+cu126 on every desktop platform.
 - **`docker build` has no GPU**, so `torch.utils.cpp_extension` cannot auto-detect compute capability. The Dockerfile sets `TORCH_CUDA_ARCH_LIST="8.6+PTX"` for an RTX 3090. Missing this causes `IndexError: list index out of range` during the build.
 - **The `cuda` Dockerfile builds the venv in `/opt/build`, not `/workspace`**, because `/workspace` is bind-mounted from the live repo at runtime and would shadow anything built there. Do not move the build back into `/workspace`.
-- **`requirements.txt` at the repo root is stale** (torch 1.13.1, mmcv 1.6.0). The authoritative dependency set is the workspace `pyproject.toml` files + `uv.lock`.
+- **The pre-uv `requirements.txt` files were deleted in T24** (root, torch 1.13.1 era; `submodules/multibody-sync-4dgs`, `open3d==0.11.2` era). The authoritative dependency set is the workspace `pyproject.toml` files + `uv.lock`. The mmcv pin remains a cu121/torch2.4 wheel URL (no cu126/torch≥2.5 cp312 wheel exists on download.openmmlab.com as of 2026-10-06 — known risk, Linux/Docker only).
 - **`motion-seg/motion_seg/checkpoint-best.pth.tar` is not used.** The MultiBodySync checkpoint lives at `submodules/multibody-sync-4dgs/ckpt/mbs_full.pth.tar` (downloaded from the Google Drive link in `orchestrator/planning/WINDOWS_SETUP.md` §7; gitignored, not vendored).
 - **Option-A segmentation (`mbs_infer.py`) now runs on real data** (checkpoint downloaded to the expected path; ran on the 7 grid/sweep pump models via `scene-gen/run_grid_seg.py --impl mbs`), but segments poorly on these scenes (ARI ≈ 0, 2–8 clusters vs 107 GT parts — MotNet is out-of-distribution for mm-scale 4DGS trajectories, see `orchestrator/planning/WINDOWS_SETUP.md` §7). 2026-10-05 caveat: the published ARI ≈ 0 numbers substantially measure an evaluation artifact — the preset labels only 4 000 points, so ≥98% of points are labeled −1 and scored as one giant segment (`drop_floaters=False`); the out-of-distribution conclusion may hold but is not isolated by those numbers. Re-score the existing `segmentation_mbs.npz` artifacts with `--drop-floaters` before citing them. Option B (`segment_rigid.py`) remains the default.
 - **The pump01 scene is the primary real-hardware benchmark:** 107 rigid parts, 10 cameras, 60 frames, mm-scale periodic motion.

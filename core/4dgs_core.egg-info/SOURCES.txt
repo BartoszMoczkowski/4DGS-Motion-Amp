@@ -34,6 +34,7 @@ arguments/hypernerf/chicken.py
 arguments/hypernerf/default.py
 arguments/multipleview/default.py
 arguments/multipleview/pump01.py
+arguments/multipleview/pump_warehouse01.py
 gaussian_renderer/__init__.py
 gaussian_renderer/network_gui.py
 lpipsPyTorch/__init__.py

@@ -2,7 +2,7 @@ Metadata-Version: 2.4
 Name: pipeline
 Version: 0.1.0
 Summary: 4DGS motion-amp orchestrator — Layer 1 DAG execution engine
-Requires-Python: >=3.10
+Requires-Python: ==3.12.12
 Requires-Dist: pydantic>=2.7
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: docker>=7.1

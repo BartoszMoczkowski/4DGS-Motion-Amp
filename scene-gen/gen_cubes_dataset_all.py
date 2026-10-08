@@ -18,12 +18,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCENES_DIR = REPO_ROOT / "omniverse-pipeline" / "data" / "scenes" / "cubes_dataset_60fps"
-sys.path.insert(0, str(REPO_ROOT / "scene-gen"))
 
 from gen_spinning_cubes import generate_spinning_cubes_scene
 

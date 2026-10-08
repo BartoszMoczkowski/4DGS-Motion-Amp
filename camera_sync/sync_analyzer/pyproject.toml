@@ -3,7 +3,7 @@ name = "camera-sync-analyzer"
 version = "0.1.0"
 description = "Post-processing analyzer for QR-based camera synchronization"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = "==3.12.12"
 dependencies = [
     "opencv-python>=4.9.0",
     "numpy>=1.26.0",
