@@ -1,0 +1,61 @@
+# Docker build context for the `cuda` image (repo-root Dockerfile).
+# The Dockerfile COPYs only: pyproject.toml, uv.lock, submodules/, core/, and the
+# pyproject.toml manifests of the other workspace members. Everything else is excluded
+# here — without this file the context is the entire repo (100+ GB: runs/, data/,
+# output/, .venv/, ...), which turned `ensure_image`'s automatic rebuild into a
+# multi-hour silent block (T26 follow-up, 2026-10-09).
+
+# VCS / environments / caches
+.git
+.gitmodules
+.venv
+**/__pycache__
+**/*.egg-info
+.pytest_cache
+.ruff_cache
+
+# Data, outputs, run registry — never needed at image-build time
+data/
+output/
+runs/
+assets/
+results_visual/
+reviews/
+docs/
+papers/
+scratch/
+weights/
+test_tmp/
+.claude_notes/
+.devcontainer/
+LLFF/
+viseron/
+
+# Large media / archives anywhere
+*.zip
+*.mp4
+*.jpg
+*.pdf
+
+# Workspace members: the Dockerfile COPYs only each member's pyproject.toml
+# (sources are bind-mounted at runtime from /workspace), so exclude the member
+# trees and re-include just the manifests.
+motion-seg/*
+!motion-seg/pyproject.toml
+omniverse-pipeline/*
+!omniverse-pipeline/pyproject.toml
+amp-ui/*
+!amp-ui/pyproject.toml
+orchestrator/*
+!orchestrator/pyproject.toml
+scene-gen/*
+!scene-gen/pyproject.toml
+camera_sync/*
+!camera_sync/sync_display/pyproject.toml
+!camera_sync/recorder/pyproject.toml
+!camera_sync/sync_analyzer/pyproject.toml
+!camera_sync/rtsp_capture/pyproject.toml
+
+# Inside submodules/ the CUDA extension sources ARE the build input — exclude only
+# the MultiBodySync checkpoint blobs (downloaded separately per WINDOWS_SETUP.md §7).
+submodules/multibody-sync-4dgs/ckpt/

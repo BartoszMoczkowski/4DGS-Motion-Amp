@@ -80,9 +80,11 @@ class _FakeImages:
         self._build_counter = 0
         self._next_build_failure: _FakeBuildError | None = None
 
-    def fail_next_build(self, reason: str, build_log: list[dict]) -> None:
-        """Make the next `build()` call raise `_FakeBuildError(reason, build_log)` instead of
-        succeeding -- simulates a real `uv sync`/Dockerfile `RUN` step failing partway through."""
+    def fail_next_build(self, reason: str, build_log: list[dict] | None) -> None:
+        """Make the next ``stream_build()`` call fail with ``reason`` -- simulates a real
+        `uv sync`/Dockerfile ``RUN`` step failing partway through (``build_log`` chunks stream
+        first, then an ``error`` chunk, exactly like the Docker API's decoded build stream;
+        ``build_log=None`` simulates a pre-build connection error, which raises instead)."""
         self._next_build_failure = _FakeBuildError(reason, build_log)
 
     def get(self, tag: str) -> _FakeImageRef:
@@ -90,18 +92,35 @@ class _FakeImages:
             raise LookupError(f"no such image: {tag}")
         return _FakeImageRef(tag, id_=self.ids.get(tag), labels=self.labels.get(tag))
 
-    def build(self, *, path: str, dockerfile: str, tag: str, rm: bool = True, labels: dict | None = None):
+    def stream_build(self, *, path: str, dockerfile: str, tag: str, rm: bool = True, decode: bool = True, labels: dict | None = None):
+        """Fake for the low-level ``client.api.build`` chunk generator (docker-py's decoded
+        JSON-stream chunks: ``{"stream": ...}`` per step line, ``{"error": ...}`` on a failed
+        ``RUN`` step). Records the call on ``build_calls`` like the old high-level fake did."""
         self.build_calls.append(
-            {"path": path, "dockerfile": dockerfile, "tag": tag, "rm": rm, "labels": labels or {}}
+            {"path": path, "dockerfile": dockerfile, "tag": tag, "rm": rm, "decode": decode, "labels": labels or {}}
         )
         if self._next_build_failure is not None:
             failure, self._next_build_failure = self._next_build_failure, None
-            raise failure
+
+            def _fail():
+                if failure.build_log is None:
+                    raise failure  # connection-style error before/instead of a chunk stream
+                yield from failure.build_log
+                if not any("error" in c or "errorDetail" in c for c in failure.build_log):
+                    yield {"errorDetail": {"message": str(failure)}, "error": str(failure)}
+
+            return _fail()
         self.present.add(tag)
         self._build_counter += 1
         self.ids[tag] = f"sha256:{tag}-build{self._build_counter}"
         self.labels[tag] = dict(labels or {})
-        return _FakeImageRef(tag, id_=self.ids[tag], labels=self.labels[tag]), iter([])
+
+        def _ok():
+            yield {"stream": "Step 1/2 : FROM nvidia/cuda:12.4.1-devel-ubuntu22.04\n"}
+            yield {"stream": "Step 2/2 : RUN uv sync --frozen\n"}
+            yield {"stream": f"Successfully tagged {tag}\n"}
+
+        return _ok()
 
     def pull(self, tag: str):
         self.pull_calls.append(tag)
@@ -191,9 +210,11 @@ class _FakeContainers:
 
 
 class _FakeExecAPI:
-    """Fake for ``client.api`` -- the low-level exec_create/exec_start/exec_inspect trio."""
+    """Fake for ``client.api`` -- the low-level exec_create/exec_start/exec_inspect trio, plus
+    the low-level build chunk stream (``api.build``) that ``ensure_image`` consumes."""
 
-    def __init__(self) -> None:
+    def __init__(self, images: _FakeImages) -> None:
+        self._images = images
         self._next = 0
         self._chunks: dict[str, list[bytes]] = {}
         self._exit_codes: dict[str, int] = {}
@@ -228,12 +249,15 @@ class _FakeExecAPI:
     def exec_inspect(self, exec_id: str):
         return {"ExitCode": self._exit_codes[exec_id]}
 
+    def build(self, **kwargs):
+        return self._images.stream_build(**kwargs)
+
 
 class _FakeClient:
     def __init__(self) -> None:
         self.images = _FakeImages()
         self.containers = _FakeContainers(self.images)
-        self.api = _FakeExecAPI()
+        self.api = _FakeExecAPI(self.images)
 
 
 @pytest.fixture
@@ -386,6 +410,23 @@ def test_ensure_image_isaac_has_no_staleness_check(manager, fake_client):
     manager.ensure_image("isaac")
 
     assert len(fake_client.images.pull_calls) == 1
+
+
+def test_ensure_image_emits_build_progress_lines(manager, fake_client, capsys):
+    """T26 follow-up (2026-10-09): the cuda build streams through the low-level api.build chunk
+    iterator, printing each step line with a ``[cuda-build]`` prefix plus an up-front "rebuilding
+    ... because" header -- a multi-minute build must never again look like a silent hang."""
+    manager.ensure_image("cuda")
+
+    out = capsys.readouterr().out
+    assert "[cuda-build] rebuilding image" in out
+    assert "no local image" in out  # build reason
+    assert "[cuda-build] Step 1/2" in out
+    assert "[cuda-build] Step 2/2" in out
+
+    capsys.readouterr()  # reset
+    manager.ensure_image("cuda")  # up to date -> no build chatter at all
+    assert capsys.readouterr().out == ""
 
 
 # --- ensure_image: build-failure diagnostics (T11 fix, 2026-07-18) --------------------------

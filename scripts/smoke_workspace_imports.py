@@ -44,29 +44,21 @@ REQUIRED = [
     "recorder",
     "sync_analyzer",
     "rtsp_capture",
-    # scene-gen flat modules (Isaac-only and torch-heavy ones excluded below)
-    "analyze_complexity_ladder",
+    # scene-gen flat modules (Isaac-only and torch-heavy ones excluded below).
+    # T26: the one-off analysis scripts (analyze_complexity_ladder, partition_swap,
+    # re_render_grid_runs, render_seg_visualizations, run_grid_*_exp variants,
+    # show_cubes_seg, run_pump01_*, the identity/ package) moved to scratch/ and are
+    # deliberately NOT installed — nothing to smoke-import here.
     "check_capture_progress",
     "frames_to_mp4",
     "gen_spinning_cubes",
-    "partition_swap",
-    "re_render_grid_runs",
-    "render_seg_visualizations",
     "rescore_motion_classes",
     "run_cubes_4dgs",
     "run_cubes_capture",
     "run_cubes_seg",
     "run_grid_4dgs",
     "run_grid_seg",
-    "run_grid_multicut_calibrated",
-    "run_partition_swap_exp",
-    "run_pump01_boundary_refine",
-    "run_pump01_spatial_cc",
-    "show_cubes_seg",
     "view_gaussians_open3d",
-    "identity",
-    "identity.cluster",
-    "identity.mask_provider",
 ]
 
 # Import the CUDA extensions and everything that transitively imports them.
@@ -82,9 +74,6 @@ CUDA_REQUIRED = [
     "train",
     "render",
     "render_amp",
-    "identity.model",
-    "identity.train",
-    "run_grid_identity",
 ]
 
 # Require the Isaac Sim Python runtime (`pxr` is not pip-installable) — these

@@ -46,14 +46,14 @@ artifacts are content-hashed since 2026-10-05 (review bug 1.3), so the cache key
 per run on their own; force is kept as belt-and-braces (it also guarantees a fresh seg_eval
 result file per run, which the metrics gating below relies on).
 
-Usage (from the repo root, workspace venv):
+Usage (from the repo root, workspace venv; interim — becomes `amp exp` in T27):
 
-    .venv\Scripts\python.exe scene-gen/run_grid_seg.py                # Option B (rigid, default)
-    .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl mbs     # Option A (MultiBodySync)
-    .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl rigid2  # T18 upgraded Option B
-    .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl kabsch  # T20 Kabsch EM
-    .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl rigid2_roi  # T19 ROI + rigid2
-    .venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl mask_lift_oracle  # T22 oracle ceiling
+    uv run python scene-gen/run_grid_seg.py                # Option B (rigid, default)
+    uv run python scene-gen/run_grid_seg.py --impl mbs     # Option A (MultiBodySync)
+    uv run python scene-gen/run_grid_seg.py --impl rigid2  # T18 upgraded Option B
+    uv run python scene-gen/run_grid_seg.py --impl kabsch  # T20 Kabsch EM
+    uv run python scene-gen/run_grid_seg.py --impl rigid2_roi  # T19 ROI + rigid2
+    uv run python scene-gen/run_grid_seg.py --impl mask_lift_oracle  # T22 oracle ceiling
 """
 
 from __future__ import annotations

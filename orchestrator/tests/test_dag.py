@@ -353,6 +353,71 @@ def test_api_run_stage_missing_run_raises_file_not_found(tmp_path, monkeypatch):
         api.run_stage("does-not-exist", "test.echo")
 
 
+# --- StageFailedError propagation at the api boundary (T26 follow-up, 2026-10-09) -----------
+#
+# run_dag deliberately records a stage failure in the manifest and returns (the scheduler must
+# not crash); run_pipeline/run_stage then re-raise it as api.StageFailedError so synchronous
+# callers (the amp CLI) exit non-zero instead of printing "finished". Found live: an amp.default
+# RAM-preflight rejection reported as success.
+
+
+def _register_t05_fail_stages():
+    from pipeline.stages import Stage, list_stages, register
+    from pipeline.artifacts import Artifact
+
+    if "test.t05fail" not in list_stages():
+        @register("test.t05fail")
+        class FailStage(Stage):
+            outputs = ("w",)
+
+            def run(self, ctx):
+                raise RuntimeError("boom")
+
+        @register("test.t05after_fail")
+        class AfterFailStage(Stage):
+            inputs = ("w",)
+            outputs = ("v",)
+
+            def run(self, ctx):
+                return {"v": Artifact(name="v", kind="json", path="v", producing_stage=ctx.stage_name)}
+
+
+def test_api_run_stage_raises_stage_failed_error_and_still_records_manifest(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(tmp_path))
+    _register_t05_fail_stages()
+
+    from pipeline import api
+
+    monkeypatch.setattr(api, "_auto_stage_plan", lambda resolved: [])
+    run_id = api.run_pipeline("base")
+
+    with pytest.raises(api.StageFailedError, match="test.t05fail"):
+        api.run_stage(run_id, "test.t05fail")
+
+    # The manifest record is untouched — failure is still durably recorded, not just raised.
+    rec = api.get_status(run_id)["stages"]["test.t05fail"]
+    assert rec["status"] == "failed"
+    assert "boom" in rec["error"]
+
+
+def test_api_run_pipeline_raises_stage_failed_error_and_later_stages_stay_pending(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(tmp_path))
+    _register_t05_fail_stages()
+
+    from pipeline import api
+
+    monkeypatch.setattr(
+        api, "_auto_stage_plan", lambda resolved: ["test.t05fail", "test.t05after_fail"]
+    )
+
+    with pytest.raises(api.StageFailedError, match="boom"):
+        api.run_pipeline("base", run_id="failprop")
+
+    stages = api.get_status("failprop")["stages"]
+    assert stages["test.t05fail"]["status"] == "failed"
+    assert "test.t05after_fail" not in stages or stages["test.t05after_fail"]["status"] == "pending"
+
+
 # --- T12: resource-manager wiring, exercised end to end through run_dag ------------------------
 
 

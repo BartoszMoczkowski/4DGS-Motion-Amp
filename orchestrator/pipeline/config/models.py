@@ -389,12 +389,14 @@ class SegEvalConfig(StrictModel):
 # --- amplification ----------------------------------------------------------------------------
 
 #: Fixed channel order used by core/render_amp.py / amp-ui/amp_ui/ampUI.py (positional indexing into
-#: amp_factors/freq_cutoffs lists) — this is the canonical channel list for the new schema.
+#: amp_factors/freq_cutoffs lists: [means3D, means2D, scales, rotations, opacity, shs, colors, cov3D],
+#: matching ampUI.py's ``chanels_list``) — this is the canonical channel list for the new schema.
+#: Scale comes before rotation (fixed 2026-10-06; it was previously swapped).
 AMP_CHANNELS: tuple[str, ...] = (
     "pos3d",
     "pos2d",
-    "rotation",
     "scale",
+    "rotation",
     "opacity",
     "SHs",
     "color",

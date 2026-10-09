@@ -1,6 +1,6 @@
 # T26 — CLI command migration: kill raw-python invocations
 
-- Status: todo
+- Status: done (2026-10-06; task log: .claude_notes/T26_cli_command_migration_2026-10-06.md)
 - Phase: 8 (streamlining)
 - Depends on: T25
 - Environment: sandbox-testable for arg parsing + dry-run/validation paths; GPU/Isaac commands

@@ -1,4 +1,5 @@
 arguments
+core_cli
 export_perframe_3DGS
 gaussian_renderer
 lpipsPyTorch

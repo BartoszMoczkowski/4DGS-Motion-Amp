@@ -130,56 +130,69 @@ First-time Windows machine setup is documented in `orchestrator/planning/WINDOWS
 
 ## 5. Key commands
 
+The unified entry point is the `amp` CLI (T25/T26; installed by `uv sync`, run via `uv run amp`):
+
+```bash
+amp --help   # groups: capture, train, render, seg, orch, bench; exp (T27), mlflow (T28), report (T29) reserved
+```
+
+Every pipeline-executing command supports `--dry-run` (prints the resolved stage + config slice, executes nothing). The raw `python <script>.py` invocations below remain only as the in-container exec paths the Docker stages use (see `pipeline/stages/cuda_common.py`) — they are no longer the user path.
+
 ### 5.1 Training
 
 ```bash
-uv run --package 4dgs-core python core/train.py -s data/dnerf/lego -m output/dnerf/lego --configs core/arguments/dnerf/lego.py
-uv run --package 4dgs-core python core/train.py -s data/multipleview/pump01 -m output/multipleview/pump01 --configs core/arguments/multipleview/default.py
+uv run amp train pump01 --scene data/multipleview/pump01   # scene seeded as external artifact
+uv run amp train pump01 --dry-run                          # resolved train.default config slice
 ```
 
-Training runs in two stages: coarse (static Gaussians) then fine (deformation network enabled). Final artifacts are `point_cloud/iteration_N/point_cloud.ply` + `deformation.pth`.
+Runs `run_pipeline(preset, only=["train.default"])` (coarse static stage, then fine deformation stage). Final artifacts are `point_cloud/iteration_N/point_cloud.ply` + `deformation.pth` under the run's `train_out/`. (Raw `core/train.py -s ... -m ... --configs ...` persists inside the `cuda` container, exec'd by the `train.default` stage.)
 
 ### 5.2 Standard rendering
 
 ```bash
-uv run --package 4dgs-core python core/render.py -m output/dnerf/lego --iteration 20000 --skip_train
+uv run amp render <run_id> [--force]
 ```
 
 ### 5.3 Motion-amplified rendering
 
 ```bash
-uv run --package 4dgs-core python core/render_amp.py -m output/dnerf/lego --configs core/arguments/dnerf/lego.py \
-    --amp_factors 2 -1 -1 -1 -1 -1 -1 -1 \
-    --freq_low 0.0 --freq_high 1.0 \
-    --method eulerian --video_path out.mp4
+uv run amp render <run_id> --amp-factors "2 -1 -1 -1 -1 -1 -1 -1" --method eulerian \
+    --freq-low 0.0 --freq-high 1.0 --video out.mp4 [--low-vram] [--frozen-cam]
+# slot order: pos3d pos2d scale rotation opacity SHs color cov3D
 ```
 
-Since 2026-10-05 `render_amp.py` validates its arguments (`validate_amp_args`: `amp_factors` must be exactly 8 values with `-1` as the only allowed negative / skip sentinel; `--freq_low`/`--freq_high` length 1 or 8 with broadcast) and `load_config` imports `mmengine.config.Config` first with an `mmcv` fallback (the pinned `mmcv==2.2.0` no longer ships `Config`). Unknown `--method` values now raise instead of silently rendering unamplified.
+Presence of `--amp-factors` switches the stage from `render.default` to `amp.default`; factors/freqs map onto `amp.channels` config overrides (T26). Validation mirrors `render_amp.py`'s `validate_amp_args` (exactly 8 values, `-1` the only negative / skip sentinel; freq lists length 1 or 8). click can't take argparse-style space-separated option values: quote the list (`"2 -1 ..."`), use `--amp-factors="..."` when it starts with a negative, or repeat the flag per value. Since 2026-10-05 `render_amp.py` validates its arguments (`validate_amp_args`) and `load_config` imports `mmengine.config.Config` first with an `mmcv` fallback (the pinned `mmcv==2.2.0` no longer ships `Config`). Unknown `--method` values raise instead of silently rendering unamplified.
 
-### 5.4 Motion segmentation (reference scripts)
+### 5.4 Motion segmentation
 
 ```bash
-# Option B: rigidity-graph clustering (CPU, default); extract_trajectories is GPU (needs the `core` extra)
-uv run --package motion-seg --extra core python -m motion_seg.extract_trajectories --model_path output/multipleview/pump01 --configs core/arguments/multipleview/pump01.py
-uv run --package motion-seg python -m motion_seg.segment_rigid --trajectories output/multipleview/pump01/trajectories.npz --out output/multipleview/pump01/segmentation.npz
-uv run --package motion-seg python -m motion_seg.evaluate_segmentation --pred output/multipleview/pump01/segmentation.npz --gt data/multipleview/pump01/gt_segmentation.npz
+# Full chain (replaces the deleted motion-seg/motion_seg/run.sh; SKIP_EXTRACT=1 -> --skip-extract)
+uv run amp seg run pump01 [--impl rigid|rigid2|kabsch|multicut|mbs] [--skip-extract] [--dry-run]
 
-# Convenience wrapper
-./motion-seg/motion_seg/run.sh pump01
+# Individual stages on an existing run (extract is GPU; the rest are CPU)
+uv run amp seg extract <run_id> [--n-times 60]
+uv run amp seg rigid <run_id> [--k 12 --min-size 15 --threshold-mult 1.0 --opacity-thresh 0.1]
+uv run amp seg rigid2|kabsch|multicut|mbs <run_id> [impl flags]
+uv run amp seg eval <run_id> [--drop-floaters] [--bg-label 0|auto]
 ```
 
-### 5.5 Omniverse pipeline (reference scripts)
+Flags map to `segment.<impl>.*` / `seg_extract.*` / `seg_eval.*` config overrides (unset flags never clobber preset values). The reference modules (`motion_seg.extract_trajectories`, `segment_rigid`, `evaluate_segmentation`, `mbs_infer`) remain for their `--selftest`s and direct scripting, but routine work goes through `amp seg`.
+
+### 5.5 Omniverse pipeline
 
 ```bash
-# USD prep (plain Python)
-python omniverse-pipeline/omniverse_pipeline/split_mesh.py --in "CONJUNTO BOMBAS.usd" --out CONJUNTO_BOMBAS_segmented.usd --group CONJUNTO_BOMBAS
-python omniverse-pipeline/omniverse_pipeline/add_motion.py --in CONJUNTO_BOMBAS_segmented.usd --out CONJUNTO_BOMBAS_animated.usd
+uv run amp capture split --in "CONJUNTO BOMBAS.usd" --out CONJUNTO_BOMBAS_segmented.usd --group CONJUNTO_BOMBAS [--min-faces N --preview PNG --no-usd]
+uv run amp capture motion --in CONJUNTO_BOMBAS_segmented.usd --out CONJUNTO_BOMBAS_animated.usd [--num-frames --fps --trans-amp-mm A B --groups K --exclude ...]
+uv run amp capture gen-grid [--base-amp-mm ... --multipliers ... --only-cell 16x8 ...]   # scene-gen gen_scenes.py
 
-# Capture (must use Isaac Sim's own Python, native Windows)
-Q:\Omniverse\isaac-sim-standalone-6.0.1-windows-x86_64\python.bat omniverse-pipeline/omniverse_pipeline/omni_capture.py --config omniverse-pipeline/omniverse_pipeline/capture_config_pump.yaml
+# Capture: native Windows Isaac Sim subprocess only (Vulkan unsupported under WSL2/Docker).
+# Wraps the same Layer-1 native mechanism (run_native_isaac_script); override the launcher
+# with PIPELINE_ISAAC_NATIVE_PYTHON.
+uv run amp capture run --config omniverse-pipeline/omniverse_pipeline/capture_config_pump.yaml [--usd X --out DIR --n-cameras N --frames N --headless 0|1]
 
-# Convert to 4DGS multipleview format
-python omniverse-pipeline/omniverse_pipeline/omni_to_4dgs.py --capture <capture_dir> --out . --name pump01
+uv run amp capture convert --capture <capture_dir> --out . --name pump01 [--near --far --target-radius]
+uv run amp capture preview --capture <capture_dir> [--fps 24 --tile-cols 5]
+uv run amp capture verify <capture_dir> [--cams 10 --frames 60 | --config <capture.yaml>]   # frame-count QA
 ```
 
 ### 5.6 Orchestrator
@@ -187,18 +200,22 @@ python omniverse-pipeline/omniverse_pipeline/omni_to_4dgs.py --capture <capture_
 ```bash
 # Run the full automated DAG (from Python; see orchestrator/planning/ARCHITECTURE.md for the API)
 python -c "from pipeline.api import run_pipeline; ..."
+# run_pipeline/run_stage accept an `overrides` dict (deep-merged, re-validated; T26)
 
-# Start the MCP server
+# Start the MCP server (never defaults the token)
 $env:PIPELINE_MCP_TOKEN = "<generate-with-secrets.token_urlsafe(32)>"
-uv run --package pipeline --extra mcp python -m mcp_server
+uv run amp orch mcp [--host 127.0.0.1] [--port 8765]
 # Default: http://127.0.0.1:8765/mcp
 
-# Start the orchestrator UI
-uv run --package pipeline --extra ui streamlit run orchestrator/ui/app.py
-# Default: http://localhost:8501
+# UIs
+uv run amp orch ui                  # orchestrator UI, http://localhost:8501
+uv run amp orch ui --app amp        # standalone motion-amp UI (ampUI.py)
 
-# Standalone motion-amp UI (reference workflow)
-uv run --package amp-ui streamlit run amp-ui/amp_ui/ampUI.py
+# Render benchmark (methods x VRAM modes x models x repeats; results.csv + run-registry record)
+# Linux/CUDA-only: run_renders_auto imports core/render_amp.py natively (torch + simple_knn),
+# so on the Windows host it exits 1 with a one-line explanation; run it inside the cuda
+# container/Linux instead (containerization is future work, see the T26 task log).
+uv run amp bench renders [--models ds/name ...] [--methods "base,abs segmented"] [--repeats 5] [--vram-modes full,low]
 ```
 
 ## 6. Testing strategy
@@ -256,6 +273,7 @@ These conventions are locked in `orchestrator/planning/INSTRUCTIONS.md` and appl
 - **The CUDA extensions are linux-only dependencies** (`diff-gaussian-rasterization` / `simple-knn` carry `sys_platform == 'linux'` markers in `core/pyproject.toml`): there is no CUDA toolkit on the Windows host, so they only build inside the Docker image. Consequently core's renderer modules (`scene`, `gaussian_renderer`, `train`, `render_amp`, ...) are not importable in a Windows venv — they never were. `scripts/smoke_workspace_imports.py` treats them as expected skips off-linux.
 - **torchvision is pinned by direct wheel URL on win32/linux** (root `[tool.uv.sources]`) because the cu126 index publishes the cp312 win_amd64 wheel of 0.28.0+cu126 without a `#sha256` fragment, which trips uv's hash verification; the URL pins also keep torch at the validated 2.13.0+cu126 on every desktop platform.
 - **`docker build` has no GPU**, so `torch.utils.cpp_extension` cannot auto-detect compute capability. The Dockerfile sets `TORCH_CUDA_ARCH_LIST="8.6+PTX"` for an RTX 3090. Missing this causes `IndexError: list index out of range` during the build.
+- **The repo-root `.dockerignore` is load-bearing** (added 2026-10-09): the `cuda` Dockerfile's build context must stay at tens of MB (Dockerfile, `pyproject.toml`, `uv.lock`, `core/`, `submodules/` minus MBS `ckpt/`, and member `pyproject.toml` manifests). Without it the context is the whole repo (100+ GB — `runs/`, `data/`, `output/`, `.venv/`), and `ensure_image`'s automatic rebuild blocks for hours just *sending* the context. Keep new bulk-data dirs excluded; if the Dockerfile gains a `COPY`, re-include that path with a `!` negation.
 - **The `cuda` Dockerfile builds the venv in `/opt/build`, not `/workspace`**, because `/workspace` is bind-mounted from the live repo at runtime and would shadow anything built there. Do not move the build back into `/workspace`.
 - **The pre-uv `requirements.txt` files were deleted in T24** (root, torch 1.13.1 era; `submodules/multibody-sync-4dgs`, `open3d==0.11.2` era). The authoritative dependency set is the workspace `pyproject.toml` files + `uv.lock`. The mmcv pin remains a cu121/torch2.4 wheel URL (no cu126/torch≥2.5 cp312 wheel exists on download.openmmlab.com as of 2026-10-06 — known risk, Linux/Docker only).
 - **`motion-seg/motion_seg/checkpoint-best.pth.tar` is not used.** The MultiBodySync checkpoint lives at `submodules/multibody-sync-4dgs/ckpt/mbs_full.pth.tar` (downloaded from the Google Drive link in `orchestrator/planning/WINDOWS_SETUP.md` §7; gitignored, not vendored).

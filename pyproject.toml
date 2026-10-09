@@ -8,6 +8,7 @@ requires-python = "==3.12.12"
 # at the root install the whole project. `uv sync --package X` remains the
 # exception for special environments (Docker builds).
 dependencies = [
+    "typer>=0.12",
     "4dgs-core",
     "motion-seg",
     "omniverse-pipeline",
@@ -28,6 +29,9 @@ build-backend = "hatchling.build"
 # Minimal root package body (T25 puts the `amp` CLI entry point here).
 [tool.hatch.build.targets.wheel]
 packages = ["src/amp"]
+
+[project.scripts]
+amp = "amp.cli:app"
 
 [dependency-groups]
 # Dev/test tooling (PEP 735). Runtime members stay lean; `uv run --group test`

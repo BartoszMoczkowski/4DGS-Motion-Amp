@@ -15,8 +15,8 @@ Two experiment families, all serial (single GPU):
 
 Usage (from the repo root, workspace venv):
 
-    .venv/Scripts/python.exe scene-gen/run_grid_4dgs.py            # full batch
-    .venv/Scripts/python.exe scene-gen/run_grid_4dgs.py --smoke    # one tiny run to validate
+    uv run python scene-gen/run_grid_4dgs.py            # full batch (interim; becomes `amp exp` in T27)
+    uv run python scene-gen/run_grid_4dgs.py --smoke    # one tiny run to validate
 
 Results are appended to ``runs/grid_4dgs_results.csv`` (one row per run, with stage
 timings, peak VRAM and the trained Gaussian count parsed from the output PLY header).

@@ -106,8 +106,10 @@ rejected by a model validator (`SegmentConfig._check_impl_ready`) — mirrors `m
 | `--skip_train`/`--skip_test`/`--skip_video`/`--quiet` | `amp.skip_train`/`.skip_test`/`.skip_video`/`.quiet` |
 | `--iteration` / `--configs` | `amp.iteration` / `amp.configs` |
 
-**Positional -> named channels.** The 8-channel order `[pos3d, pos2d, rotation, scale, opacity,
-SHs, color, cov3D]` (confirmed against `render_amp.py`'s `render_set_amp` construction) is
+**Positional -> named channels.** The 8-channel order `[pos3d, pos2d, scale, rotation, opacity,
+SHs, color, cov3D]` (confirmed against `render_amp.py`'s `render_set_amp` construction —
+`[means3D, means2D, scales, rotations, ...]`; fixed 2026-10-06, it previously listed rotation
+before scale) is
 preserved as `AMP_CHANNELS` in `models.py`, but the schema addresses each channel **by name**
 (`amp.channels["opacity"].factor`) instead of by position in a flat list — eliminates an entire
 class of "which index was that again" bugs the old CLI/UI both had. A stage wrapper (T09) rebuilds

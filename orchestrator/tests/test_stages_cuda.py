@@ -305,6 +305,39 @@ def test_amp_stage_builds_expected_cli_and_video_path(tmp_path, monkeypatch):
     assert all(f == "-1" for f in factors[1:])  # every other channel defaults to "don't amplify"
 
 
+def test_amp_stage_emits_factors_in_render_amp_slot_order(tmp_path, monkeypatch):
+    # core/render_amp.py's positional slot order is [means3D, means2D, scales, rotations, ...] —
+    # scale at index 2, rotation at index 3. AMP_CHANNELS must emit them in exactly that order
+    # (this regressed once: rotation/scale were swapped, see .claude_notes T26 follow-up).
+    repo_root = _setup_roots(tmp_path, monkeypatch)
+    model_dir = repo_root / "runs" / "r1" / "train_out"
+    model_dir.mkdir(parents=True)
+
+    cfg = PipelineConfig().model_dump()
+    amp_cfg = {**_stage_config_for("amp.default", cfg)}
+    amp_cfg["channels"] = {
+        **amp_cfg["channels"],
+        "pos3d": {"factor": 2.0, "freq_low": 0.0, "freq_high": 1.0},
+        "pos2d": {"factor": 3.0, "freq_low": 0.0, "freq_high": 1.0},
+        "scale": {"factor": 4.0, "freq_low": 0.0, "freq_high": 1.0},
+        "rotation": {"factor": 5.0, "freq_low": 0.0, "freq_high": 1.0},
+        "opacity": {"factor": 6.0, "freq_low": 0.0, "freq_high": 1.0},
+        "SHs": {"factor": 7.0, "freq_low": 0.0, "freq_high": 1.0},
+        "color": {"factor": 8.0, "freq_low": 0.0, "freq_high": 1.0},
+        "cov3D": {"factor": 9.0, "freq_low": 0.0, "freq_high": 1.0},
+    }
+    inputs = {"model": Artifact(name="model", kind="model", path=str(model_dir), producing_stage="train.default")}
+    ctx, fake = _ctx(repo_root, stage_name="amp.default", config=amp_cfg, inputs=inputs)
+
+    AmpStage().run(ctx)
+
+    cmd = fake.calls[0]["cmd"]
+    factors = cmd[cmd.index("--amp_factors") + 1 : cmd.index("--amp_factors") + 9]
+    assert factors == ["2", "3", "4", "5", "6", "7", "8", "9"]
+    assert factors[2] == "4"  # scale
+    assert factors[3] == "5"  # rotation
+
+
 def test_amp_stage_rejects_non_integer_factor_before_execing(tmp_path, monkeypatch):
     repo_root = _setup_roots(tmp_path, monkeypatch)
     model_dir = repo_root / "runs" / "r1" / "train_out"

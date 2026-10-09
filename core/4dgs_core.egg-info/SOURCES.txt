@@ -1,3 +1,4 @@
+core_cli.py
 export_perframe_3DGS.py
 merge_many_4dgs.py
 pyproject.toml

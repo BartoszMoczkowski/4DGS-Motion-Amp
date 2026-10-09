@@ -1,6 +1,6 @@
 # T25 — `amp` CLI foundation: root package & Typer skeleton
 
-- Status: todo
+- Status: done (2026-10-06)
 - Phase: 8 (streamlining)
 - Depends on: T24
 - Environment: sandbox-testable (pure Python; import-time assertions need no GPU)

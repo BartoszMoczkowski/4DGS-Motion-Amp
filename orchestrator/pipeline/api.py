@@ -72,6 +72,62 @@ _CUDA_BRIDGE_ROLES = frozenset({"train", "render", "seg_extract", "amp"})
 _BRIDGE_SECTIONS = ("model", "pipeline_params", "hidden", "optim")
 
 
+class StageFailedError(RuntimeError):
+    """A stage executed by :func:`run_pipeline`/:func:`run_stage` failed.
+
+    ``pipeline.dag.scheduler.run_dag`` deliberately records a stage failure in the run manifest
+    (``status="failed"``) and returns instead of raising — the manifest is the durable record, and
+    a background scheduler must not crash. But the *synchronous* API callers (the `amp` CLI) used
+    to get a normal return either way, so a failed stage printed "finished" and exited 0 (found
+    live in the 2026-10-09 T26 follow-up: an `amp.default` RAM-preflight rejection reported as
+    success). This exception restores failure propagation at the API boundary while leaving the
+    manifest record untouched. Layers 2/3 need no special-casing: the MCP server already captures
+    background-job exceptions into ``job_error``, and the UI displays caught exceptions.
+    """
+
+
+def _raise_for_failed_stages(run_id: str, manifest: Any, executed: list[str]) -> None:
+    """Raise :class:`StageFailedError` if any of ``executed`` (this call's selected stages) has a
+    ``failed`` record in ``manifest``. Stages never selected by this call (``from_stage``/
+    ``to_stage``/``only`` windows) have no fresh record and are ignored; a failure stops the DAG,
+    so later selected stages simply stay pending."""
+    failed = [
+        (name, manifest.stages[name])
+        for name in executed
+        if name in manifest.stages and manifest.stages[name].status == "failed"
+    ]
+    if not failed:
+        return
+    parts = []
+    for name, rec in failed:
+        part = f"{name}: {rec.error or 'unknown error'}"
+        if rec.log_path:
+            part += f" (log: {rec.log_path})"
+        parts.append(part)
+    raise StageFailedError(
+        f"run {run_id!r}: stage(s) failed: {'; '.join(parts)} — full details in the run manifest"
+    )
+
+
+def _apply_overrides(
+    resolved: dict[str, Any], overrides: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    """Deep-merge ``overrides`` onto a resolved config dict, then re-validate (T26).
+
+    Re-validation through :class:`pipeline.config.models.PipelineConfig` keeps
+    ``extra="forbid"`` enforcement: an unknown/misspelled override key fails here with a
+    pydantic ``ValidationError`` naming the bad key instead of being silently ignored, and
+    value types are coerced/validated exactly as if the override had been written into the
+    preset YAML. Returns ``resolved`` unchanged when ``overrides`` is ``None``/empty.
+    """
+    if not overrides:
+        return resolved
+    from .config.models import PipelineConfig
+    from .config.resolver import _deep_merge
+
+    return PipelineConfig(**_deep_merge(resolved, overrides)).model_dump()
+
+
 def _stage_config_for(name: str, resolved_config: dict[str, Any]) -> dict[str, Any]:
     """This stage's own config section, not the whole ``PipelineConfig`` dict (T07).
 
@@ -132,6 +188,7 @@ def run_pipeline(
     to_stage: Optional[str] = None,
     only: Optional[list[str]] = None,
     force: bool = False,
+    overrides: Optional[dict[str, Any]] = None,
 ) -> str:
     """Run (or resume) the full DAG for ``preset``. Returns a ``run_id``.
 
@@ -175,6 +232,18 @@ def run_pipeline(
     run's ``manifest.json``/``config_snapshot.json`` with an all-pending manifest, destroying its
     recorded history before ``run_dag``'s resume logic ever sees it. To deliberately re-run, mint
     a fresh id (or delete the old run directory first).
+
+    ``overrides`` (T26): an optional nested config dict (``PipelineConfig``-shaped, e.g.
+    ``{"amp": {"channels": {"pos3d": {"factor": 2.0}}}}``) deep-merged onto the resolved preset
+    *before* the stage plan is computed and before ``PipelineConfig`` re-validation — so
+    ``extra="forbid"`` still catches misspelled override keys (pydantic ``ValidationError``), and
+    an override that flips e.g. ``segment.impl`` changes the auto-planned stage list too. This is
+    the mechanism CLI flags (``amp train --scene``, ``amp render --amp-factors``) use instead of
+    writing throwaway YAML presets.
+
+    Raises :class:`StageFailedError` if any stage this call executed ends up ``failed`` in the
+    manifest (run_dag itself records-and-returns; the failure is re-raised here so synchronous
+    callers exit non-zero).
     """
     from .artifacts import (
         create_run,
@@ -187,7 +256,7 @@ def run_pipeline(
     from .dag import run_dag
 
     config = validate_config(preset)
-    resolved = config.model_dump()
+    resolved = _apply_overrides(config.model_dump(), overrides)
     stage_names = _auto_stage_plan(resolved)
     stage_configs = {name: _stage_config_for(name, resolved) for name in stage_names}
     run_id = run_id or new_run_id(preset)
@@ -227,6 +296,7 @@ def run_pipeline(
         only=only,
         force=force,
     )
+    _raise_for_failed_stages(run_id, manifest, stage_names)
     return manifest.run_id
 
 
@@ -235,6 +305,7 @@ def run_stage(
     stage: str,
     *,
     force: bool = False,
+    overrides: Optional[dict[str, Any]] = None,
 ) -> str:
     """Run a single stage within an existing run. Returns a ``run_id``.
 
@@ -242,20 +313,32 @@ def run_stage(
     (from earlier stages of that same run) — this doesn't (re)run anything upstream. Raises
     ``FileNotFoundError`` if ``run_id`` doesn't exist yet (call ``run_pipeline`` first to create
     it) and ``pipeline.dag.MissingDependencyError`` if an input isn't available.
+
+    ``overrides`` (T26): same deep-merge + re-validation semantics as
+    :func:`run_pipeline`'s, applied on top of the run's *recorded* resolved config for this
+    invocation only — the manifest's ``resolved_config`` is deliberately NOT rewritten, so a
+    later plain ``run_stage`` call still sees the original config (and the changed stage config
+    naturally produces a different cache key, so the stage re-runs rather than cache-hitting on
+    stale parameters).
+
+    Raises :class:`StageFailedError` if the stage's record ends up ``failed`` (see
+    :func:`run_pipeline`).
     """
     from .artifacts import get_manifest
     from .dag import run_dag
 
     manifest = get_manifest(run_id)
-    stage_cfg = _stage_config_for(stage, manifest.resolved_config)
-    run_dag(
+    resolved = _apply_overrides(manifest.resolved_config, overrides)
+    stage_cfg = _stage_config_for(stage, resolved)
+    result_manifest = run_dag(
         run_id,
         [stage],
-        manifest.resolved_config,
+        resolved,
         preset=manifest.preset,
         stage_configs={stage: stage_cfg},
         force=force,
     )
+    _raise_for_failed_stages(run_id, result_manifest, [stage])
     return run_id
 
 

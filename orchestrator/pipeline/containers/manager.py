@@ -29,7 +29,10 @@ exit-code handling, label-based listing -- is unit-tested against a fake Docker 
 from __future__ import annotations
 
 import hashlib
+import logging
 from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
 from pathlib import Path
 from typing import Any, Optional
 
@@ -87,8 +90,6 @@ class ImageNotAvailableError(ContainerError):
 
 class ContainerNotRunningError(ContainerError):
     """An operation needed a running container for this env, and starting one failed."""
-
-
 @dataclass(frozen=True)
 class ExecResult:
     """Outcome of one :meth:`ContainerManager.exec` call."""
@@ -177,6 +178,15 @@ class ContainerManager:
         ``isaac`` stays on the simple presence check -- its image is pulled by pinned tag from NGC,
         never built locally, so there's no local "staleness" to detect.
 
+        The ``cuda`` build consumes the *low-level* ``client.api.build`` chunk stream as it
+        arrives, printing each step line with a ``[cuda-build]`` prefix (an ``images.build``
+        high-level call buffers the entire build silently — a torch download + CUDA-extension
+        compile is a 20-60 minute stretch of zero output, indistinguishable from a hang; T26
+        follow-up 2026-10-09). A ``RUN``-step failure surfaces as an ``error`` chunk in the
+        stream; it is turned into :class:`ImageNotAvailableError` with the same persisted-log
+        pointer as before. The full build log is written to ``runs/.cache/cuda_build.log`` on
+        success and failure alike (see :meth:`_persist_cuda_build_log`).
+
         Idempotent in the common case -- once the image exists and matches the current build
         inputs, a later call is just one cheap ``images.get`` plus a hash comparison.
         """
@@ -185,24 +195,52 @@ class ContainerManager:
             repo_root = get_roots().repo_root_host
             if self._cuda_image_up_to_date(image, repo_root):
                 return image
+            reason = (
+                "no local image"
+                if not self._image_present(image)
+                else "build inputs changed (Dockerfile/pyproject.toml/uv.lock hash mismatch)"
+            )
+            header = (
+                f"[cuda-build] rebuilding image {image!r}: {reason}. This can take tens of "
+                "minutes (torch download + CUDA extension compiles); progress below, full log "
+                "is written to runs/.cache/cuda_build.log afterwards."
+            )
+            print(header, flush=True)
+            log.info(header)
+            chunks: list[dict] = []
+            failure: Optional[str] = None
             try:
-                _, build_log = self.client.images.build(
+                stream = self.client.api.build(
                     path=str(repo_root),
                     dockerfile=_config.CUDA_DOCKERFILE,
                     tag=image,
                     rm=True,
+                    decode=True,
                     labels={CUDA_BUILD_HASH_LABEL: _cuda_build_hash(repo_root)},
                 )
+                for chunk in stream:
+                    chunks.append(chunk)
+                    error = chunk.get("error") or (chunk.get("errorDetail") or {}).get("message")
+                    if error:
+                        failure = str(error).rstrip()
+                        break
+                    line = chunk.get("stream") or chunk.get("status") or ""
+                    if line.strip():
+                        print(f"[cuda-build] {line}", end="", flush=True)
             except Exception as exc:  # noqa: BLE001 - our own error type, with context
-                log_path = self._persist_cuda_build_log(repo_root, exc=exc)
+                log_path = self._persist_cuda_build_log(repo_root, chunks=chunks or None, exc=exc)
                 detail = f"{exc}" + (f" -- full build log: {log_path}" if log_path else "")
                 raise ImageNotAvailableError(f"failed to build {image!r}: {detail}") from exc
+            if failure is not None:
+                log_path = self._persist_cuda_build_log(repo_root, chunks=chunks)
+                detail = failure + (f" -- full build log: {log_path}" if log_path else "")
+                raise ImageNotAvailableError(f"failed to build {image!r}: {detail}")
             # Persisted on a *successful* build too, not just a failed one: a build that exits 0
             # doesn't guarantee the image actually works (see T11's 2026-07-18 real-hardware
             # finding -- the Dockerfile fixes so far have each addressed a build-time *failure*,
             # but nothing yet has confirmed the venv this produces is genuinely usable at exec
             # time). Cheap insurance against needing yet another slow rebuild just to see the log.
-            self._persist_cuda_build_log(repo_root, chunks=build_log)
+            self._persist_cuda_build_log(repo_root, chunks=chunks)
             return image
 
         if self._image_present(image):

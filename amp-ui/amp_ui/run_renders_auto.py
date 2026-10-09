@@ -23,6 +23,60 @@ def _clone_values(values):
     return [[(v.clone() if isinstance(v, torch.Tensor) else v) for v in channel] for channel in values]
 
 
+def _find_config_rel(dataset, name, arguments_dir=ARGUMENTS_DIR):
+    # Pair a model with a config: prefer <dataset>/<name>.py, then fall back to
+    # <dataset>/default.py or <dataset>/<dataset>_default.py.
+    candidates = [
+        os.path.join(dataset, f"{name}.py"),
+        os.path.join(dataset, "default.py"),
+        os.path.join(dataset, f"{dataset}_default.py"),
+    ]
+    return next(
+        (c for c in candidates if os.path.isfile(os.path.join(arguments_dir, c))),
+        None,
+    )
+
+
+def resolve_model_specs(models=None):
+    """Resolve model names to (model_rel, config_rel) pairs.
+
+    ``models=None`` auto-discovers every trained model under OUTPUT_DIR (the historical
+    default); an explicit list of ``dataset/name`` strings (what `amp bench renders
+    --models` passes) is validated the same way and raises SystemExit on a miss.
+    """
+    if models is None:
+        specs = discover_models(OUTPUT_DIR, ARGUMENTS_DIR)
+        if not specs:
+            available = []
+            for dataset in sorted(os.listdir(OUTPUT_DIR)) if os.path.isdir(OUTPUT_DIR) else []:
+                dataset_dir = os.path.join(OUTPUT_DIR, dataset)
+                if os.path.isdir(dataset_dir):
+                    available.extend(os.path.join(dataset, d) for d in sorted(os.listdir(dataset_dir)))
+            raise SystemExit(
+                "No trained models with matching configs found.\n"
+                f"Looked for trained models (dirs containing cfg_args) under: {OUTPUT_DIR}\n"
+                f"and configs under: {ARGUMENTS_DIR}\n"
+                f"Model dirs currently on disk: {available or 'none'}"
+            )
+        return specs
+    specs = []
+    for model in models:
+        parts = model.replace("\\", "/").strip("/").split("/")
+        if len(parts) != 2:
+            raise SystemExit(
+                f"invalid model spec {model!r}: expected '<dataset>/<name>' relative to {OUTPUT_DIR}"
+            )
+        dataset, name = parts
+        model_dir = os.path.join(OUTPUT_DIR, dataset, name)
+        if not os.path.isfile(os.path.join(model_dir, "cfg_args")):
+            raise SystemExit(f"model {model!r} not found (no cfg_args in {model_dir})")
+        config_rel = _find_config_rel(dataset, name)
+        if config_rel is None:
+            raise SystemExit(f"no config found for model {model!r} under {ARGUMENTS_DIR}")
+        specs.append((model, config_rel))
+    return specs
+
+
 def discover_models(output_dir, arguments_dir):
     # Find trained models on disk (a model dir must contain cfg_args) and pair
     # each with a config: prefer <dataset>/<name>.py, then fall back to
@@ -40,15 +94,7 @@ def discover_models(output_dir, arguments_dir):
                 continue
             if not os.path.isfile(os.path.join(model_dir, "cfg_args")):
                 continue
-            candidates = [
-                os.path.join(dataset, f"{name}.py"),
-                os.path.join(dataset, "default.py"),
-                os.path.join(dataset, f"{dataset}_default.py"),
-            ]
-            config_rel = next(
-                (c for c in candidates if os.path.isfile(os.path.join(arguments_dir, c))),
-                None,
-            )
+            config_rel = _find_config_rel(dataset, name, arguments_dir)
             if config_rel is None:
                 print(f"WARNING: no config found for model {os.path.join(dataset, name)}; skipped.")
                 continue
@@ -133,6 +179,14 @@ class AMPUI():
 COLUMNS = ["model","method","low_vram","mem_alloc","mem_seg","time","error_msg"]
 RESULTS_PATH = os.path.join(REPO_ROOT, "results.csv")
 
+# Benchmark defaults (historical module-scope constants, now the defaults of
+# run_benchmark(); `amp bench renders` overrides them per-flag).
+DEFAULT_AMP_FACTORS = [2] + [-1.0] * 7  # amplification factors
+DEFAULT_FREQS = [(0.0, 1.0)] * 8        # frequency ranges
+DEFAULT_METHODS = ['base', 'base segmented', 'abs', 'abs segmented']
+DEFAULT_VRAM_MODES = [False, True]      # True = low_vram_mode is on
+DEFAULT_REPEATS = 5
+
 
 def save_results(results, path):
     # Persist the accumulated results atomically (temp file + os.replace) so a
@@ -143,76 +197,62 @@ def save_results(results, path):
     os.replace(tmp_path, path)
 
 
-# prepare configs for running automated tests
-a_s = [2] + [-1.0] * 7 # amplfication factors
-freqs = [(0.0,1.0)] * 8 # frequency ranges
+def run_benchmark(models=None, methods=None, vram_modes=None, repeats=None, out_csv=None,
+                  amp_factors=None, freqs=None):
+    """Run the methods x vram_modes x models x repeats render benchmark.
 
-# methods to test
-methods = [
-    'base', 
-    'base segmented', 
-    'abs', 
-    'abs segmented'
-    ]
-# VRAM modes to test (True = low_vram_mode is on)
-vram_modes = [
-    False, 
-    True
-    ]
-# Models to test (model_path, config_path), discovered from what actually
-# exists on disk under <root>/output with a matching config in
-# <root>/core/arguments.
-models = discover_models(OUTPUT_DIR, ARGUMENTS_DIR)
-if not models:
-    available = []
-    for dataset in sorted(os.listdir(OUTPUT_DIR)) if os.path.isdir(OUTPUT_DIR) else []:
-        dataset_dir = os.path.join(OUTPUT_DIR, dataset)
-        if os.path.isdir(dataset_dir):
-            available.extend(os.path.join(dataset, d) for d in sorted(os.listdir(dataset_dir)))
-    raise SystemExit(
-        "No trained models with matching configs found.\n"
-        f"Looked for trained models (dirs containing cfg_args) under: {OUTPUT_DIR}\n"
-        f"and configs under: {ARGUMENTS_DIR}\n"
-        f"Model dirs currently on disk: {available or 'none'}"
-    )
-print(f"Benchmarking {len(models)} model(s): {models}")
+    Every parameter defaults to the historical module-scope constant (DEFAULT_* /
+    RESULTS_PATH); calling with no arguments reproduces the original script behavior exactly,
+    including the atomic per-combo CSV write (a crash mid-run keeps completed rows).
+    Returns the accumulated results rows (COLUMNS order).
+    """
+    a_s = amp_factors if amp_factors is not None else DEFAULT_AMP_FACTORS
+    freq_cutoffs = freqs if freqs is not None else DEFAULT_FREQS
+    methods = methods if methods is not None else DEFAULT_METHODS
+    vram_modes = vram_modes if vram_modes is not None else DEFAULT_VRAM_MODES
+    repeats = repeats if repeats is not None else DEFAULT_REPEATS
+    out_csv = out_csv if out_csv is not None else RESULTS_PATH
 
-# iteration for combination
-repeats = 5
-results = []
+    model_specs = resolve_model_specs(models)
+    print(f"Benchmarking {len(model_specs)} model(s): {model_specs}")
+
+    results = []
+    for method in methods:
+        for vram_mode in vram_modes:
+            for model, config in model_specs:
+                for _ in range(repeats):
+
+                    # For each method, model and vram mode run the given number of iterations
+                    # For each iteration load the scene and run the render pipeline, then save the performance metrics
+                    torch.cuda.empty_cache()
+                    try:
+                        AI = AMPUI()
+                        AI.low_vram_mode = vram_mode
+                        AI.load_config(os.path.join(OUTPUT_DIR, model), os.path.join(ARGUMENTS_DIR, config), a_s, freq_cutoffs)
+
+                        torch.cuda.memory.reset_accumulated_memory_stats()
+                        torch.cuda.memory.reset_max_memory_cached()
+                        torch.cuda.memory.reset_max_memory_allocated()
+
+                        frames, execution_time = AI.render(method)
+
+                        peak_memory_allocated = torch.cuda.max_memory_allocated()
+                        peak_memory_cached = torch.cuda.max_memory_cached()
+
+                        # Results are saved in Mb for VRAM and ms for runtime to avoid using numbers with large orders  of magnitude
+                        results.append([model, method, vram_mode, peak_memory_allocated/1e6, peak_memory_cached/1e6, execution_time/1e6, ""])
+
+                        del frames, AI
+                    except Exception as e:
+                        results.append([model, method, vram_mode, '-', '-', '-', str(e)])
+
+                    # Persist after every benchmark combo so a crash mid-run keeps
+                    # the rows already completed.
+                    save_results(results, out_csv)
+
+    print(f"Benchmark finished; results written to {out_csv}")
+    return results
 
 
-for method in methods:
-    for vram_mode in vram_modes:
-        for model,config in models:
-            for _ in range(repeats):
-
-                # For each method, model and vram mode run the given number of iterations
-                # For each iteration load the scene and run the render pipeline, then save the performance metrics 
-                torch.cuda.empty_cache()
-                try:
-                    AI = AMPUI()
-                    AI.low_vram_mode = vram_mode
-                    AI.load_config(os.path.join(OUTPUT_DIR,model),os.path.join(ARGUMENTS_DIR,config),a_s,freqs)
-
-                    torch.cuda.memory.reset_accumulated_memory_stats()
-                    torch.cuda.memory.reset_max_memory_cached()
-                    torch.cuda.memory.reset_max_memory_allocated()
-
-                    frames, execution_time = AI.render(method)
-
-                    peak_memory_allocated = torch.cuda.max_memory_allocated()
-                    peak_memory_cached = torch.cuda.max_memory_cached()
-
-                    # Results are saved in Mb for VRAM and ms for runtime to avoid using numbers with large orders  of magnitude
-                    results.append([model,method,vram_mode,peak_memory_allocated/1e6,peak_memory_cached/1e6,execution_time/1e6,""])
-
-                    del frames, AI
-                except Exception as e:
-                    results.append([model,method,vram_mode,'-','-','-',str(e)])
-
-                # Persist after every benchmark combo so a crash mid-run keeps
-                # the rows already completed.
-                save_results(results, RESULTS_PATH)
-
-print(f"Benchmark finished; results written to {RESULTS_PATH}")
+if __name__ == "__main__":
+    run_benchmark()
