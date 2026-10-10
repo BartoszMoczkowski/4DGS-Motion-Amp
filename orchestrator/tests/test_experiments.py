@@ -359,3 +359,205 @@ def test_count_gaussians_numeric_iteration_sort(tmp_path):
                   np.zeros((n, 3), np.float32))
     assert count_gaussians(tmp_path) == 222
     assert count_gaussians(tmp_path / "empty") is None
+
+
+# --- canary regression: `only`-windowed runs must not demand unselected stages' externals --------
+
+
+def test_only_window_scopes_the_external_inputs_check(tmp_path):
+    """The canary's root cause: run_dag checked external inputs over the FULL stage plan before
+    applying `only`, so run_pipeline(..., only=[convert, train, render]) demanded prep_split's
+    raw_mesh and seg_eval's gt_segmentation. The check is now scoped to the selected stages."""
+    from pipeline.artifacts import Artifact, create_run, update_manifest
+    from pipeline.dag import run_dag
+    from pipeline.stages import Stage, StageContext, list_stages, register
+
+    if "test.t27_needs_ext" not in list_stages():
+
+        @register("test.t27_needs_ext")
+        class NeedsExt(Stage):
+            inputs = ("never_seeded",)
+            outputs = ("e",)
+
+            def run(self, ctx: StageContext):
+                raise AssertionError("must never run")
+
+        @register("test.t27_makes_x")
+        class MakesX(Stage):
+            outputs = ("x",)
+
+            def run(self, ctx: StageContext):
+                out = ctx.run_dir / "x.json"
+                out.write_text("{}")
+                return {"x": Artifact(name="x", kind="json", path=str(out),
+                                      producing_stage=ctx.stage_name)}
+
+        @register("test.t27_uses_x")
+        class UsesX(Stage):
+            inputs = ("x",)
+            outputs = ("y",)
+
+            def run(self, ctx: StageContext):
+                out = ctx.run_dir / "y.json"
+                out.write_text("{}")
+                return {"y": Artifact(name="y", kind="json", path=str(out),
+                                      producing_stage=ctx.stage_name)}
+
+    names = ["test.t27_needs_ext", "test.t27_makes_x", "test.t27_uses_x"]
+    # Only the two self-contained stages selected: never_seeded must NOT be demanded.
+    m = run_dag("run_sel", names, {}, preset="toy", only=["test.t27_makes_x", "test.t27_uses_x"],
+                runs_root=tmp_path)
+    assert m.stages["test.t27_makes_x"].status == "success"
+    assert m.stages["test.t27_uses_x"].status == "success"
+
+    # But the full selection still fails fast without the external input.
+    from pipeline.dag import MissingDependencyError
+
+    with pytest.raises(MissingDependencyError, match="never_seeded"):
+        run_dag("run_full", names, {}, preset="toy", runs_root=tmp_path)
+
+    # And a selected stage whose input an UNSELECTED stage would produce is still external:
+    # it must be seeded (here: from the first call's recorded artifacts) — resume works.
+    m2 = run_dag("run_sel", names, {}, preset="toy", only=["test.t27_uses_x"], runs_root=tmp_path)
+    assert m2.stages["test.t27_uses_x"].status in ("success", "skipped")
+
+
+def test_pipeline_phase_runs_exactly_spec_stages_with_capture_only(tmp_path, monkeypatch):
+    """Runner-level regression: the pipeline phase passes only=spec.stages and exactly the
+    `capture` external artifact; the seg phase seeds gt_segmentation BEFORE any run_stage
+    dependency check can fire."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(runs_root))
+    manifest = _write_grid_manifest(tmp_path, ["cellA", "cellB"])
+    spec_path = _write_spec(tmp_path, manifest)
+
+    from pipeline.experiments import runner
+
+    calls: dict[str, Any] = {"run_pipeline": [], "run_stage": []}
+
+    def fake_run_pipeline(preset, **kwargs):
+        calls["run_pipeline"].append(kwargs)
+        # Mimic the real contract minimally: the run exists with its metadata afterwards.
+        from pipeline.artifacts import create_run
+
+        create_run(kwargs["run_id"], preset, {}, stage_names=kwargs.get("only") or [],
+                   metadata=kwargs.get("metadata"))
+        return kwargs["run_id"]
+
+    def fake_run_stage(run_id, stage, **kwargs):
+        from pipeline.artifacts import get_manifest
+
+        m = get_manifest(run_id)
+        if stage in ("segment.rigid", "seg_eval.default"):
+            # gt must be seeded before the first segment/eval stage runs.
+            assert "gt_segmentation" in m.artifacts, f"gt not seeded before {stage}"
+        calls["run_stage"].append((run_id, stage))
+
+    monkeypatch.setattr("pipeline.api.run_pipeline", fake_run_pipeline)
+    monkeypatch.setattr("pipeline.api.run_stage", fake_run_stage)
+
+    # run_pipeline is faked, so no scene artifact exists; _seed_gt falls back to the spec's
+    # eval.gt — point it at a real file.
+    import yaml as _yaml
+
+    data = _yaml.safe_load(spec_path.read_text())
+    gt = tmp_path / "gt.npz"
+    np.savez(gt, points=np.zeros((3, 3), np.float32), labels=np.zeros(3, int))
+    data["eval"]["gt"] = str(gt)
+    spec_path.write_text(_yaml.safe_dump(data))
+
+    runner.run_experiment(str(spec_path), only_cells=["cellA"], log=lambda m: None)
+
+    assert len(calls["run_pipeline"]) == 1
+    kw = calls["run_pipeline"][0]
+    assert kw["only"] == ["convert.default", "train.default", "render.default"]
+    assert set(kw["external_artifacts"]) == {"capture"}
+    assert kw["metadata"]["experiment"] == "toy_exp"
+    assert [s for _, s in calls["run_stage"]] == [
+        "seg_extract.default", "segment.rigid", "seg_eval.default",
+        "segment.kabsch", "seg_eval.default",
+    ]
+
+
+def test_failed_run_is_never_reused(tmp_path, monkeypatch):
+    """A partial/failed run dir with matching metadata must not shadow a fresh attempt (or a
+    later successful one)."""
+    runs_root = tmp_path / "runs"
+    monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(runs_root))
+    manifest = _write_grid_manifest(tmp_path, ["cellA", "cellB"])
+    spec_path = _write_spec(tmp_path, manifest)
+
+    from pipeline.artifacts import StageRecord, create_run, update_manifest
+
+    # The canary's corpse: metadata present, stages never ran.
+    create_run("toy_exp-cellA-deadbeef", "base", {},
+               stage_names=["convert.default", "train.default", "render.default"],
+               runs_root=runs_root,
+               metadata={"experiment": "toy_exp", "cell": "cellA", "variant": "cellA"})
+    update_manifest(runs_root=runs_root, run_id="toy_exp-cellA-deadbeef",
+                    mutate=lambda m: m.stages.__setitem__(
+                        "convert.default", StageRecord(status="failed", error="boom")))
+
+    from pipeline.experiments.runner import run_experiment
+
+    summary = run_experiment(str(spec_path), dry_run=True, only_cells=["cellA"],
+                             log=lambda m: None)
+    v = summary["variants"][0]
+    assert v["reused"] is False
+    assert v["run_id"] != "toy_exp-cellA-deadbeef"
+
+    # A failed run followed by a successful one reuses the SUCCESSFUL one regardless of
+    # directory sort order.
+    _fake_pipeline_run(runs_root, "toy_exp-cellA-00000000", "toy_exp", "cellA", "cellA")
+    summary = run_experiment(str(spec_path), dry_run=True, only_cells=["cellA"],
+                             log=lambda m: None)
+    v = summary["variants"][0]
+    assert v["reused"] is True
+    assert v["run_id"] == "toy_exp-cellA-00000000"
+
+
+def test_dry_run_fails_loudly_on_unseedable_externals(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(tmp_path / "runs"))
+    # Grid manifest whose capture dirs do NOT exist on disk.
+    manifest = tmp_path / "grid_manifest.json"
+    manifest.write_text(json.dumps({"cells": [
+        {"cell": "cellA", "capture_dir": str(tmp_path / "ghost_cap")},
+    ]}))
+    import yaml as _yaml
+
+    spec_path = tmp_path / "ghost.yaml"
+    spec_path.write_text(_yaml.safe_dump({
+        "name": "ghost",
+        "capture": {"manifest": str(manifest), "cells": ["cellA"]},
+        "pipeline": {"preset": "base"},
+        "segment": [{"impl": "rigid", "preset": "grid_seg", "extract": True}],
+        "eval": {"gt": str(tmp_path / "missing_gt.npz")},
+    }))
+
+    from pipeline.experiments.runner import run_experiment
+
+    with pytest.raises(ValueError, match="unseedable external inputs") as excinfo:
+        run_experiment(str(spec_path), dry_run=True, log=lambda m: None)
+    assert "capture dir not found" in str(excinfo.value)
+    assert "no gt_segmentation source" in str(excinfo.value)
+
+
+def test_cli_run_missing_dependency_is_a_clean_error(tmp_path, monkeypatch):
+    """The canary's second half: MissingDependencyError must surface as a red one-liner +
+    exit 1, not a raw traceback."""
+    from typer.testing import CliRunner
+
+    from scene_gen_cli import app
+
+    def boom(*a, **k):
+        from pipeline.dag import MissingDependencyError
+
+        raise MissingDependencyError("run 'x': input(s) {'raw_mesh'} required")
+
+    import pipeline.experiments.runner as runner_mod
+
+    monkeypatch.setattr(runner_mod, "run_experiment", boom)
+    result = CliRunner().invoke(app, ["run", "whatever.yaml"])
+    assert result.exit_code == 1
+    assert "raw_mesh" in result.output
+    assert "Traceback" not in result.output

@@ -36,12 +36,16 @@ def run(
     """Run (or plan) an experiment: cells x sweep variants x segment impls."""
     cells = [c.strip() for c in only_cells.split(",")] if only_cells else None
     impls = [i.strip() for i in only_impls.split(",")] if only_impls else None
+    from pipeline.api import StageFailedError
+    from pipeline.dag import MissingDependencyError
     from pipeline.experiments.runner import run_experiment
 
     try:
         run_experiment(spec, dry_run=dry_run, only_cells=cells, only_impls=impls,
                        log=lambda m: typer.echo(m))
-    except (FileNotFoundError, ValueError, NotImplementedError) as e:
+    except (FileNotFoundError, ValueError, NotImplementedError,
+            MissingDependencyError, StageFailedError) as e:
+        # One clean red line, never a raw traceback.
         typer.secho(str(e), err=True, fg=typer.colors.RED)
         raise typer.Exit(1) from e
     if dry_run:
@@ -71,17 +75,18 @@ def status(spec: str = typer.Argument(...)) -> None:
     if not found:
         typer.echo(f"no runs tagged experiment={loaded.name!r}")
         return
-    for (cell, variant), manifest in sorted(found.items()):
-        done = _pipeline_done(manifest, loaded.stages)
-        impls = sorted(
-            a.removeprefix("seg_eval_result_")
-            for a in manifest.artifacts
-            if a.startswith("seg_eval_result_")
-        )
-        typer.echo(
-            f"{variant}: run_id={manifest.run_id} status={manifest.status} "
-            f"pipeline={'done' if done else 'incomplete'} seg_impls={','.join(impls) or '-'}"
-        )
+    for (cell, variant), manifests in sorted(found.items()):
+        for manifest in manifests:
+            done = _pipeline_done(manifest, loaded.stages)
+            impls = sorted(
+                a.removeprefix("seg_eval_result_")
+                for a in manifest.artifacts
+                if a.startswith("seg_eval_result_")
+            )
+            typer.echo(
+                f"{variant}: run_id={manifest.run_id} status={manifest.status} "
+                f"pipeline={'done' if done else 'incomplete'} seg_impls={','.join(impls) or '-'}"
+            )
 
 
 @app.command("compare")

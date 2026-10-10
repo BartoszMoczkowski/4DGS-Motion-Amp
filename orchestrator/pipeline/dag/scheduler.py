@@ -343,10 +343,19 @@ def run_dag(
 
     Raises ``pipeline.stages.StageNotFoundError`` for an unregistered name,
     :class:`pipeline.dag.graph.CycleError` if ``stage_names`` has no valid order, and
-    :class:`pipeline.dag.graph.MissingDependencyError` if some stage's declared input is neither
-    produced by another stage in ``stage_names`` nor already present in an existing (resumed)
+    :class:`pipeline.dag.graph.MissingDependencyError` if some *selected* stage's declared input
+    is neither produced by another selected stage nor already present in an existing (resumed)
     run's artifacts. All three are raised *before* touching the manifest, so a bad call never
     leaves a partially-created run behind.
+
+    The external-inputs check is scoped to the stages this call will actually run (post
+    ``only``/``from_stage``/``to_stage`` selection) — since T27's experiment runner, ``only``
+    windows a full auto-plan down to e.g. ``[convert, train, render]``, and demanding
+    ``raw_mesh``/``gt_segmentation`` for the unselected ``prep_split``/``seg_eval`` stages made
+    every such windowed call fail fast with a spurious MissingDependencyError. Inputs an
+    unselected stage would have produced (e.g. ``scene`` from ``convert`` when
+    ``only=["train.default"]``) count as external and must be seeded/present — which the
+    per-stage ``missing_now`` check in the execution loop enforces again at run time.
     """
 
     stage_names = list(stage_names)
@@ -359,16 +368,16 @@ def run_dag(
     except FileNotFoundError:
         existing = None
 
+    selected = _select(order, names_set, from_stage=from_stage, to_stage=to_stage, only=only)
+
     known_artifacts = set(existing.artifacts) if existing is not None else set()
-    ext = external_inputs(nodes)
+    ext = external_inputs({n: nodes[n] for n in selected})
     truly_missing = {inp: sorted(names) for inp, names in ext.items() if inp not in known_artifacts}
     if truly_missing:
         raise MissingDependencyError(
-            f"run {run_id!r}: input(s) {truly_missing} required but not produced by any stage in "
-            f"{sorted(stage_names)} and not already present in the run's existing artifacts"
+            f"run {run_id!r}: input(s) {truly_missing} required but not produced by any selected "
+            f"stage in {sorted(selected)} and not already present in the run's existing artifacts"
         )
-
-    selected = _select(order, names_set, from_stage=from_stage, to_stage=to_stage, only=only)
 
     if existing is None:
         manifest = create_run(run_id, preset, resolved_config, stage_names=stage_names, runs_root=runs_root)

@@ -137,12 +137,17 @@ def _variants(spec: ExperimentSpec, grid_manifest: dict[str, Any]) -> list[Varia
     return variants
 
 
-def _find_runs(spec_name: str, *, runs_root: Optional[Path] = None) -> dict[tuple[str, str], Any]:
-    """Manifests indexed by ``(cell, variant)`` for runs tagged with this experiment's name."""
+def _find_runs(spec_name: str, *, runs_root: Optional[Path] = None) -> dict[tuple[str, str], list[Any]]:
+    """Manifests grouped by ``(cell, variant)`` for runs tagged with this experiment's name.
+
+    A list per key, not one manifest: a failed canary leaves a partial run dir behind with the
+    same ``(cell, variant)`` metadata as a later retry, and the retry (or an older failed
+    attempt) must never shadow the successful one.
+    """
     from ..artifacts import get_runs_root
 
     root = Path(runs_root) if runs_root is not None else get_runs_root()
-    found: dict[tuple[str, str], Any] = {}
+    found: dict[tuple[str, str], list[Any]] = {}
     if not root.is_dir():
         return found
     for run_dir in sorted(p for p in root.iterdir() if p.is_dir()):
@@ -151,7 +156,8 @@ def _find_runs(spec_name: str, *, runs_root: Optional[Path] = None) -> dict[tupl
         except (FileNotFoundError, ManifestError):
             continue
         if m.metadata.get("experiment") == spec_name:
-            found[(str(m.metadata.get("cell", "")), str(m.metadata.get("variant", "")))] = m
+            key = (str(m.metadata.get("cell", "")), str(m.metadata.get("variant", "")))
+            found.setdefault(key, []).append(m)
     return found
 
 
@@ -270,9 +276,11 @@ def run_experiment(
     log(f"experiment {spec.name}: {len(variants)} variant(s), {len(entries)} segment impl(s)")
 
     summary: dict[str, Any] = {"spec": spec.name, "variants": []}
+    plan_errors: list[str] = []
     for v in variants:
-        prev = existing.get((v.cell, v.variant))
-        reused = prev is not None and _pipeline_done(prev, spec.stages)
+        candidates = existing.get((v.cell, v.variant), [])
+        prev = next((m for m in candidates if _pipeline_done(m, spec.stages)), None)
+        reused = prev is not None
         run_id = prev.run_id if reused else f"{spec.name}-{v.variant}-{uuid.uuid4().hex[:8]}"
         # The pipeline input dir: the source capture, or the (possibly to-be-materialized)
         # sweep variant. make_capture_variant returns the SOURCE dir for a 100% target, so a
@@ -284,6 +292,23 @@ def run_experiment(
             pipeline_dir = (
                 v.capture_dir if available is not None and v.target >= available else v.sweep_dir
             )
+
+        if dry_run:
+            # Fail loudly on unseedable external inputs — the canary failure mode (T27
+            # follow-up): the pipeline phase needs the capture dir, the segment matrix needs a
+            # gt_segmentation source (the run's converted scene, the capture's labels, or
+            # eval.gt). A plan that can't seed these must not survive dry-run.
+            if not reused and not v.capture_dir.is_dir():
+                plan_errors.append(
+                    f"variant {v.variant}: capture dir not found: {v.capture_dir} "
+                    "(capture it first, e.g. amp capture run)"
+                )
+            if entries and not _gt_source_available(v, prev, spec):
+                plan_errors.append(
+                    f"variant {v.variant}: no gt_segmentation source for the segment matrix "
+                    "(no scene artifact gt, no points3D_labels.npy in the capture, and eval.gt "
+                    "missing)"
+                )
 
         plan = {
             "variant": v.variant,
@@ -350,7 +375,30 @@ def run_experiment(
             except Exception as exc:  # keep the batch going on a single failed entry
                 log(f"[FAIL] {run_id} ({entry.impl}): {exc}")
             _append_run_rows(run_id)
+    if dry_run and plan_errors:
+        raise ValueError(
+            "dry-run plan has unseedable external inputs:\n  - " + "\n  - ".join(plan_errors)
+        )
     return summary
+
+
+def _gt_source_available(v: Variant, prev: Any, spec: ExperimentSpec) -> bool:
+    """Whether the segment matrix's ``gt_segmentation`` external input can be seeded for this
+    variant (mirrors ``_seed_gt``'s source order)."""
+    if prev is not None:
+        scene = prev.artifacts.get("scene")
+        if scene is not None and (Path(scene.path) / "gt_segmentation.npz").is_file():
+            return True
+    if (v.capture_dir / "points3D_labels.npy").is_file():
+        return True  # convert.default derives gt_segmentation.npz from the capture's labels
+    if spec.eval is not None:
+        p = Path(spec.eval.gt)
+        if not p.is_absolute():
+            from ..artifacts.paths import REPO_ROOT
+
+            p = REPO_ROOT / p
+        return p.is_file()
+    return False
 
 
 def _append_run_rows(run_id: str) -> None:
