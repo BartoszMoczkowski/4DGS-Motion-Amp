@@ -151,9 +151,10 @@ def main():
                 continue
 
             run_dir = REPO_ROOT / "runs" / run_id
-            seg_npz = run_dir / "segmentation.npz"
+            # T27: segment stages write per-impl files (segmentation_<impl>.npz).
+            seg_npz = run_dir / f"segmentation_{seg_stage.split('.', 1)[1]}.npz"
             if not seg_npz.exists():
-                print(f"[WARN] missing segmentation.npz for {run_id}", flush=True)
+                print(f"[WARN] missing {seg_npz.name} for {run_id}", flush=True)
                 continue
 
             pred_data = np.load(seg_npz)

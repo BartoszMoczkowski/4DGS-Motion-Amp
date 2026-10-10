@@ -56,8 +56,6 @@ REQUIRED = [
     "run_cubes_4dgs",
     "run_cubes_capture",
     "run_cubes_seg",
-    "run_grid_4dgs",
-    "run_grid_seg",
     "view_gaussians_open3d",
 ]
 

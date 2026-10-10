@@ -4,7 +4,8 @@
 Follows the exact same shape as ``segment.rigid`` (T07) and ``segment.rigid2`` (T18):
 - ``inputs = ("trajectories",)`` / ``outputs = ("segmentation",)``
 - Reads ``trajectories.npz`` (``canonical_xyz``/``traj``/optional ``opacity``)
-- Writes ``segmentation.npz`` ``{points, labels}`` with label ``-1`` for dropped floaters
+- Writes ``segmentation_kabsch.npz`` ``{points, labels}`` with label ``-1`` for dropped floaters
+  (T27: per-impl filename so several impls can coexist in one run)
 - ``seg_eval.default`` is backend-agnostic
 
 Calls :func:`pipeline.vendored.host.kabsch_em.segment_by_kabsch` in-process (host stage).
@@ -64,7 +65,7 @@ class SegmentKabschStage(Stage):
         ctx.logger.info("segment.kabsch: %s", {k: v for k, v in info.items()
                         if isinstance(v, (int, float, str, bool))})
 
-        out_path = ctx.run_dir / "segmentation.npz"
+        out_path = ctx.run_dir / "segmentation_kabsch.npz"  # T27: per-impl filename
         # Optional ROI gating: points outside ROI get label -2 (static), preserving -1 floaters.
         roi_artifact = ctx.inputs.get("roi_mask")
         if roi_artifact is not None:

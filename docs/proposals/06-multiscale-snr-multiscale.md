@@ -64,5 +64,5 @@ The kept-band coefficients form a per-point feature $f_i = [\hat p_i(\omega_0), 
 ## Validation plan
 
 1. Report, per grid/sweep model: calibrated $\hat\sigma_d$, and the $z$-score histogram for GT-same-part vs GT-different-part edges → the **separability curve** (AUROC of same/different classification). This single number tells us whether *any* per-edge method can work on each model, before clustering.
-2. Re-run `run_grid_seg.py` (Option B + denoise + Leiden): target ARI ≫ 0.01 on the three grid models; expect the biggest gains on the sweep models where noise dominates.
+2. Re-run the grid via the experiment runner (T27 `amp exp run ... --only-impls rigid2`): target ARI ≫ 0.01 on the three grid models; expect the biggest gains on the sweep models where noise dominates.
 3. Ablate: denoise only / calibration only / Leiden only, to attribute gains.

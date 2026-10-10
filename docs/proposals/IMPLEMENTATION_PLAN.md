@@ -283,9 +283,10 @@ masks; compare. GPU-gated test per the `PIPELINE_TEST_GPU` convention.
 6. **Tests.** Sandbox tests in `orchestrator/tests/` for every host stage (synthetic scenes, no
    GPU). GPU/Isaac tests gated behind the existing env flags. Update the task's Status header
    and `TASKS.md` board when done, with a Log section as in T10.
-7. **Benchmark continuity.** All grid reruns append new rows to `runs/grid_seg_results.csv`
-   via `scene-gen/run_grid_seg.py --impl <name>` — never overwrite existing rows; the CSV is the
-   before/after evidence.
+7. **Benchmark continuity.** Grid reruns land in the unified store `runs/experiment_results.csv`
+   via the experiment runner (T27: add an `impl` entry to the spec's `segment` matrix and
+   `amp exp run ... --only-impls <name>`; the store is keyed `(run_id, impl)`, latest-wins per
+   key — historical per-impl CSVs in `runs/` are frozen evidence, never edit them).
 8. **Docs.** When a task lands, update `docs/motion-segmentation.md` results section and the
    DAG table in `ARCHITECTURE.md` (new `roi` role row), and drop a dated note in
    `.claude_notes/`.

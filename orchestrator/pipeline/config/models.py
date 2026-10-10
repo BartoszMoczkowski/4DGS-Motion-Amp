@@ -384,6 +384,12 @@ class SegEvalConfig(StrictModel):
     # labels — only valid if label 0 was verified to be background; USD traversal order
     # assigns labels arbitrarily).
     bg_label: Optional[int | Literal["auto"]] = None
+    # T27: explicit key for the per-impl result file/artifact name (``seg_eval_result_<key>``).
+    # Default None derives the key from the producing ``segment.*`` stage (Phase A behavior).
+    # The experiment runner sets this to the segment *entry* name (e.g. ``rigid2_roi``) when
+    # several spec entries share one stage impl (``segment.rigid2``), which the producing-stage
+    # derivation cannot distinguish.
+    result_impl: Optional[str] = None
 
 
 # --- amplification ----------------------------------------------------------------------------

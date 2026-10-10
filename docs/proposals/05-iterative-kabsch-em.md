@@ -73,7 +73,7 @@ Bodies whose residual floor stays high after convergence (flexible couplings, be
 ## Integration
 
 - New module `motion-seg/motion_seg/segment_kabsch_em.py` — pure numpy (small per-body SVDs; scipy sparse for the optional graph prior).
-- Same I/O contract as `segment_rigid.py`; register as `run_grid_seg.py --impl kabsch` so the full grid benchmark runs unchanged.
+- Same I/O contract as `segment_rigid.py`; registered as a `kabsch` segment entry in the experiment spec (T27 `amp exp run --only-impls kabsch`) so the full grid benchmark runs unchanged.
 - Composes with 01 (ROI gate: run EM only inside $\mathcal{M}^+$, static = body 0 with $R(t)=I, \tau(t)=0$ pinned) and 06 (pre-smoothed trajectories, subsample + propagate).
 
 ## Risks
@@ -85,5 +85,5 @@ Bodies whose residual floor stays high after convergence (flexible couplings, be
 ## Validation plan
 
 1. Self-test scene: ARI ≈ 1 expected, including recovering per-frame body motions.
-2. Grid benchmark `run_grid_seg.py --impl kabsch`: ARI/IoU vs Option B and MBS rows already in `runs/`.
+2. Grid benchmark `uv run amp exp run experiments/pump_grid_v2.yaml --only-impls kabsch`: ARI/IoU vs Option B and MBS rows already in `runs/`.
 3. Diagnostic outputs: converged per-body residual floor vs $\sigma$ (shows how many bodies are actually resolvable at current reconstruction noise), BIC curve over $K$.

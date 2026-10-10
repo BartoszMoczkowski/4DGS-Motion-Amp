@@ -83,6 +83,6 @@ Segmentation (Option B, or proposals 04/05) runs on the induced subgraph $G[\mat
 
 ## Validation plan
 
-1. Re-run on `output/multipleview/pump01` and the 7 grid/sweep models via `scene-gen/run_grid_seg.py` with `--roi`.
+1. Re-run on `output/multipleview/pump01` and the 7 grid/sweep models via the experiment runner (T27: `uv run amp exp run experiments/pump_grid_v2.yaml --only-impls rigid2_roi`; supersedes the deleted `scene-gen/run_grid_seg.py`).
 2. Report: ROI precision/recall, ARI-within-machine, and the before/after edge-score histogram (expect a cleaner bimodal split).
 3. Sanity: ARI on the synthetic self-test must stay ≈ 0.999 (gate must pass everything there).

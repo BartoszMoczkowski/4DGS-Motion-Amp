@@ -12,6 +12,14 @@ graduated function) — rather than reaching into ``motion_seg`` from outside th
 Consumes ``segmentation`` (produced by whichever ``segment.*`` impl a preset selects) and an
 external ``gt_segmentation`` artifact.  T19 addition: optionally consumes ``roi_mask`` for
 ARI-within-ROI scoring.
+
+T27: the result file / artifact name are keyed by the producing impl
+(``seg_eval_result_<impl>.json`` / ``seg_eval_result_<impl>``) so several segmentation impls can
+be evaluated in the *same* run without clobbering each other (previously the fixed
+``seg_eval_result.json`` was overwritten per impl, forcing ``run_grid_seg.py``'s ``_backup_eval``
+dance). The impl is derived from ``ctx.inputs["segmentation"].producing_stage``
+(``"segment.kabsch"`` → ``"kabsch"``); when the segmentation wasn't produced by a ``segment.*``
+stage (e.g. seeded externally) the old fixed names are kept for back-compat.
 """
 
 from __future__ import annotations
@@ -27,6 +35,16 @@ from ..artifacts import Artifact
 from ..vendored.host.seg_eval import _write_colored_ply, evaluate
 from .base import ResourceRequest, Stage, StageContext
 from .registry import register
+
+
+def _segmentation_impl(ctx: StageContext) -> str | None:
+    """The impl name behind the consumed ``segmentation`` artifact, or ``None`` when it wasn't
+    produced by a ``segment.*`` stage in this run (externally seeded → keep the legacy fixed
+    ``seg_eval_result`` names)."""
+    producing = ctx.inputs["segmentation"].producing_stage
+    if producing.startswith("segment."):
+        return producing.split(".", 1)[1]
+    return None
 
 
 @register("seg_eval.default")
@@ -49,6 +67,12 @@ class SegEvalStage(Stage):
     resources = ResourceRequest(needs_gpu=False, ram_gb=0.5)
 
     def run(self, ctx: StageContext) -> dict[str, Artifact]:
+        # SegEvalConfig.result_impl (T27) wins over the producing-stage derivation — the
+        # experiment runner keys results by segment *entry* name (e.g. rigid2_roi) when several
+        # entries share one stage impl (segment.rigid2).
+        impl = ctx.config.get("result_impl") or _segmentation_impl(ctx)
+        result_key = f"seg_eval_result_{impl}" if impl else "seg_eval_result"
+
         pred = np.load(ctx.inputs["segmentation"].path)
         gt = np.load(ctx.inputs["gt_segmentation"].path)
 
@@ -100,7 +124,7 @@ class SegEvalStage(Stage):
             summary["ari_within_roi"] = result["ari_within_roi"]
             summary["n_roi_points"] = result["n_roi_points"]
 
-        summary_path = ctx.run_dir / "seg_eval_result.json"
+        summary_path = ctx.run_dir / f"{result_key}.json"
         summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
         ctx.logger.info("wrote %s (ari=%.4f, mean_iou=%.4f)", summary_path, summary["ari"], summary["mean_iou"])
         if summary["bg_label_excluded"] is not None:
@@ -116,8 +140,11 @@ class SegEvalStage(Stage):
             metadata["bg_label_excluded"] = summary["bg_label_excluded"]
 
         artifacts: dict[str, Artifact] = {
+            # The dict key keeps the declared `outputs` contract ("seg_eval_result"); the
+            # Artifact NAME (what the manifest registers) is per-impl (T27) so two impls
+            # evaluated in one run both keep their results.
             "seg_eval_result": Artifact(
-                name="seg_eval_result",
+                name=result_key,
                 kind="json",
                 path=str(summary_path),
                 producing_stage=ctx.stage_name,

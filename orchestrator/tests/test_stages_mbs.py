@@ -106,7 +106,7 @@ def test_segment_mbs_stage_builds_expected_cli_and_out_path(tmp_path, monkeypatc
     result = SegmentMbsStage().run(ctx)
 
     assert set(result) == {"segmentation"}
-    assert Path(result["segmentation"].path) == ctx.run_dir / "segmentation.npz"
+    assert Path(result["segmentation"].path) == ctx.run_dir / "segmentation_mbs.npz"
     assert result["segmentation"].metadata == {"n_points": 1234, "n_views": 3}
 
     assert len(fake.calls) == 1

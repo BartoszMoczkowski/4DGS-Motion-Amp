@@ -6,10 +6,12 @@ alternative to ``segment.rigid`` (T07) / ``segment.mbs`` (T10), selected by
 Calls :func:`pipeline.vendored.host.segment_rigid2.segment_trajectories2` in-process (host
 stage, same shape as ``segment.rigid``). Same I/O contract as the other impls — reads
 ``trajectories.npz`` (``canonical_xyz``/``traj``/optional ``opacity``), writes
-``segmentation.npz`` ``{points, labels}`` — so ``seg_eval.default`` is backend-agnostic.
+``segmentation_rigid2.npz`` ``{points, labels}`` (T27: per-impl filename) — so
+``seg_eval.default`` is backend-agnostic.
 
 The separability diagnostic (proposal 06's go/no-go signal): when the impl config's
-``gt_segmentation_path`` is set (per-run, like ``run_grid_seg.py`` sets ``recolored_ply``),
+``gt_segmentation_path`` is set (per-run, like the T27 experiment runner sets it for
+rigid2-family segment entries),
 z-score AUROC vs GT is computed and written to ``separability.json`` as an extra artifact.
 It is a config-provided path rather than a declared DAG input so that preset runs *without*
 any GT (the normal inference case) still work — ``gt_segmentation`` stays a declared input
@@ -76,7 +78,7 @@ class SegmentRigid2Stage(Stage):
             ctx.logger.info(line)
         ctx.logger.info("segment.rigid2: %s", {k2: v2 for k2, v2 in info.items() if k2 != "eigenvalues"})
 
-        out_path = ctx.run_dir / "segmentation.npz"
+        out_path = ctx.run_dir / "segmentation_rigid2.npz"  # T27: per-impl filename
         # Optional ROI gating: points outside ROI get label -2 (static), preserving -1 floaters.
         roi_artifact = ctx.inputs.get("roi_mask")
         if roi_artifact is not None:

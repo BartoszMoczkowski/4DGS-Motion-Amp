@@ -60,7 +60,7 @@ Cheaper still, closer to MBS's per-pair affinity but analytic: for each graph ed
 ## Integration
 
 - New module `motion-seg/motion_seg/segment_subspace.py` (numpy/scipy/sklearn-style, CPU; sklearn is not yet a dep — implement PCA/spectral with scipy to keep the package dependency-light).
-- Input contract identical to `segment_rigid.py` (`trajectories.npz` in, `segmentation.npz` out) so `run.sh` and `run_grid_seg.py --impl subspace` work with a one-line addition.
+- Input contract identical to `segment_rigid.py` (`trajectories.npz` in, `segmentation_<impl>.npz` out) so it registers as just another segment entry in an experiment spec (T27; the old `run.sh` / `run_grid_seg.py --impl subspace` wiring is superseded).
 - Combine with proposal 01's ROI gate via the existing `--roi` flag.
 
 ## Risks
@@ -72,5 +72,5 @@ Cheaper still, closer to MBS's per-pair affinity but analytic: for each graph ed
 ## Validation plan
 
 1. Self-test scene (7 bodies): expect ARI ≈ 1 (subspace methods are exact on noiseless rigid data).
-2. Grid/sweep models via `run_grid_seg.py --impl subspace`: ARI/IoU vs Option B baseline; also with `--roi` (01) and SNR-denoised trajectories (06).
+2. Grid/sweep models via a `subspace` segment entry in the experiment spec (T27 `amp exp run --only-impls subspace`): ARI/IoU vs Option B baseline; also with `--roi` (01) and SNR-denoised trajectories (06).
 3. Report the eigenvalue spectrum per scene — tells us whether 107 clusters is even resolvable from the trajectory data at current reconstruction noise.

@@ -248,6 +248,6 @@ def test_segment_kabsch_stage_runs_end_to_end(tmp_path):
     seg = np.load(manifest.artifacts["segmentation"].path)
     assert set(seg.files) >= {"points", "labels"}
 
-    summary = json.loads(Path(manifest.artifacts["seg_eval_result"].path).read_text())
+    summary = json.loads(Path(manifest.artifacts["seg_eval_result_kabsch"].path).read_text())
     assert summary["ari"] >= 0.95, f"eval ARI {summary['ari']:.4f} < 0.95"
     assert ari(gt, seg["labels"]) >= 0.95

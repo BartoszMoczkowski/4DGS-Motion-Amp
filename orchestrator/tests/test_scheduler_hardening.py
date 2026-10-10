@@ -19,10 +19,11 @@ up (same pattern as ``tests/test_dag.py``).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
-CALLS = {"dir_src": 0, "dir_use": 0, "file_src": 0, "oom": 0}
+CALLS = {"dir_src": 0, "dir_use": 0, "file_src": 0, "dir_rereg": 0, "oom": 0}
 
 
 def _register_toy_stages() -> None:
@@ -66,6 +67,20 @@ def _register_toy_stages() -> None:
             out = ctx.run_dir / "f.json"
             out.write_text(json.dumps({"n": CALLS["file_src"], "cfg": ctx.config.get("n", 1)}))
             return {"f": Artifact(name="f", kind="json", path=str(out), producing_stage=ctx.stage_name)}
+
+    @register("test.h_dir_rereg")
+    class DirReregStage(Stage):
+        """Consumes the directory artifact and RE-REGISTERS the same path as its own output
+        after writing into it in place — the render.default/amp.default pattern (T27)."""
+
+        inputs = ("d",)
+        outputs = ("r",)
+
+        def run(self, ctx: StageContext) -> dict[str, Artifact]:
+            CALLS["dir_rereg"] += 1
+            d = Path(ctx.inputs["d"].path)
+            (d / "renders.txt").write_text(f"renders-v{CALLS['dir_rereg']}")
+            return {"r": Artifact(name="r", kind="dataset", path=str(d), producing_stage=ctx.stage_name)}
 
     @register("test.h_oom")
     class OomOnceStage(Stage):
@@ -205,6 +220,79 @@ def test_intact_cache_hit_still_skips(tmp_path):
     m2 = run_dag("run2", ["test.h_file_src"], {}, preset="toy", stage_configs=cfgs, runs_root=tmp_path)
     assert CALLS["file_src"] == 1
     assert m2.stages["test.h_file_src"].status == "skipped"
+
+
+# --- T27: directory artifacts are re-hashed on cache hits ---------------------------------------
+
+
+def test_directory_content_mutation_invalidates_downstream_cache(tmp_path):
+    """T27 acceptance: change a file INSIDE a directory artifact, re-run — the directory
+    re-hash in ``_artifacts_intact`` must spot it (existence-only used to miss it), the producer
+    re-runs, and the downstream stage's cache is invalidated via the new fingerprint."""
+    from pipeline.dag import run_dag
+
+    names = ["test.h_dir_src", "test.h_dir_use"]
+    m1 = run_dag("run1", names, {}, preset="toy", runs_root=tmp_path)
+    assert m1.status == "success"
+    assert CALLS["dir_src"] == 1 and CALLS["dir_use"] == 1
+
+    # External mutation inside the directory artifact (path still exists, file still exists).
+    (tmp_path / "run1" / "d_out" / "payload.txt").write_text("tampered")
+
+    m2 = run_dag("run1", names, {}, preset="toy", runs_root=tmp_path)
+    assert CALLS["dir_src"] == 2  # producer's record no longer intact -> re-ran
+    assert CALLS["dir_use"] == 2  # downstream invalidated via the producer's new fingerprint
+    assert m2.stages["test.h_dir_src"].status == "success"
+    assert m2.stages["test.h_dir_use"].status == "success"
+
+
+def test_untouched_directory_artifact_still_hits_cache(tmp_path):
+    """The re-hash must not break the normal case: an unchanged directory artifact still skips,
+    same-run and cross-run."""
+    from pipeline.dag import run_dag
+
+    names = ["test.h_dir_src", "test.h_dir_use"]
+    run_dag("run1", names, {}, preset="toy", runs_root=tmp_path)
+    assert CALLS["dir_src"] == 1 and CALLS["dir_use"] == 1
+
+    m2 = run_dag("run1", names, {}, preset="toy", runs_root=tmp_path)  # same-run resume
+    assert CALLS["dir_src"] == 1 and CALLS["dir_use"] == 1
+
+    m3 = run_dag("run2", names, {}, preset="toy", runs_root=tmp_path)  # cross-run via index
+    assert CALLS["dir_src"] == 1 and CALLS["dir_use"] == 1
+    assert m3.stages["test.h_dir_src"].status == "skipped"
+    assert m3.stages["test.h_dir_use"].status == "skipped"
+
+
+def test_inplace_reregister_does_not_invalidate_producer_cache(tmp_path):
+    """The render.default/amp.default pattern: a stage writes INTO its input directory and
+    re-registers the same path as its own artifact. The producer's recorded fingerprint is
+    legitimately superseded (metadata marker), NOT replaced — so downstream cache keys don't
+    drift and neither stage re-runs on resume, same-run or cross-run."""
+    from pipeline.dag import run_dag
+
+    names = ["test.h_dir_src", "test.h_dir_rereg"]
+    m1 = run_dag("run1", names, {}, preset="toy", runs_root=tmp_path)
+    assert m1.status == "success"
+    assert CALLS["dir_src"] == 1 and CALLS["dir_rereg"] == 1
+    # The producer's content_hash is unchanged; the superseded fingerprint is recorded alongside.
+    d_art = m1.artifacts["d"]
+    assert d_art.content_hash != m1.artifacts["r"].content_hash
+    assert d_art.metadata["dir_superseded_hash"] == m1.artifacts["r"].content_hash
+
+    m2 = run_dag("run1", names, {}, preset="toy", runs_root=tmp_path)  # same-run resume
+    assert CALLS["dir_src"] == 1 and CALLS["dir_rereg"] == 1
+
+    # Cross-run: a fresh run cache-hitting the producer's index entry (whose stored fingerprint
+    # predates the in-place write) still skips, thanks to the superseded marker in the index.
+    m3 = run_dag("run2", ["test.h_dir_src"], {}, preset="toy", runs_root=tmp_path)
+    assert CALLS["dir_src"] == 1
+    assert m3.stages["test.h_dir_src"].status == "skipped"
+
+    # But a mutation AFTER the re-registration is not covered by the marker -> re-run.
+    (tmp_path / "run1" / "d_out" / "renders.txt").write_text("tampered")
+    run_dag("run3", ["test.h_dir_src"], {}, preset="toy", runs_root=tmp_path)
+    assert CALLS["dir_src"] == 2
 
 
 # --- 1.8: declared outputs must exist after a success exit ---------------------------------------

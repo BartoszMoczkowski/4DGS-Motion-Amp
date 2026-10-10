@@ -189,6 +189,7 @@ def run_pipeline(
     only: Optional[list[str]] = None,
     force: bool = False,
     overrides: Optional[dict[str, Any]] = None,
+    metadata: Optional[dict[str, Any]] = None,
 ) -> str:
     """Run (or resume) the full DAG for ``preset``. Returns a ``run_id``.
 
@@ -241,6 +242,12 @@ def run_pipeline(
     the mechanism CLI flags (``amp train --scene``, ``amp render --amp-factors``) use instead of
     writing throwaway YAML presets.
 
+    ``metadata`` (T27): an optional free-form dict recorded verbatim on the run manifest
+    (``RunManifest.metadata``) — experiment/cell/variant identity, capture provenance, ... — so
+    runs are queryable by *what they are* (e.g. the experiment runner's find-or-create by
+    ``{experiment, cell, variant}``) rather than only by run_id. Not part of the resolved config
+    and never affects cache keys.
+
     Raises :class:`StageFailedError` if any stage this call executed ends up ``failed`` in the
     manifest (run_dag itself records-and-returns; the failure is re-raised here so synchronous
     callers exit non-zero).
@@ -278,7 +285,7 @@ def run_pipeline(
             normalized[name] = art
         external_artifacts = normalized
 
-    create_run(run_id, preset, resolved, stage_names=stage_names)
+    create_run(run_id, preset, resolved, stage_names=stage_names, metadata=metadata)
     if external_artifacts:
         def _seed(m: Any) -> None:
             m.artifacts.update(external_artifacts)

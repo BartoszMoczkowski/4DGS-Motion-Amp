@@ -27,7 +27,7 @@ would we get if the ROI mask were perfect (derived from GT labels)?
 | `orchestrator/pipeline/stages/roi_mask_lift.py` | `roi.mask_lift` stage (CUDA env) |
 | `orchestrator/pipeline/stages/roi_mask_oracle.py` | `roi.mask_oracle` stage (host env) — **this is what you run now** |
 | `orchestrator/pipeline/config/presets/pump01_mask_oracle.yaml` | Preset for oracle mode |
-| `scene-gen/run_grid_seg.py` | Benchmark harness — already extended with `--impl mask_lift_oracle` |
+| `experiments/pump_grid_v2.yaml` + `pipeline/experiments/runner.py` | Benchmark harness (T27) — the `mask_lift_oracle` impl is one of the spec's segment entries (the old `scene-gen/run_grid_seg.py` driver was deleted in T27) |
 | `orchestrator/tests/test_roi_mask_oracle.py` | Sandbox tests (4 tests) |
 | `orchestrator/tests/test_mask_lift_helpers.py` | Sandbox tests for mask lift helpers (6 tests) |
 
@@ -42,7 +42,7 @@ would we get if the ROI mask were perfect (derived from GT labels)?
 
 ```bash
 cd C:\Users\barte\Code\PythonScripts\4DGS-Motion-Amp
-.venv\Scripts\python.exe scene-gen\run_grid_seg.py --impl mask_lift_oracle
+uv run amp exp run experiments/pump_grid_v2.yaml --only-impls mask_lift_oracle
 ```
 
 **Idempotency**: If `roi.mask_oracle` already succeeded for a run, it will be skipped. To force
@@ -124,8 +124,10 @@ Generate masks and run the real mask lift:
 3. Save as `masks/cam01/frame_00001.png` (or `masks/cam01.png` for static masks)
 4. Run:
    ```bash
-   .venv\Scripts\python.exe scene-gen\run_grid_seg.py --impl mask_lift --masks-dir <path_to_masks>
+   uv run amp exp run experiments/pump_grid_v2.yaml --only-impls mask_lift
    ```
+   (`mask_lift` needs `roi.mask_lift.masks_dir` — add it as an override in the spec entry or a
+   preset; the runner skips the entry with a message when it is unset)
 
 ### Option B: SAM / SAM-2
 Use Segment Anything on one frame per view with a point/box prompt on the machine.
@@ -157,13 +159,13 @@ Also update `docs/motion-segmentation.md` §Results with the new numbers.
 
 2. **Mask directory not found**: `mask_lift` requires `masks_dir`. The oracle does NOT need masks.
 
-3. **Missing trajectories**: If the baseline `rigid` pass was never run, `trajectories.npz` won't exist and `mask_lift_oracle` will fail. Run `--impl rigid` first to extract trajectories.
+3. **Missing trajectories**: If the baseline `rigid` pass was never run, `trajectories.npz` won't exist and `mask_lift_oracle` will fail. Run the `rigid` impl first (`--only-impls rigid`, or just run the full spec — `rigid` is the extracting entry).
 
 4. **Scheduler input resolution**: The T19 fix allows `ctx.inputs.get("roi_mask")` to work even when `roi_mask` is not a declared input. This should be stable but if `seg_eval` fails with "roi_mask not found", the scheduler reverted.
 
 ## Standing rules (from AGENTS.md / INSTRUCTIONS.md)
 
-- **Never overwrite existing CSVs**. `run_grid_seg.py` appends rows; if you need to re-run, back up the CSV first.
+- **Never overwrite existing CSVs**. The unified store `runs/experiment_results.csv` is *derived* (rebuild any time via `amp exp export`); the historical per-impl `runs/grid_seg_*_results.csv` files are frozen history — never edit them.
 - **Config is the single source of truth**. Do not edit `.sh` scripts or `core/arguments/*.py`.
 - **Copy logic in, don't call original scripts**. If you fix `mask_lift.py`, edit the vendored file directly.
 - **One task at a time**. Finish the oracle benchmark before starting mask generation.

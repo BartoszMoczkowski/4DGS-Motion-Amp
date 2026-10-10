@@ -64,7 +64,7 @@ class SegmentRigidStage(Stage):
             ctx.logger.info(line)
         ctx.logger.info("segment.rigid: %s", info)
 
-        out_path = ctx.run_dir / "segmentation.npz"
+        out_path = ctx.run_dir / "segmentation_rigid.npz"  # T27: per-impl filename
         # Same on-disk shape segment_rigid.py's own CLI writes (points, labels) — evaluate_
         # segmentation.py's --pred / seg_eval.default both read exactly this.
         # Optional ROI gating: points outside ROI get label -2 (static), preserving -1 floaters.

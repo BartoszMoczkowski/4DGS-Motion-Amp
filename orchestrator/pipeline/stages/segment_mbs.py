@@ -66,7 +66,7 @@ class SegmentMbsStage(Stage):
         traj = ctx.inputs["trajectories"]
         traj_container = ctx.paths.to_container(traj.path, env="cuda")
 
-        out_host = ctx.run_dir / "segmentation.npz"
+        out_host = ctx.run_dir / "segmentation_mbs.npz"  # T27: per-impl filename
         out_container = ctx.paths.to_container(out_host, env="cuda")
 
         cfg = ctx.config  # SegmentMbsConfig's own fields (checkpoint/n_points/.../seed).

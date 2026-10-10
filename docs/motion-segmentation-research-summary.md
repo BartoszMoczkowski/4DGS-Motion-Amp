@@ -321,10 +321,10 @@ Option B — pump inside factory hall (grid experiments):
   → omni_to_4dgs.py    (same as above)
 
 Then:
-  → run_grid_4dgs.py   (orchestrator DAG: convert → train → render)
+  → amp exp run experiments/pump_grid_v2.yaml   (T27 declarative spec; orchestrator DAG:
+      convert → train → render, then seg_extract → segment → seg_eval per impl)
       3 grid cells (A20mm_M2, A20mm_M4, A40mm_M8) + 4 Gaussian-count sweep variants (10k–100k)
-  → run_grid_seg.py    (orchestrator DAG: seg_extract → segment → seg_eval)
-      supports --impl rigid / mbs / rigid2 / kabsch / rigid2_roi / mask_lift_oracle
+      segment matrix: rigid / mbs / rigid2 / kabsch / rigid2_roi / mask_lift_oracle / mask_lift / multicut
 ```
 
 ### 8.3 Parametric scene generation (`gen_scenes.py`)
@@ -351,14 +351,15 @@ The pipeline has been battle-tested and several subtle bugs were caught only bec
 
 ### 8.5 Evaluation harness
 
-`run_grid_seg.py` is the single entry point for benchmarking any segmentation method against the full grid+sweep:
+The full grid+sweep benchmark is one declarative experiment spec (T27) — the old `run_grid_seg.py` batch driver was deleted in favor of:
 
 ```bash
-.venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl rigid2       # T18
-.venv\Scripts\python.exe scene-gen/run_grid_seg.py --impl mask_lift_oracle  # T22
+uv run amp exp run experiments/pump_grid_v2.yaml                           # everything
+uv run amp exp run experiments/pump_grid_v2.yaml --only-impls rigid2       # T18 only
+uv run amp exp run experiments/pump_grid_v2.yaml --only-impls mask_lift_oracle  # T22
 ```
 
-It is idempotent (skips already-evaluated runs), backs up previous results before overwriting, and appends one CSV row per run. This made it possible to run six different methods (rigid, mbs, rigid2, kabsch, rigid2_roi, mask_lift_oracle) over the same 7 models without manual bookkeeping.
+The runner is idempotent (runs are matched by manifest metadata `experiment`/`cell`/`variant`, and unchanged stages cache-skip), writes per-impl `seg_eval_result_<impl>.json` files that never overwrite each other, and lands all metrics in the unified store `runs/experiment_results.csv` (`amp exp export` / `amp exp compare`). This made it possible to run six different methods (rigid, mbs, rigid2, kabsch, rigid2_roi, mask_lift_oracle) over the same 7 models without manual bookkeeping.
 
 ---
 
@@ -428,7 +429,7 @@ This experiment is only possible because the synthetic pipeline can author and e
 **Current:** Grid is 3×3, only 3 cells trained. Sweep is 4 counts.  
 **Improvement:**
 - Extend `gen_scenes.py` to sweep over camera count (5, 10, 20, 40), resolution (900p, 1080p, 4K), frame count (60, 120, 240), and motion amplitude (0.5 mm to 100 mm) in a fully automated batch.
-- The orchestrator's DAG system already supports this — one YAML preset change per axis, then `run_grid_4dgs.py` and `run_grid_seg.py` handle the rest.
+- The orchestrator's DAG system already supports this — one YAML experiment-spec change per axis, then `amp exp run` handles the rest (T27).
 - The separability AUROC diagnostic (T18) provides an automatic stopping rule: once AUROC ≥ 0.8 is reached for some (cameras, resolution, amplitude) combination, that cell is the "success condition" and the thesis segmentation arc could be reopened.
 
 ### 9.8 Summary: synthetic data as a scientific instrument
@@ -532,8 +533,7 @@ All files live in `runs/`. Each is ~0.5–1 KB, 7 rows + header. Backups of pre-
 | # | File | What it implements |
 |---|------|-------------------|
 | 40 | **`scene-gen/gen_scenes.py`** | Parametric grid generator (amplitude × multiplier, metallic materials, factory composition) |
-| 41 | **`scene-gen/run_grid_4dgs.py`** | Batch training harness (grid + sweep, idempotent, CSV logging) |
-| 42 | **`scene-gen/run_grid_seg.py`** | Batch segmentation harness (all --impl variants, idempotent, CSV + PLY output) |
+| 41 | **`experiments/pump_grid_v2.yaml`** + `orchestrator/pipeline/experiments/` | T27 declarative experiment spec + runner — replaced the deleted `run_grid_4dgs.py` / `run_grid_seg.py` batch harnesses (grid + sweep, metadata-keyed idempotency, unified results store) |
 
 ### 10.8 Architecture and pipeline docs
 

@@ -29,8 +29,12 @@ Run the rigid2 benchmark over the 7 already-trained grid/sweep models and analyz
 From the repo root:
 
 ```
-.venv\Scripts\python.exe scene-gen\run_grid_seg.py --impl rigid2
+uv run amp exp run experiments/pump_grid_v2.yaml --only-impls rigid2
 ```
+
+(T27 note: this handoff predates the experiment runner — the old
+`.venv\Scripts\python.exe scene-gen\run_grid_seg.py --impl rigid2` driver was deleted in T27;
+the spec's `rigid2` segment entry is the exact equivalent.)
 
 - CPU-only: reuses each run's already-extracted `trajectories.npz`; no GPU/Docker needed.
   Expect a few minutes per model (7 runs: `grid-A20mm_M2`, `grid-A20mm_M4`, `grid-A40mm_M8`,
@@ -84,9 +88,8 @@ existing rows in any `runs/*.csv` — they are the before/after evidence.
 - Tuning knobs (preset YAML): `k`, `min_size`, `harmonics`, `drive_freq`, `z_thresh`,
   `partition`, `max_clusters`, `n_subsample` — create a new preset under
   `orchestrator/pipeline/config/presets/` (extends `pump01_segB2`), never edit shared presets
-  in place for one experiment, and add a matching `--impl`/preset entry in
-  `scene-gen/run_grid_seg.py` only if you need a separate results CSV; otherwise edit the
-  `PRESET` mapping's target.
+  in place for one experiment, and add a matching segment entry (`impl` + preset) to the
+  experiment spec (`experiments/*.yaml`) if you want it in the benchmark matrix.
 
 ## Standing constraints (from AGENTS.md / orchestrator conventions)
 

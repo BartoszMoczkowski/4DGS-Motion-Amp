@@ -121,7 +121,8 @@ def run_one(run_id: str, k: int, impl: str) -> dict:
     gt_path = seed_gt(run_id)
     stages = STAGES[impl]
     run_dir = REPO_ROOT / "runs" / run_id
-    eval_path = run_dir / "seg_eval_result.json"
+    # T27: seg_eval writes per-impl result files (seg_eval_result_<impl>.json).
+    eval_path = run_dir / f"seg_eval_result_{SEGMENT_STAGE[impl].split('.', 1)[1]}.json"
 
     resolved = validate_config(PRESET[impl]).model_dump()
     resolved["seg_eval"]["recolored_ply"] = f"segmentation_colored_{impl}.ply"

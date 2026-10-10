@@ -1,6 +1,7 @@
 # T27 — Declarative experiment specs & `amp exp run`
 
-- Status: todo
+- Status: done (2026-10-06; sandbox + dry-run verified — the real pump-grid reproduction run is
+  a Bartosz-machine follow-up, see `.claude_notes/T27_experiment_specs_2026-10-06.md`)
 - Phase: 9 (streamlining)
 - Depends on: T26, T05
 - Environment: sandbox-testable for spec parsing + DAG plan validation (dry-run, no GPU);

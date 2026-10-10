@@ -22,9 +22,13 @@ Design choices (see ``planning/tasks/T05-dag-scheduler-and-cache.md``):
   (never copied). Since 2026-10-05 (``reviews/orchestrator-correctness-review.md`` bugs
   1.3/1.4/1.8/1.9) freshness additionally requires that (a) directory artifacts carry a real
   content fingerprint (``pipeline.artifacts.hash_directory``) so forced upstream reruns
-  invalidate downstream keys, (b) a hit's recorded artifact paths still exist (file hashes
-  re-checked; directories existence-only, since ``render``/``amp`` legitimately write into their
-  input model dir in place), (c) a stage's declared outputs exist on disk before a success is
+  invalidate downstream keys, (b) a hit's recorded artifact paths still exist and still match
+  their recorded hashes — files via the fast fingerprint, and since T27 directories via
+  ``hash_directory`` too, so a file changed inside a directory artifact invalidates the cache;
+  the one legitimate in-place directory mutation (``render``/``amp`` writing into their input
+  model dir) is handled by marking same-path artifacts' fingerprints as superseded
+  (``_supersede_shared_path_hashes``) rather than by exempting directories from re-hashing —
+  (c) a stage's declared outputs exist on disk before a success is
   recorded, and (d) OOM-fallback successes are recorded/cached under their *effective*
   (reduced-memory) config's key, not the original config's.
 - **Resume is just caching.** There's no separate "resume" code path: calling ``run_dag`` again
@@ -39,6 +43,7 @@ Design choices (see ``planning/tasks/T05-dag-scheduler-and-cache.md``):
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -63,8 +68,12 @@ from ..artifacts import (
 )
 from ..resources import InsufficientResourcesError, ResourceMonitor, check_headroom, run_with_oom_retry
 from ..stages import StageContext
-from .cache import compute_cache_key, get_cached, put_cached
+from .cache import compute_cache_key, get_cached, mark_path_fingerprint_superseded, put_cached
 from .graph import DAGNode, MissingDependencyError, external_inputs, resolve_nodes, topo_sort
+
+#: Artifact.metadata key recording a directory fingerprint that legitimately superseded the
+#: recorded ``content_hash`` via an in-place re-registration (see ``_supersede_shared_path_hashes``).
+_SUPERSEDED_HASH_KEY = "dir_superseded_hash"
 
 
 class StageOutputError(RuntimeError):
@@ -107,16 +116,24 @@ def _input_hash(art: Artifact) -> str:
 
 
 def _artifacts_intact(artifacts: Sequence[Artifact]) -> bool:
-    """``True`` iff every artifact's path still exists and (for files with a recorded hash)
-    still matches it — the revalidation a cache hit never used to do (review bug 1.4).
+    """``True`` iff every artifact's path still exists and (with a recorded hash) still matches
+    it — the revalidation a cache hit never used to do (review bug 1.4).
 
-    Directories are checked for *existence only*: ``render.default``/``amp.default`` write
-    *into* their input model directory in place (see ``pipeline.stages.render``'s docstring),
-    so a recorded directory hash legitimately goes stale while the artifact is still perfectly
-    valid — re-hash-comparing directories would force spurious reruns of ``train`` after every
-    ``render``. File artifacts (``.npz``/``.ply``/``.json``/...) are never mutated in place by
-    downstream stages, so their recorded hash is safe and cheap to recheck (the fast
-    fingerprint reads at most 2 MiB).
+    File artifacts are rechecked with the fast fingerprint (reads at most 2 MiB). Directory
+    artifacts with a recorded ``content_hash``/``hash_algo`` are re-hashed too
+    (:func:`pipeline.artifacts.hash_directory` — T27; previously existence-only), so a file
+    changed *inside* a directory artifact invalidates the producing stage's record (and, via the
+    rerun's new fingerprint, every downstream cache key) instead of being silently trusted.
+    ``hash_directory`` stays cheap on huge trees: files over 4 MiB contribute size+mtime only.
+
+    The one legitimate in-place mutation — ``render.default``/``amp.default`` writing renders
+    into their input model dir — is *not* misread as corruption: those stages re-register the
+    same directory as their own artifact, and the scheduler then marks every same-path artifact
+    with the new fingerprint as ``metadata["dir_superseded_hash"]``
+    (``_supersede_shared_path_hashes``) — the recorded ``content_hash`` itself is left
+    untouched, because downstream cache keys were computed from it and must not drift. A
+    re-hash matching either value counts as intact. Directories with no recorded hash stay
+    existence-only.
     """
 
     for art in artifacts:
@@ -127,7 +144,67 @@ def _artifacts_intact(artifacts: Sequence[Artifact]) -> bool:
             current = hash_path(p, fast=(art.hash_algo != FULL_ALGO))
             if current != art.content_hash:
                 return False
+        elif art.content_hash and art.hash_algo and p.is_dir():
+            current = hash_directory(p)
+            if current != art.content_hash and current != art.metadata.get(_SUPERSEDED_HASH_KEY):
+                return False
     return True
+
+
+def _norm_path(p: str) -> str:
+    return os.path.normcase(os.path.normpath(p))
+
+
+def _supersede_shared_path_hashes(
+    manifest: RunManifest,
+    result: dict[str, Artifact],
+    run_id: str,
+    *,
+    runs_root: Optional[Path],
+) -> RunManifest:
+    """Mark same-path artifacts' recorded fingerprints as superseded by a re-registration (T27).
+
+    When a stage returns an artifact whose path is *already* held by another manifest artifact
+    under a different name — the ``render.default``/``amp.default`` in-place pattern, where the
+    stage writes into its input model dir and re-registers that same dir as ``renders`` — the
+    older artifact's recorded fingerprint no longer matches the tree on disk, through no fault
+    of its own. The older fingerprint must NOT be *replaced* (downstream cache keys — including
+    the re-registering stage's own — were computed from it), so the new fingerprint is recorded
+    as ``metadata["dir_superseded_hash"]`` instead: :func:`_artifacts_intact`'s directory
+    re-hash accepts either value, while ``_input_hash``/cache keys keep seeing the original.
+    Also propagated to cross-run cache-index entries referencing the same path
+    (:func:`pipeline.dag.cache.mark_path_fingerprint_superseded`) so e.g. ``train.default``'s
+    cache entry survives a later in-place render.
+    """
+
+    fresh = {_norm_path(a.path): a for a in result.values() if a.content_hash}
+    if not fresh:
+        return manifest
+    superseded = {}
+    for name, art in manifest.artifacts.items():
+        if name in result:
+            continue
+        src = fresh.get(_norm_path(art.path))
+        if (
+            src is not None
+            and art.content_hash is not None
+            and art.content_hash != src.content_hash
+            and art.metadata.get(_SUPERSEDED_HASH_KEY) != src.content_hash
+        ):
+            superseded[name] = src
+    if not superseded:
+        return manifest
+
+    def _mut(m: RunManifest) -> None:
+        for name, src in superseded.items():
+            m.artifacts[name].metadata[_SUPERSEDED_HASH_KEY] = src.content_hash
+
+    updated = update_manifest(run_id, _mut, runs_root=runs_root)
+    for name, src in superseded.items():
+        mark_path_fingerprint_superseded(
+            manifest.artifacts[name].path, src.content_hash, runs_root=runs_root
+        )
+    return updated
 
 
 def _verify_declared_outputs(
@@ -230,9 +307,10 @@ def _already_recorded(name: str, cache_key: str, manifest: RunManifest) -> bool:
     check.
 
     Since 2026-10-05 (review bug 1.4) the record alone isn't enough: the recorded artifact
-    *paths* must also still exist on disk (and file hashes must still match). A run directory
-    that was partially deleted externally no longer counts as fresh — the stage reruns instead
-    of downstream stages consuming dead paths.
+    *paths* must also still exist on disk and their recorded content hashes must still match
+    (files via the fast fingerprint; directories via ``hash_directory`` since T27). A run
+    directory that was partially deleted externally no longer counts as fresh — the stage
+    reruns instead of downstream stages consuming dead paths.
     """
 
     rec = manifest.stages.get(name)
@@ -428,6 +506,11 @@ def run_dag(
         effective_key = cache_key
         if oom_fallback is not None:
             effective_key = compute_cache_key(node.stage_cls, ctx.config, input_hashes, git_sha)
+
+        # T27: if this stage re-registered a path another artifact already holds (render/amp's
+        # in-place model-dir writes), mark the older recorded fingerprints as superseded so the
+        # directory re-hash in _artifacts_intact doesn't invalidate the original producer.
+        manifest = _supersede_shared_path_hashes(manifest, result, run_id, runs_root=runs_root)
 
         manifest = record_stage_result(
             run_id,

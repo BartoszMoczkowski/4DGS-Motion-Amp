@@ -10,8 +10,6 @@ rescore_motion_classes.py
 run_cubes_4dgs.py
 run_cubes_capture.py
 run_cubes_seg.py
-run_grid_4dgs.py
-run_grid_seg.py
 scene_gen_cli.py
 view_gaussians_open3d.py
 scene_gen.egg-info/PKG-INFO

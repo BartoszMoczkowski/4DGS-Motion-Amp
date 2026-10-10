@@ -71,6 +71,7 @@ def new_manifest(
     *,
     stage_names: list[str] = (),
     git_sha: Optional[str] = None,
+    metadata: Optional[dict[str, Any]] = None,
 ) -> RunManifest:
     """Build a fresh, all-``pending`` manifest. Doesn't touch disk — pair with :func:`save_manifest`."""
 
@@ -83,6 +84,7 @@ def new_manifest(
         created_at=now,
         updated_at=now,
         status="pending",
+        metadata=dict(metadata) if metadata else {},
         stages={name: StageRecord() for name in stage_names},
         artifacts={},
     )
@@ -95,12 +97,14 @@ def create_run(
     *,
     stage_names: list[str] = (),
     runs_root: Optional[Path] = None,
+    metadata: Optional[dict[str, Any]] = None,
 ) -> RunManifest:
     """Create ``runs/<run_id>/`` (+ ``logs/``), write the config snapshot, and an initial manifest."""
 
     ensure_run_dirs(run_id, runs_root=runs_root)
     manifest = new_manifest(
-        run_id, preset, resolved_config, stage_names=list(stage_names), git_sha=get_git_sha()
+        run_id, preset, resolved_config, stage_names=list(stage_names), git_sha=get_git_sha(),
+        metadata=metadata,
     )
     _atomic_write_json(config_snapshot_path(run_id, runs_root=runs_root), resolved_config)
     save_manifest(manifest, runs_root=runs_root)

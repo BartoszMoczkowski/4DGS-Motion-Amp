@@ -164,7 +164,7 @@ class SegmentMulticutStage(Stage):
             labels[(~roi_mask) & (labels != -1)] = -2
             ctx.logger.info("ROI gated: %d inside, %d outside (-2)", int(roi_mask.sum()), int((~roi_mask).sum()))
 
-        out_path = ctx.run_dir / "segmentation.npz"
+        out_path = ctx.run_dir / "segmentation_multicut.npz"  # T27: per-impl filename
         np.savez(out_path, points=xyz.astype(np.float32), labels=labels)
 
         info_dict = {

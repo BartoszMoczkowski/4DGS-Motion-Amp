@@ -103,6 +103,12 @@ class RunManifest(StrictModel):
 
     ``resolved_config`` is a plain ``dict`` (``PipelineConfig.model_dump()``, T02's schema) so
     this module never imports ``pipeline.config`` and stays a leaf dependency.
+
+    ``metadata`` (T27) is a free-form caller-attached dict — experiment/cell/variant identity,
+    capture provenance (scene-cell params from a ``grid_manifest.json`` / ``_motion.json``), ...
+    — for anything that must be *queryable on the run* without being part of the resolved
+    config. It defaults to ``{}`` so manifests written before the field existed still
+    deserialize (``extra="forbid"`` only rejects *unknown* keys, not missing defaulted ones).
     """
 
     run_id: str
@@ -112,5 +118,6 @@ class RunManifest(StrictModel):
     created_at: str  # ISO 8601, UTC
     updated_at: str  # ISO 8601, UTC
     status: RunState = "pending"
+    metadata: dict[str, Any] = Field(default_factory=dict)
     stages: dict[str, StageRecord] = Field(default_factory=dict)
     artifacts: dict[str, Artifact] = Field(default_factory=dict)

@@ -204,6 +204,6 @@ def test_segment_rigid2_stage_runs_end_to_end(tmp_path):
     sep = json.loads(Path(manifest.artifacts["separability"].path).read_text())
     assert sep["denoised_z"]["auroc"] > 0.8
 
-    summary = json.loads(Path(manifest.artifacts["seg_eval_result"].path).read_text())
+    summary = json.loads(Path(manifest.artifacts["seg_eval_result_rigid2"].path).read_text())
     assert summary["ari"] >= 0.95, f"eval ARI {summary['ari']:.4f} < 0.95"
     assert ari(gt, seg["labels"]) >= 0.95

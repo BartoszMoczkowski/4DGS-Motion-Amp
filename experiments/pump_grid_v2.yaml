@@ -1,0 +1,44 @@
+# T27: the pump amplitude x multiplier grid + Gaussian-count sweep as one declarative spec.
+# Replaces scene-gen/run_grid_4dgs.py + run_grid_seg.py (3 grid cells, 4 sweep targets on the
+# largest cell, 8 segmentation impls). Reproduced via:  amp exp run experiments/pump_grid_v2.yaml
+name: pump_grid_v2
+
+scene_gen:
+  enabled: false  # scenes/captures already exist (omniverse-pipeline/data/scenes/grid)
+
+capture:
+  manifest: omniverse-pipeline/data/scenes/grid/grid_manifest.json
+  cells: [pump_A20mm_M2, pump_A20mm_M4, pump_A40mm_M8]
+  renders_root: Q:/Omniverse/renders
+  reuse_existing: true  # missing capture dir -> error pointing at `amp capture run`
+
+sweep:
+  # The largest cell retrained at 10k/25k/50k/100k initial Gaussians, densification frozen.
+  cell: pump_A40mm_M8
+  targets: [10000, 25000, 50000, 100000]
+  seed: 0
+
+pipeline:
+  preset: pump01
+  overrides:
+    # 2400-view train/test sets OOM the Docker VM; the 300-view video set is what we inspect.
+    render: {skip_train: true, skip_test: true}
+
+stages: [convert.default, train.default, render.default]
+
+# The run_grid_seg impl matrix. rigid runs seg_extract first (grid_seg preset: 240-frame
+# captures need n_times=240 to avoid Nyquist aliasing); the rest reuse its trajectories.
+segment:
+  - {impl: rigid, preset: grid_seg, extract: true}
+  - {impl: mbs, preset: pump01_segA}
+  - {impl: rigid2, preset: pump01_segB2}
+  - {impl: kabsch, preset: pump01_kabsch}
+  - {impl: rigid2_roi, preset: pump01_roi_gate}
+  - {impl: mask_lift_oracle, preset: pump01_mask_oracle}
+  - {impl: mask_lift, preset: pump01_mask_lift}
+  - {impl: multicut, preset: pump01_multicut}
+
+# Fallback GT when a run's converted scene has none (the runner prefers the per-variant
+# converted gt_segmentation.npz, which is subsampled consistently for sweep variants).
+eval:
+  gt: data/multipleview/pump01/gt_segmentation.npz

@@ -144,3 +144,41 @@ def put_cached(
         "artifacts": {name: art.model_dump() for name, art in artifacts.items()},
     }
     _atomic_write_json(_index_path(runs_root), index)
+
+
+def mark_path_fingerprint_superseded(
+    path: str,
+    superseded_hash: str,
+    *,
+    runs_root: Optional[Path] = None,
+) -> None:
+    """Mark every index entry whose artifacts point at ``path`` with a superseded fingerprint.
+
+    T27: ``render.default``/``amp.default`` write *into* their input model directory in place and
+    re-register that same directory as their own artifact. Once ``_artifacts_intact`` re-hashes
+    directory artifacts (instead of existence-only), the producing stage's cache entries (e.g.
+    ``train.default``'s) would go stale after every legitimate in-place render. The stored
+    ``content_hash`` is deliberately NOT replaced — downstream cache keys were computed from it
+    and must not drift — so the new fingerprint is recorded in the artifact's metadata under
+    ``dir_superseded_hash`` instead, mirroring what the scheduler writes into the run manifest
+    (``pipeline.dag.scheduler._supersede_shared_path_hashes``). External corruption is still
+    caught everywhere else — this only fires when a stage just deliberately wrote to (and
+    re-registered) the path itself.
+    """
+
+    norm = os.path.normcase(os.path.normpath(path))
+    index = _load_index(runs_root)
+    changed = False
+    for entry in index.values():
+        for data in entry.get("artifacts", {}).values():
+            if (
+                os.path.normcase(os.path.normpath(data.get("path", ""))) == norm
+                and data.get("content_hash") is not None
+                and data.get("content_hash") != superseded_hash
+            ):
+                metadata = data.setdefault("metadata", {})
+                if metadata.get("dir_superseded_hash") != superseded_hash:
+                    metadata["dir_superseded_hash"] = superseded_hash
+                    changed = True
+    if changed:
+        _atomic_write_json(_index_path(runs_root), index)

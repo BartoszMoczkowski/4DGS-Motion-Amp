@@ -51,7 +51,7 @@ The codebase is a fork of [4DGaussians](https://github.com/hustvl/4DGaussians), 
 | `core/motion_amp/renderer.py` | Low-level helper used by `render_amp.py`; returns raw pre-rasterization Gaussian parameters |
 | `amp-ui/` (package `amp-ui`) | `amp_ui/ampUI.py` (standalone Streamlit UI for `render_amp.py`), `amp_ui/cameras.py` (USB multi-camera recorder, OpenCV), `amp_ui/run_renders_auto.py` (benchmark harness writing `results.csv`) |
 | `omniverse-pipeline/` (package `omniverse-pipeline`) | Isaac Sim capture + USD prep + conversion to 4DGS `multipleview` format; scripts in `omniverse-pipeline/omniverse_pipeline/` |
-| `scene-gen/` | `gen_scenes.py` — parametric grid generator of pump test scenes (base motion amplitude × amplification multiplier; metallic per-part materials). Plain python + usd-core; reuses `omniverse_pipeline.add_motion` / `compose_scene`. Outputs to `omniverse-pipeline/data/scenes/grid/`. Also `frames_to_mp4.py` (capture frames → mp4 preview) and `run_grid_4dgs.py` (batch-runs captured grid cells through the orchestrator's convert/train/render DAG + a Gaussian-count sweep with densification frozen; results in `runs/grid_4dgs_results.csv`), and `run_grid_seg.py` (baseline Option-B rigidity-graph segmentation over the trained grid/sweep models via the orchestrator's seg_extract/segment.rigid/seg_eval stages; results in `runs/grid_seg_results.csv`) |
+| `scene-gen/` | `gen_scenes.py` — parametric grid generator of pump test scenes (base motion amplitude × amplification multiplier; metallic per-part materials). Plain python + usd-core; reuses `omniverse_pipeline.add_motion` / `compose_scene`. Outputs to `omniverse-pipeline/data/scenes/grid/`. Also `frames_to_mp4.py` (capture frames → mp4 preview). The old grid/sweep batch drivers (`run_grid_4dgs.py` / `run_grid_seg.py`) were deleted in T27 — the grid is now one declarative spec + `amp exp run experiments/pump_grid_v2.yaml` (see §5.6) |
 | `motion-seg/` (package `motion-seg`) | Motion segmentation (pure CPU base): rigidity-graph clustering (`segment_rigid.py`) + MultiBodySync adapter (`mbs_infer.py`) + evaluation; Python package in `motion-seg/motion_seg/` |
 | `orchestrator/` | Three-layer pipeline system: DAG execution (`pipeline/`), HTTP MCP server (`mcp_server/`), Streamlit UI (`ui/`) |
 | `submodules/` | `depth-diff-gaussian-rasterization`, `simple-knn`, `multibody-sync-4dgs` |
@@ -133,7 +133,7 @@ First-time Windows machine setup is documented in `orchestrator/planning/WINDOWS
 The unified entry point is the `amp` CLI (T25/T26; installed by `uv sync`, run via `uv run amp`):
 
 ```bash
-amp --help   # groups: capture, train, render, seg, orch, bench; exp (T27), mlflow (T28), report (T29) reserved
+amp --help   # groups: capture, train, render, seg, exp, orch, bench; mlflow (T28), report (T29) reserved
 ```
 
 Every pipeline-executing command supports `--dry-run` (prints the resolved stage + config slice, executes nothing). The raw `python <script>.py` invocations below remain only as the in-container exec paths the Docker stages use (see `pipeline/stages/cuda_common.py`) — they are no longer the user path.
@@ -217,6 +217,22 @@ uv run amp orch ui --app amp        # standalone motion-amp UI (ampUI.py)
 # container/Linux instead (containerization is future work, see the T26 task log).
 uv run amp bench renders [--models ds/name ...] [--methods "base,abs segmented"] [--repeats 5] [--vram-modes full,low]
 ```
+
+### 5.7 Experiments (T27)
+
+A grid/sweep experiment is one declarative YAML under `experiments/` + one command — this
+replaced the deleted `scene-gen/run_grid_4dgs.py` / `run_grid_seg.py` batch drivers:
+
+```bash
+uv run amp exp list                                            # specs under experiments/
+uv run amp exp run experiments/pump_grid_v2.yaml --dry-run     # full plan, touches nothing
+uv run amp exp run pump_grid_v2 [--only-cells a,b] [--only-impls rigid,kabsch]
+uv run amp exp status pump_grid_v2                             # per-variant run status
+uv run amp exp compare pump_grid_v2 [--metric ari]             # impl x variant pivot
+uv run amp exp export [--out runs/experiment_results.csv]      # rebuild the results store
+```
+
+`experiments/pump_grid_v2.yaml` is the reference spec (pump amplitude×multiplier grid + Gaussian-count sweep + the 8-impl segmentation matrix). Runs are created via `run_pipeline` with run IDs `<experiment>-<variant>-<8hex>`; idempotency is by run-manifest metadata (`experiment`/`cell`/`variant`), never `force=True`. Results land in the unified store `runs/experiment_results.csv` keyed `(run_id, impl)`, re-derivable from manifests at any time via `amp exp export`. Per-impl seg eval results are keyed `seg_eval_result_<impl>.json` inside each run (Phase A).
 
 ## 6. Testing strategy
 

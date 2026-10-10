@@ -233,7 +233,7 @@ def test_convert_segment_eval_slice_runs_end_to_end(tmp_path):
     assert set(seg_data.files) >= {"points", "labels"}
     assert seg_data["labels"].shape[0] == seg_data["points"].shape[0]
 
-    eval_artifact = manifest.artifacts["seg_eval_result"]
+    eval_artifact = manifest.artifacts["seg_eval_result_rigid"]  # T27: per-impl artifact name
     summary = json.loads(Path(eval_artifact.path).read_text())
     # Same bar segment_rigid.py's own _selftest() holds its recovered labels to.
     assert summary["ari"] > 0.9
@@ -269,7 +269,7 @@ def test_manifest_and_artifacts_are_queryable_via_the_store(tmp_path):
 
     artifacts = list_artifacts(run_id, runs_root=tmp_path)
     names = {a.name for a in artifacts}
-    assert {"capture", "trajectories", "gt_segmentation", "scene", "segmentation", "seg_eval_result"} <= names
+    assert {"capture", "trajectories", "gt_segmentation", "scene", "segmentation", "seg_eval_result_rigid"} <= names
 
 
 # --- acceptance criterion 3: caching — unchanged rerun cached, threshold_mult invalidates --------
