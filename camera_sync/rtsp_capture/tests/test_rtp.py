@@ -16,6 +16,7 @@ from rtsp_capture.rtp import (
     H265Depay,
     RtpTsExtender,
     depay_for_encoding,
+    is_keyframe,
     parse_rtcp_sr,
     parse_rtp,
 )
@@ -300,3 +301,27 @@ class TestRtpToNtp:
         points = [(2**32 - 45000, 1000.0), (2**32 + 45000, 1001.0)]
         f = build_rtp_to_ntp(points, clock_rate=90000)
         assert f(2**32) == pytest.approx(1000.5)
+
+
+class TestIsKeyframe:
+    def test_h265_idr(self):
+        # NAL type 19 (IDR_W_RADL): (19 << 1) = 38 (0x26)
+        frame = ANNEX_B_PREFIX + bytes([0x26, 0x01]) + b"\x00" * 10
+        assert is_keyframe(frame, "h265") is True
+        assert is_keyframe(frame, "H265") is True
+
+    def test_h265_trail_p_frame(self):
+        # NAL type 1 (TRAIL_R): (1 << 1) = 2 (0x02)
+        frame = ANNEX_B_PREFIX + bytes([0x02, 0x01]) + b"\x00" * 10
+        assert is_keyframe(frame, "h265") is False
+
+    def test_h264_idr(self):
+        # NAL type 5 (IDR): 0x65 or 0x25 (type = byte & 0x1F == 5)
+        frame = ANNEX_B_PREFIX + b"\x65\x88\x84"
+        assert is_keyframe(frame, "h264") is True
+
+    def test_h264_non_idr(self):
+        # NAL type 1: 0x41 (type = 1)
+        frame = ANNEX_B_PREFIX + b"\x41\x9a"
+        assert is_keyframe(frame, "h264") is False
+

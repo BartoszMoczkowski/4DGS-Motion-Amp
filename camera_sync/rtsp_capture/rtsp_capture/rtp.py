@@ -236,3 +236,28 @@ def depay_for_encoding(encoding_name: str) -> H264Depay | H265Depay:
     if name in ("H265", "HEVC"):
         return H265Depay()
     raise ValueError(f"unsupported RTP encoding: {encoding_name}")
+
+
+def is_keyframe(annex_b_frame: bytes, codec: str | None = None) -> bool:
+    """Return True if an Annex-B frame contains an IDR/keyframe NAL unit.
+
+    Supports H.264 (NAL type 5) and H.265 (NAL types 19 IDR_W_RADL, 20 IDR_N_LP, 21 CRA).
+    """
+    is_h265 = bool(codec and "265" in codec.lower())
+    for part in annex_b_frame.split(ANNEX_B_PREFIX):
+        if not part:
+            continue
+        if part.startswith(b"\x01"):
+            part = part[1:]
+        if is_h265:
+            if len(part) >= 2:
+                nal_type = (part[0] >> 1) & 0x3F
+                if nal_type in (19, 20, 21):
+                    return True
+        else:
+            if len(part) >= 1:
+                nal_type = part[0] & 0x1F
+                if nal_type == 5:
+                    return True
+    return False
+

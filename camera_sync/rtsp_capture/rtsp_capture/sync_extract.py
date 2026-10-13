@@ -30,6 +30,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from .rtp import is_keyframe
+
 DEFAULT_CLOCK_RATE = 90000
 DEFAULT_FPS_FALLBACK = 25.0
 
@@ -42,6 +44,23 @@ def load_jsonl(path: Path) -> list[dict]:
             if line:
                 rows.append(json.loads(line))
     return rows
+
+
+def _find_first_keyframe_idx(bitstream_path: Path, frames: list[dict], codec: str | None) -> int | None:
+    if not bitstream_path.exists():
+        return None
+    try:
+        data = bitstream_path.read_bytes()
+    except Exception:
+        return None
+    offset = 0
+    for f in frames:
+        nb = f.get("n_bytes", 0)
+        f_data = data[offset : offset + nb]
+        offset += nb
+        if is_keyframe(f_data, codec):
+            return f.get("frame_idx")
+    return None
 
 
 def build_rtp_to_ntp(sr_points: list[tuple[int, float]], clock_rate: float = DEFAULT_CLOCK_RATE):
@@ -93,6 +112,18 @@ def _load_cameras(recording_dir: Path) -> dict[str, dict]:
         if not frames or not srs:
             print(f"[WARN] {camera_id}: empty frames/SR log, skipping.", file=sys.stderr)
             continue
+        first_keyframe = _find_first_keyframe_idx(
+            recording_dir / info["bitstream"], frames, info.get("codec")
+        )
+        if first_keyframe is not None and first_keyframe > 1:
+            dropped_count = sum(1 for f in frames if f["frame_idx"] < first_keyframe)
+            if dropped_count > 0:
+                print(
+                    f"[EXTRACT] {camera_id}: skipping {dropped_count} pre-keyframe frame(s) "
+                    f"to prevent initial gray/corrupted frames.",
+                    file=sys.stderr,
+                )
+                frames = [f for f in frames if f["frame_idx"] >= first_keyframe]
         mapper = build_rtp_to_ntp(
             [(s["rtp_ts"], s["ntp_unix"]) for s in srs], clock_rate
         )
@@ -216,7 +247,7 @@ def extract(
         for index, instant in enumerate(instants, start=1):
             instant["index"] = index
             frame_dir = synced_dir / f"frame_{index:06d}"
-            frame_dir.mkdir()
+            frame_dir.mkdir(parents=True, exist_ok=True)
             for camera_id, pick in instant["frames"].items():
                 src = decoded[camera_id] / f"{pick['frame_idx']:06d}.jpg"
                 shutil.copyfile(src, frame_dir / f"{camera_id}.jpg")

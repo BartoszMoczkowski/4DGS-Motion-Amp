@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .rtp import is_keyframe
 from .rtsp_client import RtspClient, redact_url
 
 URL_TEMPLATE = "rtsp://{user}:{password}@{ip}:554/cam/realmonitor?channel=1&subtype={subtype}"
@@ -141,6 +142,7 @@ class CameraRecorder(threading.Thread):
         }
         self.error: str | None = None
         self._frame_idx = 0
+        self._has_keyframe = False
         self._bitstream = None
         self._frames_log = None
         self._rtcp_log = None
@@ -157,6 +159,7 @@ class CameraRecorder(threading.Thread):
             conn_stats: dict[str, int] = {}
             try:
                 self.state = "CONNECTING"
+                self._has_keyframe = False
                 client.connect()
                 client.describe()
                 client.setup()
@@ -174,6 +177,7 @@ class CameraRecorder(threading.Thread):
                     break
                 self.error = str(exc)
                 self.state = "RECONNECTING"
+                self._has_keyframe = False
                 self.stats["reconnects"] += 1
                 print(
                     f"[{self.cfg.camera_id}] connection lost ({exc}); "
@@ -197,7 +201,12 @@ class CameraRecorder(threading.Thread):
 
     def _on_frame(self, data: bytes, rtp_ts: int, seq_start: int, arrival: float) -> None:
         if not self.record_event.is_set():
+            self._has_keyframe = False
             return
+        if not self._has_keyframe:
+            if not is_keyframe(data, self.codec):
+                return
+            self._has_keyframe = True
         self._ensure_files()
         self._frame_idx += 1
         self._bitstream.write(data)

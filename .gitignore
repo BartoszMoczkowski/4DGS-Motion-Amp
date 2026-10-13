@@ -18,6 +18,8 @@ viseron/snapshots/
 viseron/thumbnails/
 camera_sync/**/cameras.yaml
 camera_sync/captures/
+camera_sync/**/recordings/
+camera_sync/**/synced/
 cam_pass.md
 runs/
 LLFF/
