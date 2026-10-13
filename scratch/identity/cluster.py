@@ -101,6 +101,11 @@ def evaluate_identity_segmentation(
         gt_motion_on_pred = propagate_gt_to_pred(gt_pts, gt_motion_raw, pred_points)
         ari_motion = float(adjusted_rand_score(gt_motion_on_pred, pred_labels))
         mean_iou_motion, _ = compute_best_iou(gt_motion_on_pred, pred_labels)
+    else:
+        # For testbeds without separate motion groupings (e.g. cubes scenes where motion classes == CAD parts),
+        # motion classes are identical to instance classes.
+        ari_motion = ari_global
+        mean_iou_motion = mean_iou
 
     n_pred_clusters = len(np.unique(pred_labels))
     n_gt_parts = len(np.unique(gt_labels_raw))

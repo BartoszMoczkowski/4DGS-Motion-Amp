@@ -292,19 +292,30 @@ def run_pipeline(
 
         update_manifest(run_id, _seed)
 
-    manifest = run_dag(
-        run_id,
-        stage_names,
-        resolved,
-        preset=preset,
-        stage_configs=stage_configs,
-        from_stage=from_stage,
-        to_stage=to_stage,
-        only=only,
-        force=force,
-    )
-    _raise_for_failed_stages(run_id, manifest, stage_names)
-    return manifest.run_id
+    # T28: local MLflow tracking. Failure-isolated by design (tracking.py swallows all its own
+    # errors — a down server warns, never fails the run). The finally block records the failure
+    # to MLflow *before* StageFailedError propagates out of _raise_for_failed_stages.
+    from . import tracking
+
+    mlflow_run_id = tracking.start_run(run_id, preset, resolved, metadata)
+    tracking.record_backlink(run_id, mlflow_run_id)
+    manifest = None
+    try:
+        manifest = run_dag(
+            run_id,
+            stage_names,
+            resolved,
+            preset=preset,
+            stage_configs=stage_configs,
+            from_stage=from_stage,
+            to_stage=to_stage,
+            only=only,
+            force=force,
+        )
+        _raise_for_failed_stages(run_id, manifest, stage_names)
+        return manifest.run_id
+    finally:
+        tracking.track_run_completion(run_id, manifest, stage_order=stage_names)
 
 
 def run_stage(
@@ -337,16 +348,28 @@ def run_stage(
     manifest = get_manifest(run_id)
     resolved = _apply_overrides(manifest.resolved_config, overrides)
     stage_cfg = _stage_config_for(stage, resolved)
-    result_manifest = run_dag(
-        run_id,
-        [stage],
-        resolved,
-        preset=manifest.preset,
-        stage_configs={stage: stage_cfg},
-        force=force,
-    )
-    _raise_for_failed_stages(run_id, result_manifest, [stage])
-    return run_id
+
+    # T28: start-or-reuse the MLflow run (same join key as run_pipeline), then incremental
+    # stage-metric/artifact logging around the single-stage execution — needed for T27's
+    # per-impl segmentation matrix, which re-enters existing runs via run_stage.
+    from . import tracking
+
+    mlflow_run_id = tracking.start_run(run_id, manifest.preset, resolved, manifest.metadata)
+    tracking.record_backlink(run_id, mlflow_run_id)
+    result_manifest = None
+    try:
+        result_manifest = run_dag(
+            run_id,
+            [stage],
+            resolved,
+            preset=manifest.preset,
+            stage_configs={stage: stage_cfg},
+            force=force,
+        )
+        _raise_for_failed_stages(run_id, result_manifest, [stage])
+        return run_id
+    finally:
+        tracking.track_run_completion(run_id, result_manifest, stage_order=[stage])
 
 
 def cancel(run_id: str) -> None:

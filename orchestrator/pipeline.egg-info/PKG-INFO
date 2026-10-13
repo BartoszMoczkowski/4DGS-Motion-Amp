@@ -11,6 +11,7 @@ Requires-Dist: numpy>=1.24
 Requires-Dist: scipy>=1.10
 Requires-Dist: Pillow>=10.0
 Requires-Dist: psutil>=5.9
+Requires-Dist: mlflow>=2.16
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.28; extra == "mcp"
 Provides-Extra: ui

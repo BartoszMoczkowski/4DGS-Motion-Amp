@@ -37,3 +37,13 @@ def _no_real_resource_telemetry_by_default(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(query_mod, "query_gpu_memory", lambda: None)
     monkeypatch.setattr(query_mod, "query_ram", lambda: None)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _mlflow_disabled_by_default(monkeypatch: pytest.MonkeyPatch):
+    """T28: no test should accidentally hit a real MLflow server. Tracking tests
+    (``tests/test_tracking.py``) opt back in by deleting this env var / setting
+    ``PIPELINE_MLFLOW_TRACKING_URI`` to a temp file-store URI — same override pattern as the
+    resource-telemetry fixture above."""
+    monkeypatch.setenv("PIPELINE_MLFLOW_DISABLE", "1")
+    yield

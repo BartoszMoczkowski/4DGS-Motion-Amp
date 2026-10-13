@@ -134,13 +134,16 @@ invalidation.**
   grid-A20mm_M2), so "the data itself says only ~20 motion groups are statistically justified" and
   "107 GT parts are beyond the reconstruction-quality ceiling."
 - **Source:** `NOTES_T20_kabsch_em_2026-08-11.md` ("Key finding").
-- **Why it's dead:** two implementation bugs, not a property of the data. Bug A: EM sigma annealing
-  started at σ = 1.0, flattening all responsibilities to 1/K — a degenerate fixed point (GT init +
-  σ=1.0 → ARI −0.003; data-scaled σ → ARI 0.9988). Bug B: the BIC formula omitted the Gaussian
-  1/σ² likelihood factor, so BIC was monotonic in K *by construction*.
-- **Replacement:** the resolvability question is **open again**. Re-measure with the fixed code
-  (no annealing, proper Gaussian BIC with genuine interior minimum) and `init="spectral"`.
-- **Evidence:** `NOTES_T20_kabsch_em_2026-08-11.md` (2026-10-06 addendum);
+- **Why it's dead:** Two implementation bugs + search grid truncation. Bug A: EM sigma annealing
+  started at σ = 1.0, flattening all responsibilities to 1/K. Bug B: the unnormalized legacy BIC formula
+  omitted the 1/σ² likelihood factor, making it dominated by the parameter penalty and thus strictly monotonic in K.
+  Crucially, $K=20$ was merely the lowest value searched in $\{20, 30, 45, 67, 100, 150\}$ — not an interior minimum.
+- **Replacement / Resolution (Audit A3, 2026-10-13):** Rerunning across $K \in \{2, 3, 5, 8, 12, 16, 20\}$
+  on all three grid models (`grid-A20mm_M2`, `grid-A20mm_M4`, `grid-A40mm_M8`) confirmed that legacy BIC
+  monotonically decreases all the way to $K=2$ ($\text{BIC}_{\text{legacy}} \approx 6,150$), while empirical Kabsch EM
+  collapses to **$n_{\text{pred}} = 3$** clusters across all three grid models (`runs/grid_seg_bic_rerun_results.csv`).
+  Downstream citations of "~20 motion groups" (including the SoM prior $B=20\text{--}40$) are completely unfounded.
+- **Evidence:** `runs/grid_seg_bic_rerun_results.csv`; `NOTES_T20_kabsch_em_2026-08-11.md` (addendum);
   `reviews/orchestrator-correctness-review.md` round 3.
 
 ### 3.2 "MBS (Option A) segments real data with ARI ≈ 0"

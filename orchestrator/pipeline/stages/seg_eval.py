@@ -109,6 +109,20 @@ class SegEvalStage(Stage):
             "n_floater_points": result["n_floater_points"],
             "bg_label_excluded": result["bg_label_excluded"],
             "n_pred_points": int(len(result["pred_labels"])),
+            "k_alignment": result.get("k_alignment"),
+            "k_ratio": result.get("k_ratio"),
+            "f1_macro": result.get("f1_macro"),
+            "f1_small": result.get("f1_small"),
+            "f1_medium": result.get("f1_medium"),
+            "f1_large": result.get("f1_large"),
+            "mean_part_iou": result.get("mean_part_iou"),
+            "median_part_iou": result.get("median_part_iou"),
+            "part_iou_small": result.get("part_iou_small"),
+            "part_iou_medium": result.get("part_iou_medium"),
+            "part_iou_large": result.get("part_iou_large"),
+            "pairs_split_rate": result.get("pairs_split_rate"),
+            "n_pairs_split": result.get("n_pairs_split"),
+            "n_pairs_merged_base": result.get("n_pairs_merged_base"),
             "top_matches": [
                 {
                     "gt_label": int(gt_l),
@@ -133,7 +147,18 @@ class SegEvalStage(Stage):
                 summary["bg_label_excluded"], summary["bg_label_excluded"],
             )
 
-        metadata = {"ari": summary["ari"], "mean_iou": summary["mean_iou"]}
+        metadata = {
+            "ari": summary["ari"],
+            "mean_iou": summary["mean_iou"],
+            "k_alignment": summary.get("k_alignment"),
+            "f1_macro": summary.get("f1_macro"),
+            "f1_small": summary.get("f1_small"),
+            "f1_medium": summary.get("f1_medium"),
+            "f1_large": summary.get("f1_large"),
+            "mean_part_iou": summary.get("mean_part_iou"),
+            "pairs_split_rate": summary.get("pairs_split_rate"),
+            "n_pairs_split": summary.get("n_pairs_split"),
+        }
         if "ari_within_roi" in summary:
             metadata["ari_within_roi"] = summary["ari_within_roi"]
             metadata["n_roi_points"] = summary["n_roi_points"]

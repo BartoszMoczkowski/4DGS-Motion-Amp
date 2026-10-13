@@ -28,6 +28,7 @@ from .paths import (
     allowed_artifact_roots,
     config_snapshot_path,
     ensure_run_dirs,
+    get_mlflow_root,
     get_runs_root,
     log_dir,
     manifest_path,
@@ -55,6 +56,7 @@ __all__ = [
     # paths
     "DEFAULT_RUNS_ROOT",
     "get_runs_root",
+    "get_mlflow_root",
     "run_dir",
     "manifest_path",
     "config_snapshot_path",

@@ -133,7 +133,17 @@ First-time Windows machine setup is documented in `orchestrator/planning/WINDOWS
 The unified entry point is the `amp` CLI (T25/T26; installed by `uv sync`, run via `uv run amp`):
 
 ```bash
-amp --help   # groups: capture, train, render, seg, exp, orch, bench; mlflow (T28), report (T29) reserved
+amp --help   # groups: capture, train, render, seg, exp, orch, bench, mlflow; report (T29) reserved
+```
+
+```bash
+# Local MLflow tracking (T28): every run logs to the local server (manifest stays source of
+# truth; joined by the pipeline.run_id tag). Server down -> warning only, runs never fail.
+uv run amp mlflow serve     # SQLite store runs/mlflow/mlflow.db, UI http://127.0.0.1:5000
+uv run amp mlflow status    # resolved URI, reachability, run count
+uv run amp mlflow prune --older-than 30d
+# Env: PIPELINE_MLFLOW_TRACKING_URI (file:///... for offline), PIPELINE_MLFLOW_DISABLE=1,
+# PIPELINE_MLFLOW_ROOT. Details: docs/orchestrator.md "MLflow tracking (T28)".
 ```
 
 Every pipeline-executing command supports `--dry-run` (prints the resolved stage + config slice, executes nothing). The raw `python <script>.py` invocations below remain only as the in-container exec paths the Docker stages use (see `pipeline/stages/cuda_common.py`) — they are no longer the user path.

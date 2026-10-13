@@ -241,3 +241,87 @@ def test_seg_eval_falls_back_to_fixed_name_for_external_segmentation(tmp_path):
     assert "seg_eval_result" in m.artifacts
     summary = json.loads((tmp_path / run_id / "seg_eval_result.json").read_text())
     assert abs(summary["ari"] - 1.0) < 1e-9
+
+
+def test_m6_k_alignment_metric():
+    from pipeline.vendored.host.metrics import k_alignment
+
+    assert k_alignment(107, 107) == 1.0
+    assert k_alignment(50, 100) == 0.5
+    assert k_alignment(200, 100) == 0.5
+    assert k_alignment(0, 50) == 0.0
+    assert k_alignment(50, 0) == 0.0
+
+
+def test_m6_hungarian_part_iou_and_stratified_f1():
+    from pipeline.vendored.host.metrics import hungarian_part_iou, size_stratified_f1
+
+    # 4 classes: class 0 (bg, 100 pts), class 1 (small, 10 pts), class 2 (med, 30 pts), class 3 (large, 60 pts)
+    gt_labels = np.concatenate([
+        np.zeros(100, dtype=int),
+        np.ones(10, dtype=int),
+        np.full(30, 2, dtype=int),
+        np.full(60, 3, dtype=int),
+    ])
+    # Perfect prediction for class 3, partial for class 2, zero for class 1
+    pred_labels = np.concatenate([
+        np.zeros(100, dtype=int),
+        np.zeros(10, dtype=int),  # class 1 merged with bg
+        np.full(15, 2, dtype=int), np.zeros(15, dtype=int),  # class 2 split in half
+        np.full(60, 3, dtype=int),  # class 3 perfect
+    ])
+
+    part_iou = hungarian_part_iou(gt_labels, pred_labels, bg_label=0)
+    assert "mean_part_iou" in part_iou
+    assert "median_part_iou" in part_iou
+    assert "part_iou_small" in part_iou
+    assert "part_iou_medium" in part_iou
+    assert "part_iou_large" in part_iou
+    assert part_iou["part_iou_small"] == 0.0
+    assert part_iou["part_iou_large"] == 1.0
+
+    f1_stats = size_stratified_f1(gt_labels, pred_labels, bg_label=0)
+    assert "f1_macro" in f1_stats
+    assert "f1_small" in f1_stats
+    assert "f1_medium" in f1_stats
+    assert "f1_large" in f1_stats
+    assert f1_stats["f1_small"] == 0.0
+    assert f1_stats["f1_large"] == 1.0
+    assert f1_stats["f1_macro"] > 0.0
+
+
+def test_m6_compute_pairs_split_rate():
+    from pipeline.vendored.host.metrics import compute_pairs_split_rate
+
+    gt_labels = np.array([1, 1, 2, 2, 3, 3, 4, 4])
+    # Pred: part 1 and 2 merged into cluster 10; part 3 and 4 in separate clusters 20 and 30
+    pred_labels = np.array([10, 10, 10, 10, 20, 20, 30, 30])
+    pairs = [(1, 2), (3, 4)]
+
+    res = compute_pairs_split_rate(gt_labels, pred_labels, merged_pairs=pairs)
+    assert res["n_pairs_merged_base"] == 2
+    assert res["n_pairs_split"] == 1  # pair (3,4) is split; (1,2) is merged
+    assert res["pairs_split_rate"] == 0.5
+
+
+def test_m6_evaluate_emits_standard_metrics():
+    from pipeline.vendored.host.seg_eval import evaluate
+
+    gt_points = np.arange(40)[:, None].repeat(3, axis=1).astype(np.float32)
+    gt_labels = np.concatenate([np.zeros(10, dtype=int), np.ones(10, dtype=int), np.full(10, 2, dtype=int), np.full(10, 3, dtype=int)])
+    pred_points = gt_points
+    pred_labels = gt_labels.copy()
+
+    res = evaluate(pred_points, pred_labels, gt_points, gt_labels, bg_label=0)
+    expected_keys = [
+        "k_alignment", "k_ratio", "mean_part_iou", "median_part_iou",
+        "part_iou_small", "part_iou_medium", "part_iou_large",
+        "f1_macro", "f1_small", "f1_medium", "f1_large",
+        "pairs_split_rate", "n_pairs_split", "n_pairs_merged_base",
+    ]
+    for k in expected_keys:
+        assert k in res, f"missing {k} in evaluate() result"
+    assert res["k_alignment"] == 1.0
+    assert res["f1_macro"] == 1.0
+    assert res["mean_part_iou"] == 1.0
+

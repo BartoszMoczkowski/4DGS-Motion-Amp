@@ -42,3 +42,15 @@ Eleven distinct real bugs, each only surfacing after the previous fix let the ru
 ## Setup
 
 First-time machine setup: `orchestrator/planning/WINDOWS_SETUP.md` (Docker Desktop, NGC login/EULA, MBS checkpoint download, native Isaac path, MCP server bind/token).
+
+## MLflow tracking (T28)
+
+Every orchestrator run (`run_pipeline`/`run_stage`) is mirrored to a **local** MLflow server — the run manifest (`runs/<id>/manifest.json`) stays the source of truth; MLflow is a view over it, joined by the `pipeline.run_id` tag (and backlinked from the manifest via `metadata["mlflow"]`). All tracking is degradation-safe: server down → warning, run proceeds; disable entirely with `PIPELINE_MLFLOW_DISABLE=1`.
+
+- **Serve**: `uv run amp mlflow serve` (locked layout: `mlflow server --backend-store-uri sqlite:///<runs>/mlflow/mlflow.db --default-artifact-root <runs>/mlflow/artifacts --no-serve-artifacts --allowed-hosts <localhost,127.0.0.1,host.docker.internal bare and :port> --host 127.0.0.1 --port 5000`); UI at http://127.0.0.1:5000. `amp mlflow status` shows URI/reachability/run count; `amp mlflow prune --older-than 30d` hard-deletes old MLflow runs (never touches `runs/<id>/`).
+- **What gets logged**: experiment = `metadata["experiment"]` (T27) or the preset name; tags `pipeline.run_id`/`pipeline.preset`/`git_sha`/`manifest_path`/T27 experiment-cell-variant; the full resolved config as flattened params (values truncated at 250 chars); per-stage metrics `stage.<name>.wall_time_s/peak_vram_mb/peak_ram_mb` with `step` = DAG stage index; stage status/error as tags; already-logged stages tracked in the `pipeline.logged_stages` run tag so `run_stage` re-entry stays incremental.
+- **Metrics-file contract**: a stage may drop `runs/<id>/<stage_with_'_'>_out/metrics.json` (`{"metrics": {name: float}, "step": int?}`); it's ingested with the `stage.<name>.` prefix. T29 builds the producers/registry.
+- **Artifact policy**: only stage artifacts with suffix `.mp4`/`.png`/`.jpg`/`.json` under 50 MB are uploaded (into `stage_artifacts/`); checkpoints/PLY stay path-referenced via the `manifest_path` tag — never uploaded.
+- **Env injection**: container stages get `MLFLOW_TRACKING_URI=http://host.docker.internal:5000` (`cuda_exec_env`); the native Isaac subprocess gets the host-side `http://127.0.0.1:5000` (`native_isaac_exec_env`). Override globally with `PIPELINE_MLFLOW_TRACKING_URI` (a `file:///...` URI works offline); `PIPELINE_MLFLOW_ROOT` relocates the store. mlflow 3.x validates Host headers, so the serve command passes `--allowed-hosts` with the bare and `:port` forms of localhost/127.0.0.1/host.docker.internal — without it container calls get 403.
+- **Backup discipline**: the tracking view is one SQLite file, `runs/mlflow/mlflow.db` (plus `runs/mlflow/artifacts/` previews). Back it up by copying the file alongside the existing run-backup practice under `runs/backups_pre_*`; losing it loses only the dashboard view — the manifests underneath survive. `runs/mlflow/` is covered by the existing `runs/` gitignore entry.
+

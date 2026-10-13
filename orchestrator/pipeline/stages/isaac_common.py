@@ -202,6 +202,22 @@ def run_isaac_script(
         )
 
 
+def native_isaac_exec_env() -> dict[str, str]:
+    """The environment for a **native** Isaac Sim subprocess (:func:`run_native_isaac_script`):
+    the current process env + ``CONTAINER_ENV["isaac"]``'s EULA/privacy-consent vars + T28's
+    host-side ``MLFLOW_TRACKING_URI`` (a native subprocess shares the host network, unlike a
+    container — see :func:`pipeline.stages.cuda_common.cuda_exec_env` for the container-side
+    equivalent). Built at call time so ``PIPELINE_MLFLOW_TRACKING_URI`` is honored.
+    """
+    from ..tracking import default_tracking_uri
+
+    return {
+        **os.environ,
+        **CONTAINER_ENV["isaac"],
+        "MLFLOW_TRACKING_URI": default_tracking_uri(),
+    }
+
+
 def run_native_isaac_script(
     ctx: StageContext,
     script_key: str,
@@ -259,7 +275,7 @@ def run_native_isaac_script(
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     ctx.logger.info("native isaac exec: %s", " ".join(cmd))
-    env = {**os.environ, **CONTAINER_ENV["isaac"]}
+    env = native_isaac_exec_env()
     with log_path.open("wb") as log_file:
         proc = subprocess.run(
             cmd,

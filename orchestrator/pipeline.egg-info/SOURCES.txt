@@ -9,7 +9,10 @@ mcp_server/jobs.py
 mcp_server/server.py
 pipeline/__init__.py
 pipeline/api.py
+pipeline/cli.py
 pipeline/paths.py
+pipeline/tracking.py
+pipeline/tracking_cli.py
 pipeline.egg-info/PKG-INFO
 pipeline.egg-info/SOURCES.txt
 pipeline.egg-info/dependency_links.txt
@@ -51,6 +54,11 @@ pipeline/dag/__init__.py
 pipeline/dag/cache.py
 pipeline/dag/graph.py
 pipeline/dag/scheduler.py
+pipeline/experiments/__init__.py
+pipeline/experiments/results.py
+pipeline/experiments/runner.py
+pipeline/experiments/spec.py
+pipeline/experiments/variants.py
 pipeline/resources/__init__.py
 pipeline/resources/adaptive.py
 pipeline/resources/gating.py
@@ -106,11 +114,17 @@ pipeline/vendored/isaac/add_motion.py
 pipeline/vendored/isaac/omni_capture.py
 pipeline/vendored/isaac/rig.py
 pipeline/vendored/isaac/split_mesh.py
+tests/test_amp_cli.py
+tests/test_amp_cli_capture.py
+tests/test_amp_cli_commands.py
+tests/test_amp_cli_seg_bench.py
+tests/test_api_overrides.py
 tests/test_artifacts.py
 tests/test_config.py
 tests/test_containers.py
 tests/test_containers_gpu.py
 tests/test_dag.py
+tests/test_experiments.py
 tests/test_import.py
 tests/test_mask_lift_helpers.py
 tests/test_mcp_server.py
@@ -119,6 +133,7 @@ tests/test_paths.py
 tests/test_resources.py
 tests/test_roi_mask_oracle.py
 tests/test_roi_motion_gate.py
+tests/test_run_metadata.py
 tests/test_scheduler_hardening.py
 tests/test_security_guards.py
 tests/test_seg_eval_conventions.py
@@ -130,6 +145,7 @@ tests/test_stages_cuda.py
 tests/test_stages_isaac.py
 tests/test_stages_isaac_gpu.py
 tests/test_stages_mbs.py
+tests/test_tracking.py
 ui/__init__.py
 ui/app.py
 ui/layer1_client.py

@@ -14,6 +14,7 @@ from core_cli import train as train_command
 from motion_seg.cli import app as seg_app
 from omniverse_pipeline.cli import app as capture_app
 from pipeline.cli import app as orch_app
+from pipeline.tracking_cli import app as mlflow_app
 from scene_gen_cli import app as exp_app
 
 app = typer.Typer(
@@ -31,18 +32,10 @@ app.add_typer(seg_app, name="seg")
 app.add_typer(exp_app, name="exp")
 app.add_typer(orch_app, name="orch")
 app.add_typer(bench_app, name="bench")
-
-mlflow_app = typer.Typer(help="MLflow tracking integration (reserved — T28).")
 app.add_typer(mlflow_app, name="mlflow")
 
 report_app = typer.Typer(help="Experiment reporting (reserved — T29).")
 app.add_typer(report_app, name="report")
-
-
-@mlflow_app.command("status")
-def mlflow_status() -> None:
-    """Placeholder — the mlflow group is reserved for T28."""
-    typer.echo("The 'mlflow' group is reserved for T28; no commands yet.")
 
 
 @report_app.command("status")

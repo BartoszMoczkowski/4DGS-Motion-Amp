@@ -37,6 +37,9 @@ DEFAULT_RUNS_ROOT = REPO_ROOT / "runs"
 
 _ENV_VAR = "PIPELINE_RUNS_ROOT"
 
+#: Env var overriding the MLflow store location (T28), mirroring ``PIPELINE_RUNS_ROOT``.
+_MLFLOW_ENV_VAR = "PIPELINE_MLFLOW_ROOT"
+
 
 def get_runs_root() -> Path:
     """The runs root to use: ``$PIPELINE_RUNS_ROOT`` if set, else :data:`DEFAULT_RUNS_ROOT`.
@@ -47,6 +50,15 @@ def get_runs_root() -> Path:
 
     override = os.environ.get(_ENV_VAR)
     return Path(override) if override else DEFAULT_RUNS_ROOT
+
+
+def get_mlflow_root() -> Path:
+    """Where the MLflow tracking store lives: ``$PIPELINE_MLFLOW_ROOT`` if set, else
+    ``<runs_root>/mlflow`` (T28). Read at call time, same convention as :func:`get_runs_root`.
+    """
+
+    override = os.environ.get(_MLFLOW_ENV_VAR)
+    return Path(override) if override else get_runs_root() / "mlflow"
 
 
 class InvalidRunIdError(ValueError):

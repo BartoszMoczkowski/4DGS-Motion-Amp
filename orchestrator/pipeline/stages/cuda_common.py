@@ -47,6 +47,18 @@ VENDORED_CUDA_SCRIPTS: dict[str, str] = {
 CUDA_EXTRA_ENV: dict[str, str] = {"PYTHONPATH": "/workspace/core"}
 
 
+def cuda_exec_env() -> dict[str, str]:
+    """The full per-exec environment for a container-side script: :data:`CUDA_EXTRA_ENV` plus
+    T28's ``MLFLOW_TRACKING_URI`` (the container-side URI — ``host.docker.internal`` reaches
+    the host's MLflow server from inside a Docker Desktop container). Built at call time via
+    :func:`pipeline.tracking.container_tracking_uri` so the ``PIPELINE_MLFLOW_TRACKING_URI``
+    override is honored and this module's imports stay light.
+    """
+    from ..tracking import container_tracking_uri
+
+    return {**CUDA_EXTRA_ENV, "MLFLOW_TRACKING_URI": container_tracking_uri()}
+
+
 class CudaStageError(RuntimeError):
     """A vendored CUDA script exited non-zero. ``log_path`` (if any) has the full output.
 
@@ -143,7 +155,7 @@ def run_cuda_script(
         cmd,
         log_path=str(log_path),
         workdir=str(ctx.paths.get_roots().repo_root_container),
-        environment=CUDA_EXTRA_ENV,
+        environment=cuda_exec_env(),
     )
     ctx.logger.info("cuda exec finished: exit_code=%s log=%s", result.exit_code, result.log_path)
     if not result.ok:

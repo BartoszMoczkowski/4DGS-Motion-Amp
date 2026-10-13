@@ -23,7 +23,14 @@ import sys
 import numpy as np
 from scipy.spatial import cKDTree
 
-from motion_seg.metrics import adjusted_rand_index, best_iou_matching
+from motion_seg.metrics import (
+    adjusted_rand_index,
+    best_iou_matching,
+    k_alignment,
+    hungarian_part_iou,
+    size_stratified_f1,
+    compute_pairs_split_rate,
+)
 
 
 def propagate_labels(src_points, src_labels, dst_points):
@@ -46,8 +53,8 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
       verified label 0 really is the background for this scene.
 
     Returns a dict with ari, mean_iou, matches, gt_on_pred, pred_points, pred_labels,
-    n_gt, n_pred, n_pred_nonfloater, and optionally ari_within_roi / n_roi_points /
-    bg_label_excluded.
+    n_gt, n_pred, n_pred_nonfloater, k_alignment, part IoU, stratified F1, pairs_split_rate,
+    and optionally ari_within_roi / n_roi_points / bg_label_excluded.
     """
     pred_points = np.asarray(pred_points)
     pred_labels = np.asarray(pred_labels)
@@ -65,6 +72,9 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
 
     uniq_pred = np.unique(pred_labels)
     n_floaters = int((pred_labels == -1).sum())
+    n_pred_nonfloater = int(len(uniq_pred[uniq_pred != -1]))
+    n_gt = len(np.unique(gt_labels))
+
     result = {
         "ari": ari,
         "mean_iou": mean_iou,
@@ -72,13 +82,25 @@ def evaluate(pred_points, pred_labels, gt_points, gt_labels, *, drop_floaters: b
         "gt_on_pred": gt_on_pred,
         "pred_points": pred_points,
         "pred_labels": pred_labels,
-        "n_gt": len(np.unique(gt_labels)),
+        "n_gt": n_gt,
         "n_pred": len(uniq_pred),
         # Predicted segments excluding the floater label -1 (honest segment count).
-        "n_pred_nonfloater": int(len(uniq_pred[uniq_pred != -1])),
+        "n_pred_nonfloater": n_pred_nonfloater,
         "n_floater_points": n_floaters,
         "bg_label_excluded": None,
+        "k_alignment": k_alignment(n_gt, n_pred_nonfloater),
+        "k_ratio": float(n_pred_nonfloater / n_gt) if n_gt > 0 else 0.0,
     }
+
+    # Hungarian-matched per-part IoU and size-stratified F1
+    bg_for_parts = 0 if (gt_labels == 0).any() and n_gt > 2 else None
+    if bg_label is not None and bg_label != "auto":
+        bg_for_parts = int(bg_label)
+    result.update(hungarian_part_iou(gt_on_pred, pred_labels, matches=matches, bg_label=bg_for_parts))
+    result.update(size_stratified_f1(gt_on_pred, pred_labels, matches=matches, bg_label=bg_for_parts))
+
+    # Baseline pairs-split rate (for pump01 scenes with >=90 classes)
+    result.update(compute_pairs_split_rate(gt_on_pred, pred_labels))
 
     eval_roi_mask = roi_mask
     excluded = None
@@ -202,6 +224,17 @@ def main():
     n_matched = len(matches)
     print(f"Mean best-match IoU: {mean_iou:.4f}  [convention: mean over {n_gt} GT classes, "
           f"{n_matched} Hungarian-matched pair(s), unmatched GT classes count as IoU 0]")
+    if result.get("k_alignment") is not None:
+        print(f"K-alignment: {result['k_alignment']:.4f}  (K_ratio: {result.get('k_ratio', 0.0):.4f})")
+    if result.get("mean_part_iou") is not None:
+        print(f"Part IoU (Hungarian): mean={result['mean_part_iou']:.4f}, median={result.get('median_part_iou', 0.0):.4f} "
+              f"[small: {result.get('part_iou_small')}, med: {result.get('part_iou_medium')}, large: {result.get('part_iou_large')}]")
+    if result.get("f1_macro") is not None:
+        print(f"Stratified F1: macro={result['f1_macro']:.4f} "
+              f"[small: {result.get('f1_small')}, med: {result.get('f1_medium')}, large: {result.get('f1_large')}]")
+    if result.get("pairs_split_rate") is not None:
+        print(f"Pairs-split rate: {result['pairs_split_rate']:.4f} "
+              f"({result.get('n_pairs_split')}/{result.get('n_pairs_merged_base', 140)} baseline merged pairs split)")
     if result.get("ari_within_roi") is not None or result.get("bg_label_excluded") is not None:
         print(f"ARI within ROI (GT label {result['bg_label_excluded']} excluded, "
               f"{result.get('n_roi_points', 0)} points): "

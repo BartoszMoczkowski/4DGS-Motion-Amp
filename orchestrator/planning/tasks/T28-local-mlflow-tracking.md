@@ -1,6 +1,6 @@
 # T28 — Local MLflow tracking integration
 
-- Status: todo
+- Status: done (2026-10-11)
 - Phase: 9 (streamlining)
 - Depends on: T27
 - Environment: sandbox-testable with a temp MLflow file-store backend; real server + container

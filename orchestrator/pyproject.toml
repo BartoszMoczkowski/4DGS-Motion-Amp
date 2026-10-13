@@ -16,6 +16,9 @@ dependencies = [
     "Pillow>=10.0",
     # T12: cross-platform system-RAM query (pynvml above already covers VRAM).
     "psutil>=5.9",
+    # T28: local MLflow tracking (pipeline/tracking.py). Base, not an extra — every run logs;
+    # `mlflow` itself is only ever imported inside functions (light-import rule).
+    "mlflow>=2.16",
 ]
 
 [project.optional-dependencies]
