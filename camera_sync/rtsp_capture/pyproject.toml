@@ -5,10 +5,16 @@ description = "Stdlib-only RTSP recorder with RTCP Sender Report cross-camera sy
 readme = "README.md"
 requires-python = "==3.12.12"
 dependencies = [
+    "fastapi>=0.115.0",
+    "pillow>=10.0.0",
     "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "uvicorn>=0.30.0",
 ]
 
 [project.scripts]
+rtsp-capture = "rtsp_capture.cli:main"
+rtsp-gui = "rtsp_capture.cli:gui_main"
 rtsp-probe = "rtsp_capture.probe:main"
 rtsp-record = "rtsp_capture.recorder:main"
 rtsp-extract = "rtsp_capture.sync_extract:main"

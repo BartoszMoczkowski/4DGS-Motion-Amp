@@ -279,6 +279,9 @@ def extract(
     return sync_manifest
 
 
+extract_synced_frames = extract
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="rtsp-extract",

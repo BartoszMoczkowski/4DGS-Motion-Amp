@@ -1,0 +1,23 @@
+name: pump01_sR3_dist_half_1600x900
+series: R
+description: 'R3: CONTROL: cameras at ~1/2 distance (radius_scale 1.25), 1600x900
+  (2.0x pixel-motion via geometry alone)'
+segmented_usd: Q:/Omniverse/assets/pump_radnom/CONJUNTO_BOMBAS_segmented.usd
+env: Q:/Omniverse/assets/physAI_start/Factory/Factory.usd
+motion:
+  mode: random
+  base_amp_mm: 5.0
+  multiplier: 1.0
+  target_part: part_019
+  freq_hz: 10.0
+  seed: 0
+material:
+  preset: pastel
+capture:
+  width: 1600
+  height: 900
+  radius_scale: 1.25
+  num_frames: 60
+  fps: 60.0
+  rt_subframes: 16
+  max_elev_deg: 50.0

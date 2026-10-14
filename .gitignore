@@ -25,3 +25,10 @@ runs/
 LLFF/
 
 weights/sam_vit_b_01ec64.pth
+# COLMAP
+colmap/
+colmap_*/
+*_colmap/
+*.db
+*.db-shm
+*.db-wal

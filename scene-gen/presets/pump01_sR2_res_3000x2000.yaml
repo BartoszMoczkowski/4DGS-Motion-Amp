@@ -1,0 +1,23 @@
+name: pump01_sR2_res_3000x2000
+series: R
+description: 'R2: 6 MP resolution 3000x2000 (matches real cameras, 1.88x pixel-motion),
+  same distance 2.5'
+segmented_usd: Q:/Omniverse/assets/pump_radnom/CONJUNTO_BOMBAS_segmented.usd
+env: Q:/Omniverse/assets/physAI_start/Factory/Factory.usd
+motion:
+  mode: random
+  base_amp_mm: 5.0
+  multiplier: 1.0
+  target_part: part_019
+  freq_hz: 10.0
+  seed: 0
+material:
+  preset: pastel
+capture:
+  width: 3000
+  height: 2000
+  radius_scale: 2.5
+  num_frames: 60
+  fps: 60.0
+  rt_subframes: 16
+  max_elev_deg: 50.0

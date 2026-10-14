@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>4DGS Multi-Camera Capture Studio</title>
+  <meta name="description" content="Multi-Camera Capture Studio with RTCP cross-camera synchronization and Dahua hardware controls.">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Top Navigation & Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <div class="logo-mark">4D</div>
+      <div>
+        <h1 class="logo-title">Capture Studio</h1>
+        <span class="logo-subtitle">RTCP NTP Synced Multi-Camera Rig</span>
+      </div>
+      <div class="status-badge-group">
+        <span id="rig-state-badge" class="badge badge-idle">IDLE</span>
+        <span id="mock-mode-badge" class="badge badge-mock hidden">MOCK MODE</span>
+        <span id="cam-count-badge" class="badge badge-neutral">10 CAMERAS</span>
+      </div>
+    </div>
+
+    <!-- Live Recording Controls -->
+    <div class="header-center">
+      <div class="record-deck">
+        <div class="input-pill">
+          <label for="session-name">Session</label>
+          <input type="text" id="session-name" placeholder="run_name" spellcheck="false">
+        </div>
+        <div class="input-pill">
+          <label for="duration-sec">Sec</label>
+          <input type="number" id="duration-sec" placeholder="∞" min="1" max="3600" style="width: 55px;">
+        </div>
+        <label class="toggle-label" title="Automatically extract synced frames after recording stops">
+          <input type="checkbox" id="auto-extract" checked>
+          <span>Auto-Extract</span>
+        </label>
+        <button id="record-btn" class="btn btn-record" onclick="toggleRecording()">
+          <span class="record-dot"></span>
+          <span id="record-btn-text">Record</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="header-right">
+      <div id="live-timer-box" class="live-timer hidden">
+        <span class="timer-label">REC</span>
+        <span id="live-elapsed" class="timer-digits">00:00.0</span>
+      </div>
+      <button class="btn btn-outline" onclick="triggerProbeAll()" id="btn-probe-all" title="Probe all camera streams for RTSP and RTCP Sender Reports">
+        <span class="btn-icon">🔍</span> Probe All
+      </button>
+      <button class="btn btn-outline" onclick="flashAllSequence()" id="btn-flash-all" title="Sequentially flash every camera light in numerical order">
+        <span class="btn-icon">⚡</span> Flash All
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Workspace Layout -->
+  <main class="app-main">
+    <!-- Master Rig Synchronization Panel -->
+    <section class="master-panel" id="master-calibration">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span class="panel-icon">⚖️</span>
+          <h2>Universal Rig Synchronization</h2>
+          <span class="panel-hint">Lock White Balance & Exposure across all cameras to prevent photometric shift</span>
+        </div>
+        <div class="presets-group">
+          <label>Preset:</label>
+          <select id="preset-select" onchange="applyPreset(this.value)">
+            <option value="custom">Custom Preset...</option>
+            <option value="daylight" selected>Lab Daylight (Manual 50/50)</option>
+            <option value="cool">Cool Daylight (R:45 B:58)</option>
+            <option value="warm">Warm Studio (R:58 B:44)</option>
+            <option value="high_speed">High Speed 1/250s (Action)</option>
+          </select>
+          <button class="btn btn-primary glow-cyan" onclick="applyMasterSettingsToAll()">
+            ⚡ Apply to All Cameras
+          </button>
+        </div>
+      </div>
+
+      <div class="master-grid">
+        <!-- White Balance Card -->
+        <div class="master-control-box">
+          <div class="control-box-title">White Balance (AWB Lock)</div>
+          <div class="control-row">
+            <label>Mode:</label>
+            <select id="master-wb-mode" onchange="updateMasterSliders()">
+              <option value="Manual" selected>Manual (Fixed Gains)</option>
+              <option value="Auto">Auto (AWB)</option>
+              <option value="Custom">Custom</option>
+            </select>
+          </div>
+          <div class="slider-row">
+            <span class="slider-tag red-tag">Red Gain</span>
+            <input type="range" id="master-wb-red" min="0" max="100" value="50" oninput="document.getElementById('val-wb-red').textContent = this.value">
+            <span class="slider-val" id="val-wb-red">50</span>
+          </div>
+          <div class="slider-row">
+            <span class="slider-tag blue-tag">Blue Gain</span>
+            <input type="range" id="master-wb-blue" min="0" max="100" value="50" oninput="document.getElementById('val-wb-blue').textContent = this.value">
+            <span class="slider-val" id="val-wb-blue">50</span>
+          </div>
+        </div>
+
+        <!-- Exposure & Shutter Card -->
+        <div class="master-control-box">
+          <div class="control-box-title">Exposure & Shutter Speed</div>
+          <div class="control-row">
+            <label>Mode:</label>
+            <select id="master-exp-mode">
+              <option value="Manual" selected>Manual Exposure</option>
+              <option value="Auto">Auto Exposure</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label>Shutter:</label>
+            <select id="master-shutter">
+              <option value="1/25">1/25 s</option>
+              <option value="1/50">1/50 s (50Hz Safe)</option>
+              <option value="1/100" selected>1/100 s (Standard)</option>
+              <option value="1/200">1/200 s</option>
+              <option value="1/250">1/250 s (Motion Freeze)</option>
+              <option value="1/500">1/500 s</option>
+              <option value="1/1000">1/1000 s</option>
+            </select>
+          </div>
+          <div class="slider-row">
+            <span class="slider-tag neutral-tag">Gain Limit</span>
+            <input type="range" id="master-gain-max" min="0" max="100" value="50" oninput="document.getElementById('val-exp-gain').textContent = this.value">
+            <span class="slider-val" id="val-exp-gain">50</span>
+          </div>
+        </div>
+
+        <!-- Picture & Lighting Card -->
+        <div class="master-control-box">
+          <div class="control-box-title">Picture & Hardware Illuminator</div>
+          <div class="slider-row">
+            <span class="slider-tag neutral-tag">Brightness</span>
+            <input type="range" id="master-brightness" min="0" max="100" value="50" oninput="document.getElementById('val-brightness').textContent = this.value">
+            <span class="slider-val" id="val-brightness">50</span>
+          </div>
+          <div class="slider-row">
+            <span class="slider-tag neutral-tag">Contrast</span>
+            <input type="range" id="master-contrast" min="0" max="100" value="50" oninput="document.getElementById('val-contrast').textContent = this.value">
+            <span class="slider-val" id="val-contrast">50</span>
+          </div>
+          <div class="btn-group-tight">
+            <button class="btn btn-sm btn-outline" onclick="batchToggleLights('Manual', 100)">💡 All Lights ON</button>
+            <button class="btn btn-sm btn-outline" onclick="batchToggleLights('Off', 0)">🌑 All Lights OFF</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Camera Feed Cards Grid -->
+    <section class="camera-grid-section">
+      <div class="section-toolbar">
+        <h3>Camera Feeds & Individual Overrides</h3>
+        <div class="toolbar-controls">
+          <label class="toggle-label">
+            <input type="checkbox" id="toggle-auto-preview" checked onchange="togglePreviewPolling(this.checked)">
+            <span>Live Previews (2 FPS)</span>
+          </label>
+          <span class="text-muted" id="preview-timestamp">Updated just now</span>
+        </div>
+      </div>
+
+      <div class="camera-grid" id="camera-cards-container">
+        <!-- Rendered dynamically by app.js for all cameras -->
+      </div>
+    </section>
+  </main>
+
+  <!-- Probe Results Drawer / Modal -->
+  <div id="probe-modal" class="modal-overlay hidden" onclick="if(event.target===this) closeProbeModal()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>🔍 Camera Stream & RTCP Probe Diagnostics</h3>
+        <button class="modal-close" onclick="closeProbeModal()">✕</button>
+      </div>
+      <div class="modal-body" id="probe-results-table">
+        <p class="text-muted">Probing cameras... please wait 4 seconds.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="closeProbeModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

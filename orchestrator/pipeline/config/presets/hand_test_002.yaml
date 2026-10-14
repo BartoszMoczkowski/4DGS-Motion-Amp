@@ -1,0 +1,17 @@
+extends: base
+name: hand_test_002
+
+model:
+  source_path: "data/multipleview/hand_test_002"
+  model_path: "output/multipleview/hand_test_002"
+
+train:
+  port: 6017
+  expname: "multipleview/hand_test_002"
+
+optim:
+  opacity_reset_interval: 60000
+
+hidden:
+  kplanes_config:
+    resolution: [64, 64, 64, 150]

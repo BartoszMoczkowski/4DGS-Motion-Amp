@@ -14,16 +14,52 @@ giving frame series synced across cameras *without* filming a QR display.
 Recording writes the **raw H.264/H.265 Annex-B bitstream** (no decode), so
 CPU per camera is negligible.
 
-See `../../camera_sync/README.md` for the overall project.
+## Quick Start
 
-## Install
+### 1. Web Studio (GUI for visual setup, previews, calibration & recording)
 
 ```bash
-uv sync --package camera-sync-rtcp
+uv run rtsp-gui
+# Or with mock mode if cameras are currently offline:
+uv run rtsp-gui --mock
+```
+Opens `http://127.0.0.1:8080`:
+- **Multi-Camera Grid:** Low-latency 2 FPS live previews for all cameras.
+- **Hardware Identification:** Click **"⚡ Identify"** on any camera card to flash its physical white light illuminator in the rig.
+- **Universal Synchronization:** One-click "Apply to All Cameras" locks White Balance gains and Exposure/Shutter speed across all cameras to eliminate color grading discrepancies.
+- **Probing & Recording:** One-click pre-flight check and live recording deck with timer and auto-extraction.
+
+### 2. Unified CLI (`rtsp-capture`)
+
+For headless operations and fast automated reruns:
+
+```bash
+# Launch Web GUI
+uv run rtsp-capture gui [--port 8080] [--mock]
+
+# Diagnostic probe
+uv run rtsp-capture probe -c cameras.yaml [-d 5]
+
+# Hardware identify (flash physical camera light)
+uv run rtsp-capture flash -c cameras.yaml --camera cam02 [--duration 3]
+
+# Lock white balance and exposure across all cameras
+uv run rtsp-capture config -c cameras.yaml --all --wb-red 50 --wb-blue 50 --shutter 1/100
+
+# Headless record
+uv run rtsp-capture record -c cameras.yaml -o ./recordings/run_001 [-d 10] [--extract]
+
+# Post-hoc frame synchronization extraction
+uv run rtsp-capture extract -i ./recordings/run_001 -o ./synced/run_001
 ```
 
-`ffmpeg` (the binary) is needed only for `rtsp-extract` and must be on the
-host `PATH`; everything else is stdlib + PyYAML.
+## Legacy Commands (Preserved)
+
+```bash
+uv run rtsp-probe -c cameras.yaml
+uv run rtsp-record -c cameras.yaml -o ./recordings/run_001
+uv run rtsp-extract -i ./recordings/run_001 -o ./synced/run_001
+```
 
 ## Configuration
 

@@ -1,0 +1,17 @@
+extends: base
+name: controler_test_01
+
+model:
+  source_path: "data/multipleview/controler_test_01"
+  model_path: "output/multipleview/controler_test_01"
+
+train:
+  port: 6017
+  expname: "multipleview/controler_test_01"
+
+optim:
+  opacity_reset_interval: 60000
+
+hidden:
+  kplanes_config:
+    resolution: [64, 64, 64, 200]
