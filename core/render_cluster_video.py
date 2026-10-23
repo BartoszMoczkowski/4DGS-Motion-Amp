@@ -43,11 +43,12 @@ def main():
     parser.add_argument("--iteration", default=-1, type=int)
     parser.add_argument("--configs", type=str, required=True)
     parser.add_argument("--segmentation_path", type=str, required=True)
-    parser.add_argument("--camera_index", default=0, type=int, help="0-indexed camera view (e.g. 0 for cam01, 4 for cam05)")
+    parser.add_argument("--camera", default="0", type=str, help="Camera name (e.g. cam01, cam05) or index (0-9)")
     parser.add_argument("--output_video", type=str, required=True)
     parser.add_argument("--fps", default=24, type=int)
-    parser.add_argument("--resolution_scale", default=1.0, type=float)
+    parser.add_argument("--resolution_scale", default=0.5, type=float, help="Scale factor for video resolution (e.g. 0.5 for half-res)")
     parser.add_argument("--side_by_side", action="store_true", help="Render RGB + Cluster colored side by side")
+    parser.add_argument("--add_labels", action="store_true", help="Overlay text labels on side-by-side video")
     parser.add_argument("--quiet", action="store_true")
 
     args = get_combined_args(parser)
@@ -78,41 +79,65 @@ def main():
         bg_color = [0, 0, 0] if not dataset.white_background else [1, 1, 1]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
-        # Determine camera view indices
-        cam_folder = dataset.source_path
-        cam_subdirs = sorted([d for d in os.listdir(cam_folder) if d.startswith("cam") and os.path.isdir(os.path.join(cam_folder, d))])
-        if not cam_subdirs:
-            raise RuntimeError(f"No camXX folders found in {cam_folder}")
-        
-        chosen_cam = cam_subdirs[args.camera_index % len(cam_subdirs)]
-        image_length = len(os.listdir(os.path.join(cam_folder, chosen_cam)))
-        print(f"Rendering view from camera '{chosen_cam}' (index {args.camera_index}) across {image_length} frames...")
+        # Determine camera view indices by inspecting dataset image paths
+        image_paths = scene.train_camera.dataset.image_paths
+        cam_to_indices = {}
+        for idx, p in enumerate(image_paths):
+            c_name = Path(p).parent.name
+            cam_to_indices.setdefault(c_name, []).append(idx)
 
-        start_idx = (args.camera_index % len(cam_subdirs)) * image_length
-        end_idx = start_idx + image_length
+        all_cams = sorted(cam_to_indices.keys())
+        if not all_cams:
+            raise RuntimeError("No camera folders found in dataset image paths")
 
-        rendered_frames = []
-        for f_idx in tqdm(range(start_idx, end_idx), desc=f"Rendering {chosen_cam}"):
+        if args.camera in cam_to_indices:
+            chosen_cam = args.camera
+        else:
+            try:
+                c_idx = int(args.camera) % len(all_cams)
+                chosen_cam = all_cams[c_idx]
+            except ValueError:
+                chosen_cam = all_cams[0]
+
+        target_indices = cam_to_indices[chosen_cam]
+        print(f"Rendering view from camera '{chosen_cam}' across {len(target_indices)} frames...")
+
+        os.makedirs(os.path.dirname(os.path.abspath(args.output_video)), exist_ok=True)
+        import cv2
+
+        writer = imageio.get_writer(args.output_video, fps=args.fps, quality=8, macro_block_size=1)
+
+        for f_idx in tqdm(target_indices, desc=f"Rendering {chosen_cam}"):
             view = scene.train_camera[f_idx]
             
             # Render with cluster color override
             res_cluster = render(view, gaussians, pipe, background, override_color=cluster_colors_gpu, stage="fine")
-            img_cluster = (255 * np.clip(res_cluster["render"].cpu().numpy(), 0, 1)).astype(np.uint8).transpose(1, 2, 0)
+            img_cluster = np.ascontiguousarray((255 * np.clip(res_cluster["render"].cpu().numpy(), 0, 1)).astype(np.uint8).transpose(1, 2, 0))
 
             if args.side_by_side:
                 # Render natural RGB appearance as well
                 res_rgb = render(view, gaussians, pipe, background, override_color=None, stage="fine")
-                img_rgb = (255 * np.clip(res_rgb["render"].cpu().numpy(), 0, 1)).astype(np.uint8).transpose(1, 2, 0)
-                # Concatenate side by side (RGB | Cluster)
+                img_rgb = np.ascontiguousarray((255 * np.clip(res_rgb["render"].cpu().numpy(), 0, 1)).astype(np.uint8).transpose(1, 2, 0))
+
+                if args.add_labels:
+                    # Draw clean banner labels
+                    cv2.putText(img_rgb, "4DGS RGB Reconstruction", (40, 70), cv2.FONT_HERSHEY_DUPLEX, 1.8, (255, 255, 255), 3, cv2.LINE_AA)
+                    cv2.putText(img_cluster, f"Motion Clusters ({n_clusters} parts)", (40, 70), cv2.FONT_HERSHEY_DUPLEX, 1.8, (255, 255, 255), 3, cv2.LINE_AA)
+
                 frame = np.concatenate([img_rgb, img_cluster], axis=1)
             else:
                 frame = img_cluster
 
-            rendered_frames.append(frame)
+            if args.resolution_scale != 1.0:
+                new_w = int(frame.shape[1] * args.resolution_scale)
+                new_h = int(frame.shape[0] * args.resolution_scale)
+                new_w -= new_w % 2
+                new_h -= new_h % 2
+                frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-        os.makedirs(os.path.dirname(os.path.abspath(args.output_video)), exist_ok=True)
-        print(f"Writing {len(rendered_frames)} frames to {args.output_video} @ {args.fps} FPS...")
-        imageio.mimwrite(args.output_video, rendered_frames, fps=args.fps, quality=9)
+            writer.append_data(frame)
+
+        writer.close()
         print(f"[Done] Output video saved: {args.output_video}")
 
 if __name__ == "__main__":

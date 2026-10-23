@@ -76,9 +76,9 @@
           <label>Preset:</label>
           <select id="preset-select" onchange="applyPreset(this.value)">
             <option value="custom">Custom Preset...</option>
-            <option value="daylight" selected>Lab Daylight (Manual 50/50)</option>
-            <option value="cool">Cool Daylight (R:45 B:58)</option>
-            <option value="warm">Warm Studio (R:58 B:44)</option>
+            <option value="daylight" selected>Lab Daylight (Manual 10/50)</option>
+            <option value="cool">Cool Daylight (R:5 B:60)</option>
+            <option value="warm">Warm Studio (R:15 B:45)</option>
             <option value="high_speed">High Speed 1/250s (Action)</option>
           </select>
           <button class="btn btn-primary glow-cyan" onclick="applyMasterSettingsToAll()">
@@ -101,8 +101,8 @@
           </div>
           <div class="slider-row">
             <span class="slider-tag red-tag">Red Gain</span>
-            <input type="range" id="master-wb-red" min="0" max="100" value="50" oninput="document.getElementById('val-wb-red').textContent = this.value">
-            <span class="slider-val" id="val-wb-red">50</span>
+            <input type="range" id="master-wb-red" min="0" max="100" value="10" oninput="document.getElementById('val-wb-red').textContent = this.value">
+            <span class="slider-val" id="val-wb-red">10</span>
           </div>
           <div class="slider-row">
             <span class="slider-tag blue-tag">Blue Gain</span>

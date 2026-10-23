@@ -1,0 +1,17 @@
+extends: base
+name: lego_turbine_5_missing
+
+model:
+  source_path: "data/multipleview/lego_turbine_5_missing"
+  model_path: "output/multipleview/lego_turbine_5_missing"
+
+train:
+  port: 6017
+  expname: "multipleview/lego_turbine_5_missing"
+
+optim:
+  opacity_reset_interval: 60000
+
+hidden:
+  kplanes_config:
+    resolution: [64, 64, 64, 200]

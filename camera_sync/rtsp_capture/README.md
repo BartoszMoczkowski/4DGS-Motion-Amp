@@ -44,7 +44,7 @@ uv run rtsp-capture probe -c cameras.yaml [-d 5]
 uv run rtsp-capture flash -c cameras.yaml --camera cam02 [--duration 3]
 
 # Lock white balance and exposure across all cameras
-uv run rtsp-capture config -c cameras.yaml --all --wb-red 50 --wb-blue 50 --shutter 1/100
+uv run rtsp-capture config -c cameras.yaml --all --wb-red 10 --wb-blue 50 --shutter 1/100
 
 # Headless record
 uv run rtsp-capture record -c cameras.yaml -o ./recordings/run_001 [-d 10] [--extract]

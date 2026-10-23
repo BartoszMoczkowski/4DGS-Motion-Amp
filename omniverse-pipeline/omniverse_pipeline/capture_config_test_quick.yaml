@@ -1,0 +1,52 @@
+# Quick 1-frame visual verification config (Isaac Sim 6.0 / omni_capture.py).
+# Low-resolution (640x360), 4 cameras, 1 frame, rt_subframes 8 for fast rendering.
+# Target: pump01_sT2_mat_metallic_texture_scene.usd (brushed steel + sub-pixel texture decals).
+
+app:
+  headless: true
+
+scene:
+  usd_path: "C:/Users/barte/Code/PythonScripts/4DGS-Motion-Amp/omniverse-pipeline/data/scenes/capture_limitation/pump01_test_matte_blue_scene.usd"
+  subject_prim: "/World/pump"
+  semantic_roots: ["/World/pump"]
+
+rig:
+  layout: dome
+  n_cameras: 4                           # 4 cameras in 1 chunk for fast parallel capture
+  center: [-10.0, -185.0, 75.0]          # focused directly on the lower pump mechanical assembly
+  radius: 420.0                          # zoomed out halfway between close-up (220cm) and full-machine (624cm)
+  n_rings: 2
+  min_elev_deg: 12
+  max_elev_deg: 32
+
+capture:
+  width: 640
+  height: 360
+  vfov_deg: 45
+  num_frames: 1                          # single frame for instant visual check
+  rt_subframes: 8                        # fast path tracing samples
+  near: 15.0
+  far: 5000.0
+  camera_chunk_size: 4
+
+output:
+  capture_dir: "C:/Users/barte/Code/PythonScripts/4DGS-Motion-Amp/runs/test_quick_visual"
+  instance_segmentation: true
+  semantic_segmentation: true
+  colorize_instance_segmentation: true
+  num_init_points: 1000                  # minimal point sample for fast completion
+
+lighting:
+  enabled: true
+  force: false
+  add_dome: true
+  dome_intensity: 1000.0
+  dome_texture: generate
+  bg_base: [6, 7, 11]
+  bg_line: [28, 32, 44]
+  bg_dot: [48, 54, 70]
+  bg_step: 64
+  add_distant: true
+  distant_intensity: 4000.0
+  distant_elev_deg: 45.0
+  distant_azim_deg: -45.0

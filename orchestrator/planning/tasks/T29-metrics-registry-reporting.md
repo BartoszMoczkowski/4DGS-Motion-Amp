@@ -2,7 +2,7 @@
 
 - Status: todo
 - Phase: 9 (streamlining)
-- Depends on: T28
+- Depends on: T28, T28b
 - Environment: pure CPU, fully sandbox-testable (synthetic manifests + fabricated metrics +
   synthetic tensorboard events); real-run regeneration check on Bartosz's machine
 
@@ -21,13 +21,19 @@ or hand-transcribed numbers.
   - render: per-frame PSNR/SSIM/LPIPS;
   - segment: `ari`, `mean_iou`, `n_pred`, `n_gt`, ROI variants — from
     `seg_eval_result.json` as written by `evaluate_segmentation`;
+  - research / domain evaluation (Capture Limitation & Turbine):
+    - boundary & interface: `cat_a_split_rate`, `cat_b_split_rate`, `pairs_split_rate`, `interface_auroc`;
+    - deviant target part: `target_iou`, `target_f1`, `target_prec`, `target_rec`;
+    - deformation & motion: `mean_displacement`, `p95_displacement`, `max_displacement`, `fft_dominant_freq_hz`, `estimated_rpm`;
+    - seed survival: `n_seeds`, `n_labeled`, `n_discarded`, `k_pred`;
   - bench: wall time / peak VRAM (manifest `StageRecord`);
   - amp: runtime/VRAM + video path.
-  This catalog is the contract whose ingest side T28 declared.
+  This catalog is the contract whose ingest side T28/T28b declared.
 - `pipeline/reporting/charts.py` — prebuilt figure functions behind a committed matplotlib
   style sheet with a **fixed impl→color map**. Initial catalog:
-  - training curves;
+  - training curves (loss / PSNR over global iterations);
   - ARI/mIoU vs `base_amp_mm`×`multiplier` scatter + heatmap, faceted by impl;
+  - deformation time-series & FFT displacement spectral density (folding in `Conv1` diagnostics);
   - Gaussian-count sweep PSNR/VRAM curves;
   - benchmark runtime/VRAM bars;
   - segmentation preview / vs-GT grids in house style (folding in `evaluate_segmentation`'s

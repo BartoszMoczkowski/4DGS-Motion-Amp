@@ -373,6 +373,19 @@ def run_dag(
     known_artifacts = set(existing.artifacts) if existing is not None else set()
     ext = external_inputs({n: nodes[n] for n in selected})
     truly_missing = {inp: sorted(names) for inp, names in ext.items() if inp not in known_artifacts}
+
+    # Auto-seed gt_segmentation from an existing scene artifact if present
+    if "gt_segmentation" in truly_missing and existing is not None and "scene" in existing.artifacts:
+        scene_gt = Path(existing.artifacts["scene"].path) / "gt_segmentation.npz"
+        if scene_gt.is_file():
+            def _seed_gt(m: RunManifest) -> None:
+                m.artifacts["gt_segmentation"] = Artifact(
+                    name="gt_segmentation", kind="npz", path=str(scene_gt.resolve()), producing_stage="external"
+                )
+            existing = update_manifest(run_id, _seed_gt, runs_root=runs_root)
+            known_artifacts.add("gt_segmentation")
+            del truly_missing["gt_segmentation"]
+
     if truly_missing:
         raise MissingDependencyError(
             f"run {run_id!r}: input(s) {truly_missing} required but not produced by any selected "
@@ -535,13 +548,16 @@ def run_dag(
         )
         put_cached(effective_key, run_id, name, result, runs_root=runs_root)
 
-    if not manifest.stages:
-        # An empty DAG (e.g. no real stages registered for any role yet) has nothing to roll its
-        # status up from `record_stage_result` — treat "nothing to do" as trivially done.
-        def _mark_trivially_done(m: RunManifest) -> None:
-            if m.status == "pending":
-                m.status = "success"
+    def _finalize_status(m: RunManifest) -> None:
+        if m.status == "failed":
+            return
+        if any(m.stages.get(n) and m.stages[n].status == "failed" for n in selected):
+            m.status = "failed"
+        elif selected and all(m.stages.get(n) and m.stages[n].status in ("success", "skipped") for n in selected):
+            m.status = "success"
+        elif not m.stages and m.status == "pending":
+            m.status = "success"
 
-        manifest = update_manifest(run_id, _mark_trivially_done, runs_root=runs_root)
+    manifest = update_manifest(run_id, _finalize_status, runs_root=runs_root)
 
     return manifest

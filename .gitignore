@@ -32,3 +32,4 @@ colmap_*/
 *.db
 *.db-shm
 *.db-wal
+mlruns

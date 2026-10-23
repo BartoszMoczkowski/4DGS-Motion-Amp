@@ -1,0 +1,17 @@
+extends: base
+name: turbine_r1_missing_6
+
+model:
+  source_path: "data/multipleview/turbine_r1_missing_6"
+  model_path: "output/multipleview/turbine_r1_missing_6"
+
+train:
+  port: 6023
+  expname: "multipleview/turbine_r1_missing_6"
+
+optim:
+  opacity_reset_interval: 60000
+
+hidden:
+  kplanes_config:
+    resolution: [64, 64, 64, 300]

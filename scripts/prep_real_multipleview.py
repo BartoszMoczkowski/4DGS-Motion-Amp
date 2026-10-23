@@ -306,9 +306,14 @@ def prepare_dataset(capture_name, colmap_source_capture=None):
         os.makedirs(tri_out, exist_ok=True)
         subprocess.run([colmap_bat, "point_triangulator", "--database_path", str(db_path), "--image_path", str(images_dir), "--input_path", str(sparse_target), "--output_path", str(tri_out), "--clear_points", "1"], check=True)
 
-        if (tri_out / "points3D.bin").exists() and os.path.getsize(tri_out / "points3D.bin") > 100:
-            shutil.copyfile(tri_out / "points3D.bin", sparse_target / "points3D.bin")
-            print("Successfully triangulated new points3D.bin for this scene!")
+        if (tri_out / "points3D.bin").exists():
+            pts_tri = read_points3D_binary(tri_out / "points3D.bin")
+            if len(pts_tri) >= 200:
+                shutil.copyfile(tri_out / "points3D.bin", sparse_target / "points3D.bin")
+                print(f"Successfully triangulated {len(pts_tri)} new points3D.bin for this scene!")
+            else:
+                pts_base = read_points3D_binary(source_sparse / "points3D.bin")
+                print(f"Triangulated only {len(pts_tri)} points; retaining baseline rig point cloud ({len(pts_base)} points) for stable 4DGS initialization.")
 
     else:
         ref_frame_dir = str(src_synced_dir / "frame_000001")
@@ -342,15 +347,17 @@ def prepare_dataset(capture_name, colmap_source_capture=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--capture", type=str, default="all", help="Dataset to prepare: hand_test_002, controler_test_01, or all")
+    parser.add_argument("--capture", type=str, default="all", help="Dataset to prepare: hand_test_002, controler_test_01, or capture name")
+    parser.add_argument("--colmap-source", type=str, default="hand_test_002", help="Source capture to borrow camera rig from (default: hand_test_002)")
     args = parser.parse_args()
 
-    if args.capture in ["hand_test_002", "all"]:
+    if args.capture == "all":
         prepare_dataset("hand_test_002")
-
-    if args.capture in ["controler_test_01", "all"]:
-        # Use calibrated camera rig from hand_test_002 as both share the same physical rig setup
         prepare_dataset("controler_test_01", colmap_source_capture="hand_test_002")
+    elif args.capture == "hand_test_002":
+        prepare_dataset("hand_test_002")
+    else:
+        prepare_dataset(args.capture, colmap_source_capture=args.colmap_source)
 
 
 if __name__ == "__main__":

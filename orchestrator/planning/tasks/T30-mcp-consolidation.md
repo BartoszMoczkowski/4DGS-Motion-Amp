@@ -2,19 +2,35 @@
 
 - Status: todo
 - Phase: 10 (streamlining)
-- Depends on: T28, T29, T17
+- Depends on: T28, T28b, T29, T17, T32
 - Environment: sandbox-testable over real HTTP + real MCP client (existing
   `tests/test_mcp_tools.py` pattern); Streamlit UI verification on Bartosz's machine
 
 ## Goal
 
 Intent-level MCP tools — about 10, down from today's 15 thin 1:1 wrappers over Layer 1 —
-following the locked decision that APIs must not map 1:1 to tools. UI and MCP stop drifting by
-sharing the same Layer-1 shapes and report bundles.
+following the locked decision that APIs must not map 1:1 to tools. Dramatically cut LLM
+tool-calling round-trips by providing a single unified inspection tool (`amp explore` /
+`explore_experiment`) to traverse experiments, run configs, stage progress, and results in ONE call.
 
 ## In scope
 
-- **Consolidate to domain-grouped tools** (target ≤12 total):
+- **Unified Experiment Navigator (`explore_experiment` tool & `amp explore` CLI)**:
+  Single high-density inspection entry point that returns complete provenance in one shot:
+  - Default output is structured **JSON** (for MCP agents and programmatic tools); CLI provides
+    `--human` flag for formatted terminal tables/markdown trees.
+  - When `target` is an experiment (e.g. `capture_limitation`, `pump_grid_v2`): returns all cells,
+    dataset paths, capture specs, linked run IDs, stage statuses, execution times, pivoted
+    metrics (ARI, IoU, PSNR), and MLflow URLs in a single payload.
+  - When `target` is a run ID (e.g. `pump01-ff77f982`): returns preset, metadata, config diff against
+    base, stage timeline with peak VRAM/time, all registered artifacts, AND un-manifested file
+    detection in `runs/<id>/`.
+  - When `target` is a capture / dataset: returns frame count, camera list, sync residuals,
+    poses-bounds stats, and COLMAP status.
+  - Eliminates the 10–30 sequential `list_dir`, `view_file`, and `tail_logs` tool calls previously
+    burned per inspection.
+- **Consolidate to domain-grouped tools** (target ≤10 total):
+  - `explore_experiment(target?, view?, include_unregistered?)` — unified navigator;
   - `run_experiment(spec_path | preset, stages?)` — handles external-artifact seeding
     internally (the #1 documented `run_pipeline` failure mode: missing `raw_mesh` etc.
     surfacing as opaque DAG errors);

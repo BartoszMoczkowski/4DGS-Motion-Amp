@@ -401,3 +401,43 @@ def test_oom_fallback_recorded_and_cached_under_effective_config_key(tmp_path, m
     assert rec.cache_key == effective_key
     assert get_cached(original_key, runs_root=tmp_path) is None
     assert get_cached(effective_key, runs_root=tmp_path) is not None
+
+
+# --- gt_segmentation auto-seed from scene -----------------------------------------
+
+
+def test_auto_seed_gt_segmentation_from_scene(tmp_path):
+    """Verify that if gt_segmentation is needed by a stage and missing, but the run's
+    existing scene artifact directory contains gt_segmentation.npz, scheduler auto-seeds it."""
+    from pipeline.artifacts import Artifact, create_run, update_manifest, get_manifest
+    from pipeline.dag import run_dag
+    from pipeline.stages import Stage, StageContext, register, list_stages
+
+    if "test.needs_gt" not in list_stages():
+        @register("test.needs_gt")
+        class NeedsGtStage(Stage):
+            inputs = ("gt_segmentation",)
+            outputs = ("eval_out",)
+
+            def run(self, ctx: StageContext) -> dict[str, Artifact]:
+                out = ctx.run_dir / "eval.json"
+                out.write_text("{}")
+                return {"eval_out": Artifact(name="eval_out", kind="json", path=str(out), producing_stage=ctx.stage_name)}
+
+    scene_dir = tmp_path / "scene_with_gt"
+    scene_dir.mkdir(parents=True, exist_ok=True)
+    gt_file = scene_dir / "gt_segmentation.npz"
+    gt_file.write_bytes(b"dummy_gt")
+
+    run_id = "test_autoseed_gt"
+    create_run(run_id, "base", {}, stage_names=["test.needs_gt"], runs_root=tmp_path)
+
+    def _seed(m):
+        m.artifacts["scene"] = Artifact(name="scene", kind="dataset", path=str(scene_dir), producing_stage="external")
+    update_manifest(run_id, _seed, runs_root=tmp_path)
+
+    manifest = run_dag(run_id, ["test.needs_gt"], {}, runs_root=tmp_path)
+    assert manifest.status == "success"
+    assert "gt_segmentation" in manifest.artifacts
+    assert manifest.artifacts["gt_segmentation"].path == str(gt_file.resolve())
+

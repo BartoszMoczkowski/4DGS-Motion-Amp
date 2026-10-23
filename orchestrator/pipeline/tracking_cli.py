@@ -63,3 +63,40 @@ def status() -> None:
     else:
         typer.echo(f"server       : NOT reachable ({info.get('error', 'unknown error')})")
         typer.echo("start it with: amp mlflow serve")
+
+
+@app.command("reconcile")
+def reconcile(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Simulate reconciliation without modifying manifests or MLflow database.",
+    ),
+    human: bool = typer.Option(
+        False,
+        "--human",
+        help="Print human-readable summary instead of JSON.",
+    ),
+) -> None:
+    """Reconcile manifests, terminate stuck MLflow runs, backfill metrics & plots, and refresh results CSV.
+    Outputs JSON by default, or human-readable format with --human."""
+    import json
+    from pipeline.reconcile import reconcile_all
+
+    res = reconcile_all(dry_run=dry_run)
+    if human:
+        m = res["manifests"]
+        ml = res["mlflow"]
+        typer.echo(f"Manifests scanned : {m['scanned']}")
+        typer.echo(f"  Fixed to success: {m['fixed_success']}")
+        typer.echo(f"  Fixed to failed : {m['fixed_failed']}")
+        typer.echo(f"  Unchanged       : {m['unchanged']}")
+        typer.echo(f"MLflow runs       :")
+        typer.echo(f"  Terminated      : {ml['mlflow_terminated']}")
+        typer.echo(f"  Registered      : {ml['mlflow_registered']}")
+        typer.echo(f"  Metrics ingested: {ml['metrics_ingested']}")
+        typer.echo(f"  Plots uploaded  : {ml['plots_uploaded']}")
+        typer.echo(f"Results CSV sync  : {'Refreshed' if res['results_csv_refreshed'] else 'Skipped/Dry-run'}")
+    else:
+        typer.echo(json.dumps(res, indent=2))
+

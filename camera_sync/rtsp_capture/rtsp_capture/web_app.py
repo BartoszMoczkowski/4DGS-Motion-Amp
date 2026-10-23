@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -112,6 +113,26 @@ def create_app(manager: CaptureManager) -> FastAPI:
     # Camera Tuning & Identification
     # ------------------------------------------------------------------
 
+    @app.get("/api/cameras/{camera_id}/config")
+    def read_camera_config(camera_id: str):
+        if not manager.dahua:
+            raise HTTPException(status_code=500, detail="Controller not initialized")
+        state = manager.dahua.get_state(camera_id)
+        if not state:
+            raise HTTPException(status_code=404, detail=f"Camera {camera_id} not found")
+        color = manager.dahua.get_color_config(camera_id)
+        color_error = state.error
+        exposure = manager.dahua.get_exposure_config(camera_id)
+        exposure_error = state.error
+        errors = list(dict.fromkeys(error for error in (color_error, exposure_error) if error))
+        return {
+            "camera_id": camera_id,
+            "ok": not errors,
+            "error": "; ".join(errors) if errors else None,
+            "color": asdict(color),
+            "exposure": asdict(exposure),
+        }
+
     @app.post("/api/cameras/{camera_id}/config")
     def update_camera_config(
         camera_id: str,
@@ -148,7 +169,16 @@ def create_app(manager: CaptureManager) -> FastAPI:
                 sharpness=pic.sharpness,
             )
             results["picture"] = {"ok": ok, "message": msg}
-        return {"camera_id": camera_id, "results": results}
+        state = manager.dahua.get_state(camera_id)
+        return {
+            "camera_id": camera_id,
+            "ok": bool(results) and all(result["ok"] for result in results.values()),
+            "results": results,
+            "config": {
+                "color": asdict(state.color),
+                "exposure": asdict(state.exposure),
+            } if state else None,
+        }
 
     @app.post("/api/cameras/batch-config")
     def batch_update_config(req: BatchConfigRequest):
@@ -156,6 +186,16 @@ def create_app(manager: CaptureManager) -> FastAPI:
             raise HTTPException(status_code=500, detail="Controller not initialized")
         cids = req.cameras or list(manager.cameras.keys())
         results = {}
+
+        def normalize(res: dict[str, tuple[bool, str]]) -> dict[str, dict[str, Any]]:
+            return {
+                cid: {
+                    "ok": res.get(cid, (False, "Timed out waiting for camera"))[0],
+                    "message": res.get(cid, (False, "Timed out waiting for camera"))[1],
+                }
+                for cid in cids
+            }
+
         if req.white_balance:
             res = manager.dahua.batch_set_white_balance(
                 cids,
@@ -164,7 +204,7 @@ def create_app(manager: CaptureManager) -> FastAPI:
                 gain_blue=req.white_balance.gain_blue,
                 gain_green=req.white_balance.gain_green,
             )
-            results["white_balance"] = res
+            results["white_balance"] = normalize(res)
         if req.exposure:
             res = manager.dahua.batch_set_exposure(
                 cids,
@@ -172,8 +212,25 @@ def create_app(manager: CaptureManager) -> FastAPI:
                 shutter=req.exposure.shutter,
                 gain_max=req.exposure.gain_max,
             )
-            results["exposure"] = res
-        return {"updated_cameras": cids, "results": results}
+            results["exposure"] = normalize(res)
+        if req.picture:
+            res = manager.dahua.batch_set_picture(
+                cids,
+                brightness=req.picture.brightness,
+                contrast=req.picture.contrast,
+                saturation=req.picture.saturation,
+                sharpness=req.picture.sharpness,
+            )
+            results["picture"] = normalize(res)
+        return {
+            "updated_cameras": cids,
+            "ok": bool(results) and all(
+                result["ok"]
+                for operation in results.values()
+                for result in operation.values()
+            ),
+            "results": results,
+        }
 
     @app.post("/api/cameras/{camera_id}/flash")
     def flash_camera(camera_id: str, req: FlashRequest = Body(default=FlashRequest())):

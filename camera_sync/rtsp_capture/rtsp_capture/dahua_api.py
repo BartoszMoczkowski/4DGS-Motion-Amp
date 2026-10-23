@@ -142,6 +142,8 @@ class DahuaController:
             else:
                 resp = requests.post(url, data=params, auth=auth, timeout=self.timeout)
             if resp.status_code == 200:
+                if resp.text.strip().lower().startswith("error"):
+                    return False, resp.text
                 return True, resp.text
             return False, f"HTTP {resp.status_code}: {resp.text[:100]}"
         except Exception as exc:
@@ -158,28 +160,42 @@ class DahuaController:
         if self.mock_mode:
             return state.color
 
-        ok, text = self._cgi_request(state.ip, "configManager.cgi", {
-            "action": "getConfig",
-            "name": "VideoInColor",
-        })
-        if ok:
-            parsed = _parse_dahua_response(text)
+        parsed_configs = {}
+        errors = []
+        for name in ("VideoInColor", "VideoInWhiteBalance", "VideoInSharpness"):
+            ok, text = self._cgi_request(state.ip, "configManager.cgi", {
+                "action": "getConfig",
+                "name": name,
+            })
+            if ok:
+                parsed_configs[name] = _parse_dahua_response(text)
+            else:
+                errors.append(f"{name}: {text.strip()}")
+        if errors:
+            state.online = False
+            state.error = "; ".join(errors)
+            return state.color
+
+        color = parsed_configs["VideoInColor"]
+        wb = parsed_configs["VideoInWhiteBalance"]
+        sharpness = parsed_configs["VideoInSharpness"]
+        try:
+            state.color = CameraColorConfig(
+                wb_style=wb.get("table.VideoInWhiteBalance[0][0].Mode", state.color.wb_style),
+                gain_red=int(wb.get("table.VideoInWhiteBalance[0][0].GainRed", state.color.gain_red)),
+                gain_blue=int(wb.get("table.VideoInWhiteBalance[0][0].GainBlue", state.color.gain_blue)),
+                gain_green=int(wb.get("table.VideoInWhiteBalance[0][0].GainGreen", state.color.gain_green)),
+                brightness=int(color.get("table.VideoInColor[0][0].Brightness", state.color.brightness)),
+                contrast=int(color.get("table.VideoInColor[0][0].Contrast", state.color.contrast)),
+                saturation=int(color.get("table.VideoInColor[0][0].Saturation", state.color.saturation)),
+                sharpness=int(sharpness.get("table.VideoInSharpness[0][0].Sharpness", state.color.sharpness)),
+            )
+        except ValueError as exc:
+            state.error = f"Invalid colour config response: {exc}"
+        else:
             state.online = True
             state.last_seen = time.time()
-            state.color.wb_style = parsed.get("table.VideoInColor[0].WhiteBlance.Style", state.color.wb_style)
-            try:
-                state.color.gain_red = int(parsed.get("table.VideoInColor[0].WhiteBlance.GainRed", state.color.gain_red))
-                state.color.gain_blue = int(parsed.get("table.VideoInColor[0].WhiteBlance.GainBlue", state.color.gain_blue))
-                state.color.gain_green = int(parsed.get("table.VideoInColor[0].WhiteBlance.GainGreen", state.color.gain_green))
-                state.color.brightness = int(parsed.get("table.VideoInColor[0].Config[0].Brightness", state.color.brightness))
-                state.color.contrast = int(parsed.get("table.VideoInColor[0].Config[0].Contrast", state.color.contrast))
-                state.color.saturation = int(parsed.get("table.VideoInColor[0].Config[0].Saturation", state.color.saturation))
-                state.color.sharpness = int(parsed.get("table.VideoInColor[0].Config[0].Sharpness", state.color.sharpness))
-            except ValueError:
-                pass
-        else:
-            state.online = False
-            state.error = text
+            state.error = None
         return state.color
 
     def set_white_balance(
@@ -194,30 +210,46 @@ class DahuaController:
         if not state:
             return False, f"Unknown camera {camera_id}"
 
-        state.color.wb_style = style
-        if gain_red is not None:
-            state.color.gain_red = max(0, min(100, gain_red))
-        if gain_blue is not None:
-            state.color.gain_blue = max(0, min(100, gain_blue))
-        if gain_green is not None:
-            state.color.gain_green = max(0, min(100, gain_green))
-
+        red = max(0, min(100, gain_red if gain_red is not None else state.color.gain_red))
+        blue = max(0, min(100, gain_blue if gain_blue is not None else state.color.gain_blue))
+        green = max(0, min(100, gain_green if gain_green is not None else state.color.gain_green))
         if self.mock_mode:
+            state.color.wb_style = style
+            state.color.gain_red = red
+            state.color.gain_blue = blue
+            state.color.gain_green = green
             return True, "OK"
 
         params = {
             "action": "setConfig",
-            "VideoInColor[0].WhiteBlance.Style": style,
+            "VideoInWhiteBalance[0][0].Mode": style,
         }
         if style in ("Manual", "Custom"):
-            params["VideoInColor[0].WhiteBlance.GainRed"] = state.color.gain_red
-            params["VideoInColor[0].WhiteBlance.GainBlue"] = state.color.gain_blue
-            params["VideoInColor[0].WhiteBlance.GainGreen"] = state.color.gain_green
+            params["VideoInWhiteBalance[0][0].GainRed"] = red
+            params["VideoInWhiteBalance[0][0].GainBlue"] = blue
+            params["VideoInWhiteBalance[0][0].GainGreen"] = green
 
         ok, text = self._cgi_request(state.ip, "configManager.cgi", params)
         if not ok:
             state.error = text
-        return ok, text
+            return False, text
+
+        actual = self.get_color_config(camera_id)
+        if state.error:
+            return False, state.error
+        mismatches = []
+        if actual.wb_style != style:
+            mismatches.append(f"mode={actual.wb_style!r}")
+        if style in ("Manual", "Custom"):
+            for name, expected in (("gain_red", red), ("gain_blue", blue), ("gain_green", green)):
+                value = getattr(actual, name)
+                if value != expected:
+                    mismatches.append(f"{name}={value}")
+        if mismatches:
+            message = f"White balance readback mismatch: {', '.join(mismatches)}"
+            state.error = message
+            return False, message
+        return True, "OK"
 
     def set_picture(
         self,
@@ -231,27 +263,44 @@ class DahuaController:
         if not state:
             return False, f"Unknown camera {camera_id}"
 
-        params = {"action": "setConfig"}
-        if brightness is not None:
-            state.color.brightness = max(0, min(100, brightness))
-            params["VideoInColor[0].Config[0].Brightness"] = state.color.brightness
-        if contrast is not None:
-            state.color.contrast = max(0, min(100, contrast))
-            params["VideoInColor[0].Config[0].Contrast"] = state.color.contrast
-        if saturation is not None:
-            state.color.saturation = max(0, min(100, saturation))
-            params["VideoInColor[0].Config[0].Saturation"] = state.color.saturation
-        if sharpness is not None:
-            state.color.sharpness = max(0, min(100, sharpness))
-            params["VideoInColor[0].Config[0].Sharpness"] = state.color.sharpness
-
+        requested = {
+            "brightness": max(0, min(100, brightness)) if brightness is not None else None,
+            "contrast": max(0, min(100, contrast)) if contrast is not None else None,
+            "saturation": max(0, min(100, saturation)) if saturation is not None else None,
+            "sharpness": max(0, min(100, sharpness)) if sharpness is not None else None,
+        }
         if self.mock_mode:
+            for name, value in requested.items():
+                if value is not None:
+                    setattr(state.color, name, value)
             return True, "OK"
+
+        params = {"action": "setConfig"}
+        for name in ("brightness", "contrast", "saturation"):
+            value = requested[name]
+            if value is not None:
+                params[f"VideoInColor[0][0].{name.capitalize()}"] = value
+        if requested["sharpness"] is not None:
+            params["VideoInSharpness[0][0].Sharpness"] = requested["sharpness"]
 
         ok, text = self._cgi_request(state.ip, "configManager.cgi", params)
         if not ok:
             state.error = text
-        return ok, text
+            return False, text
+
+        actual = self.get_color_config(camera_id)
+        if state.error:
+            return False, state.error
+        mismatches = [
+            f"{name}={getattr(actual, name)}"
+            for name, expected in requested.items()
+            if expected is not None and getattr(actual, name) != expected
+        ]
+        if mismatches:
+            message = f"Picture readback mismatch: {', '.join(mismatches)}"
+            state.error = message
+            return False, message
+        return True, "OK"
 
     # ------------------------------------------------------------------
     # Exposure
@@ -268,10 +317,28 @@ class DahuaController:
             "action": "getConfig",
             "name": "VideoInExposure",
         })
-        if ok:
-            parsed = _parse_dahua_response(text)
-            state.exposure.mode = parsed.get("table.VideoInExposure[0].Exposure.Mode", state.exposure.mode)
-            state.exposure.shutter = parsed.get("table.VideoInExposure[0].Exposure.CustomRange.SpeedMin", state.exposure.shutter)
+        if not ok:
+            state.online = False
+            state.error = text
+            return state.exposure
+
+        parsed = _parse_dahua_response(text)
+        raw_mode = parsed.get("table.VideoInExposure[0][0].Mode", state.exposure.mode)
+        try:
+            speed = int(parsed.get("table.VideoInExposure[0][0].Speed", "0"))
+            gain_max = int(parsed.get("table.VideoInExposure[0][0].GainMax", state.exposure.gain_max))
+            state.exposure = CameraExposureConfig(
+                mode={"0": "Auto", "1": "Manual"}.get(raw_mode, raw_mode),
+                shutter=f"1/{speed}" if speed > 0 else state.exposure.shutter,
+                gain_max=gain_max,
+                anti_flicker=state.exposure.anti_flicker,
+            )
+        except ValueError as exc:
+            state.error = f"Invalid exposure config response: {exc}"
+        else:
+            state.online = True
+            state.last_seen = time.time()
+            state.error = None
         return state.exposure
 
     def set_exposure(
@@ -284,30 +351,60 @@ class DahuaController:
         state = self.get_state(camera_id)
         if not state:
             return False, f"Unknown camera {camera_id}"
+        if mode not in ("Auto", "Manual"):
+            return False, f"Unsupported exposure mode {mode!r}"
 
-        state.exposure.mode = mode
-        if shutter is not None:
-            state.exposure.shutter = shutter
-        if gain_max is not None:
-            state.exposure.gain_max = max(0, min(100, gain_max))
+        requested_shutter = shutter or state.exposure.shutter
+        speed = 0
+        if mode == "Manual":
+            try:
+                numerator, denominator = requested_shutter.split("/", 1)
+                if int(numerator) != 1:
+                    raise ValueError
+                speed = int(denominator)
+                if speed <= 0:
+                    raise ValueError
+            except ValueError:
+                message = f"Invalid shutter {requested_shutter!r}; expected 1/N"
+                state.error = message
+                return False, message
+            requested_shutter = f"1/{speed}"
+        gain = max(0, min(100, gain_max if gain_max is not None else state.exposure.gain_max))
 
         if self.mock_mode:
+            state.exposure.mode = mode
+            state.exposure.shutter = requested_shutter
+            state.exposure.gain_max = gain
             return True, "OK"
 
         params = {
             "action": "setConfig",
-            "VideoInExposure[0].Exposure.Mode": mode,
+            "VideoInExposure[0][0].Mode": 0 if mode == "Auto" else 1,
+            "VideoInExposure[0][0].Speed": speed,
         }
-        if mode == "Manual" and shutter:
-            params["VideoInExposure[0].Exposure.CustomRange.SpeedMin"] = shutter
-            params["VideoInExposure[0].Exposure.CustomRange.SpeedMax"] = shutter
         if gain_max is not None:
-            params["VideoInExposure[0].Exposure.GainMax"] = state.exposure.gain_max
+            params["VideoInExposure[0][0].GainMax"] = gain
 
         ok, text = self._cgi_request(state.ip, "configManager.cgi", params)
         if not ok:
             state.error = text
-        return ok, text
+            return False, text
+
+        actual = self.get_exposure_config(camera_id)
+        if state.error:
+            return False, state.error
+        mismatches = []
+        if actual.mode != mode:
+            mismatches.append(f"mode={actual.mode!r}")
+        if mode == "Manual" and actual.shutter != requested_shutter:
+            mismatches.append(f"shutter={actual.shutter!r}")
+        if gain_max is not None and actual.gain_max != gain:
+            mismatches.append(f"gain_max={actual.gain_max}")
+        if mismatches:
+            message = f"Exposure readback mismatch: {', '.join(mismatches)}"
+            state.error = message
+            return False, message
+        return True, "OK"
 
     # ------------------------------------------------------------------
     # Lighting & Hardware Identification Flash
@@ -383,6 +480,26 @@ class DahuaController:
         for cid in camera_ids:
             def _set(c=cid):
                 results[c] = self.set_white_balance(c, style, gain_red, gain_blue, gain_green)
+            t = threading.Thread(target=_set, daemon=True)
+            t.start()
+            threads.append(t)
+        for t in threads:
+            t.join(timeout=self.timeout * 2)
+        return results
+
+    def batch_set_picture(
+        self,
+        camera_ids: list[str],
+        brightness: int | None = None,
+        contrast: int | None = None,
+        saturation: int | None = None,
+        sharpness: int | None = None,
+    ) -> dict[str, tuple[bool, str]]:
+        results = {}
+        threads = []
+        for cid in camera_ids:
+            def _set(c=cid):
+                results[c] = self.set_picture(c, brightness, contrast, saturation, sharpness)
             t = threading.Thread(target=_set, daemon=True)
             t.start()
             threads.append(t)

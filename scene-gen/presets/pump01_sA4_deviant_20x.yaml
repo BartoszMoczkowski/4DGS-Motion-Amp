@@ -10,7 +10,7 @@ motion:
   common_amp_mm: 5.0
   target_amp_mm: 100.0
   multiplier: 20.0
-  target_part: part_019
+  target_part: part_008
   freq_hz: 10.0
   seed: 0
 material:
@@ -22,4 +22,4 @@ capture:
   num_frames: 60
   fps: 60.0
   rt_subframes: 16
-  max_elev_deg: 50.0
+  max_elev_deg: 32.0

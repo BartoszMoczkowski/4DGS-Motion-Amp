@@ -12,10 +12,10 @@ const state = {
 
 // Preset configurations
 const PRESETS = {
-  daylight: { wb_mode: 'Manual', red: 50, blue: 50, exp_mode: 'Manual', shutter: '1/100', gain: 50, brightness: 50, contrast: 50 },
-  cool: { wb_mode: 'Manual', red: 42, blue: 60, exp_mode: 'Manual', shutter: '1/100', gain: 50, brightness: 50, contrast: 50 },
-  warm: { wb_mode: 'Manual', red: 60, blue: 42, exp_mode: 'Manual', shutter: '1/100', gain: 50, brightness: 50, contrast: 50 },
-  high_speed: { wb_mode: 'Manual', red: 50, blue: 50, exp_mode: 'Manual', shutter: '1/250', gain: 65, brightness: 55, contrast: 52 },
+  daylight: { wb_mode: 'Manual', red: 10, blue: 50, exp_mode: 'Manual', shutter: '1/100', gain: 50, brightness: 50, contrast: 50 },
+  cool: { wb_mode: 'Manual', red: 5, blue: 60, exp_mode: 'Manual', shutter: '1/100', gain: 50, brightness: 50, contrast: 50 },
+  warm: { wb_mode: 'Manual', red: 15, blue: 45, exp_mode: 'Manual', shutter: '1/100', gain: 50, brightness: 50, contrast: 50 },
+  high_speed: { wb_mode: 'Manual', red: 10, blue: 50, exp_mode: 'Manual', shutter: '1/250', gain: 65, brightness: 55, contrast: 52 },
 };
 
 // ==========================================================================
@@ -217,10 +217,13 @@ function createCameraCard(cid, cam) {
         <div class="control-row">
           <label>Shutter:</label>
           <select id="tune-shutter-${cid}">
+            <option value="1/25" ${initialShutter==='1/25'?'selected':''}>1/25 s</option>
             <option value="1/50" ${initialShutter==='1/50'?'selected':''}>1/50 s</option>
             <option value="1/100" ${initialShutter==='1/100'?'selected':''}>1/100 s</option>
+            <option value="1/200" ${initialShutter==='1/200'?'selected':''}>1/200 s</option>
             <option value="1/250" ${initialShutter==='1/250'?'selected':''}>1/250 s</option>
             <option value="1/500" ${initialShutter==='1/500'?'selected':''}>1/500 s</option>
+            <option value="1/1000" ${initialShutter==='1/1000'?'selected':''}>1/1000 s</option>
           </select>
           <button class="btn btn-sm btn-primary" onclick="saveSingleCameraTuning('${cid}')">Save</button>
         </div>
@@ -231,12 +234,17 @@ function createCameraCard(cid, cam) {
   return card;
 }
 
-function toggleCardTuning(cid) {
+async function toggleCardTuning(cid) {
   const body = document.getElementById(`acc-body-${cid}`);
   const arrow = document.getElementById(`acc-arrow-${cid}`);
   if (body.classList.contains('hidden')) {
     body.classList.remove('hidden');
     arrow.textContent = '▲';
+    try {
+      await refreshCameraTuning(cid);
+    } catch (err) {
+      showToast(`Could not read ${cid.toUpperCase()} config: ${err.message}`, 'error');
+    }
   } else {
     body.classList.add('hidden');
     arrow.textContent = '▼';
@@ -347,6 +355,52 @@ async function batchToggleLights(mode, brightness) {
 // Universal Master Calibration ("Apply to All")
 // ==========================================================================
 
+function updateMasterSliders() {
+  const gainsEnabled = document.getElementById('master-wb-mode').value !== 'Auto';
+  document.getElementById('master-wb-red').disabled = !gainsEnabled;
+  document.getElementById('master-wb-blue').disabled = !gainsEnabled;
+}
+
+async function refreshCameraTuning(cid) {
+  const res = await fetch(`/api/cameras/${cid}/config`);
+  const data = await res.json();
+  if (!res.ok || !data.ok) {
+    throw new Error(data.error || data.detail || `HTTP ${res.status}`);
+  }
+
+  const red = document.getElementById(`tune-red-${cid}`);
+  const blue = document.getElementById(`tune-blue-${cid}`);
+  const shutter = document.getElementById(`tune-shutter-${cid}`);
+  if (!red || !blue || !shutter) return data;
+
+  red.value = data.color.gain_red;
+  blue.value = data.color.gain_blue;
+  document.getElementById(`val-tune-red-${cid}`).textContent = data.color.gain_red;
+  document.getElementById(`val-tune-blue-${cid}`).textContent = data.color.gain_blue;
+  if (![...shutter.options].some((option) => option.value === data.exposure.shutter)) {
+    shutter.add(new Option(`${data.exposure.shutter} s`, data.exposure.shutter));
+  }
+  shutter.value = data.exposure.shutter;
+  return data;
+}
+
+function collectConfigFailures(results, prefix = '') {
+  const failures = [];
+  for (const [key, value] of Object.entries(results || {})) {
+    if (value && typeof value === 'object' && 'ok' in value) {
+      if (!value.ok) failures.push(`${prefix}${key}: ${value.message}`);
+    } else if (value && typeof value === 'object') {
+      failures.push(...collectConfigFailures(value, `${prefix}${key} `));
+    }
+  }
+  return failures;
+}
+
+function refreshPreview(cid) {
+  const img = document.getElementById(`preview-${cid}`);
+  if (img) img.src = `/api/cameras/${cid}/snapshot?t=${Date.now()}`;
+}
+
 function applyPreset(presetKey) {
   const p = PRESETS[presetKey];
   if (!p) return;
@@ -366,6 +420,7 @@ function applyPreset(presetKey) {
   document.getElementById('val-brightness').textContent = p.brightness;
   document.getElementById('master-contrast').value = p.contrast;
   document.getElementById('val-contrast').textContent = p.contrast;
+  updateMasterSliders();
 }
 
 async function applyMasterSettingsToAll() {
@@ -394,10 +449,17 @@ async function applyMasterSettingsToAll() {
       body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (res.ok) {
-      showToast(`✅ Successfully synced parameters to all ${data.updated_cameras.length} cameras!`, 'success');
+    const cids = data.updated_cameras || [];
+    const refreshResults = await Promise.allSettled(cids.map((cid) => refreshCameraTuning(cid)));
+    const failures = collectConfigFailures(data.results);
+    refreshResults.forEach((result, index) => {
+      if (result.status === 'rejected') failures.push(`${cids[index]} readback: ${result.reason.message}`);
+      refreshPreview(cids[index]);
+    });
+    if (!res.ok || !data.ok || failures.length > 0) {
+      showToast(`Batch sync failed: ${failures[0] || data.detail || 'camera rejected settings'}`, 'error');
     } else {
-      showToast(`Batch sync error: ${data.detail}`, 'error');
+      showToast(`Verified settings on all ${cids.length} cameras`, 'success');
     }
   } catch (err) {
     showToast(`Network error syncing settings: ${err}`, 'error');
@@ -418,8 +480,18 @@ async function saveSingleCameraTuning(cid) {
         exp: { mode: 'Manual', shutter: shutter, gain_max: 50 },
       }),
     });
-    if (res.ok) {
-      showToast(`Saved tuning for ${cid.toUpperCase()}`, 'success');
+    const data = await res.json();
+    const failures = collectConfigFailures(data.results);
+    try {
+      await refreshCameraTuning(cid);
+    } catch (err) {
+      failures.push(`readback: ${err.message}`);
+    }
+    refreshPreview(cid);
+    if (!res.ok || !data.ok || failures.length > 0) {
+      showToast(`Failed to save ${cid.toUpperCase()}: ${failures[0] || data.detail || 'camera rejected settings'}`, 'error');
+    } else {
+      showToast(`Saved and verified tuning for ${cid.toUpperCase()}`, 'success');
     }
   } catch (err) {
     showToast(`Error saving ${cid}: ${err}`, 'error');

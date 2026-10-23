@@ -51,10 +51,13 @@ SUBJECT_NAME = "pump"              # renamed subject root in the composed scene
 # see .claude_notes/NOTES_warehouse_scene.md.
 TRANSLATE = (-130.29, -437.17, 0.35)
 SCALE = 0.2
-# Dome top ring at the template's 75° puts cameras at z≈10.4 m, inside the factory
-# roof structure (frames come out pure gray). 50° keeps the top ring at z≈8.7 m,
-# just above the verified-good middle ring (45°, z≈8.2 m).
-MAX_ELEV_DEG = 50.0
+# Framing constants focused on bottom pump assembly (empirically approved):
+RIG_CENTER = (-10.0, -185.0, 75.0)
+RIG_BASE_RADIUS = 420.0   # halfway zoom baseline (distance 4.2m)
+DEFAULT_MIN_ELEV_DEG = 12.0
+DEFAULT_MAX_ELEV_DEG = 32.0
+DEFAULT_TARGET_PART = "part_008"   # prominent bottom manifold cylinder (3224 verts)
+MAX_ELEV_DEG = DEFAULT_MAX_ELEV_DEG
 TEMPLATE_CONFIG = os.path.join(
     os.path.dirname(__file__), "..", "omniverse-pipeline", "omniverse_pipeline",
     "capture_config_pump_warehouse.yaml")
@@ -219,6 +222,60 @@ def create_procedural_texture(out_path: str, width: int = 1024, height: int = 10
     return out_path
 
 
+def create_procedural_blue_texture(out_path: str, width: int = 1024, height: int = 1024) -> str:
+    """Generate matte desaturated machinery enamel blue texture with subtle machining marks."""
+    from PIL import Image, ImageDraw
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    rng = np.random.default_rng(42)
+
+    # Desaturated industrial enamel blue (muted slate-blue)
+    base = np.zeros((height, width, 3), dtype=np.uint8)
+    base[:, :, 0] = 65   # R
+    base[:, :, 1] = 105  # G
+    base[:, :, 2] = 145  # B
+
+    striations = rng.normal(0, 4, size=(height, 1, 1)).astype(np.int16)
+    base = np.clip(base.astype(np.int16) + striations, 0, 255).astype(np.uint8)
+    grain = rng.normal(0, 3, size=(height, width, 3)).astype(np.int16)
+    base = np.clip(base.astype(np.int16) + grain, 0, 255).astype(np.uint8)
+
+    img = Image.fromarray(base)
+    draw = ImageDraw.Draw(img)
+
+    for r in range(40, width // 2, 35):
+        draw.arc([width // 2 - r, height // 2 - r, width // 2 + r, height // 2 + r],
+                 start=0, end=360, fill=(50, 85, 120), width=2)
+
+    # Machine label badge & serial markings
+    draw.rectangle([80, 80, 440, 215], fill=(25, 30, 35), outline=(210, 165, 40), width=3)
+    draw.text((100, 95), "HIGH PRESSURE INDUSTRIAL PUMP", fill=(255, 255, 255))
+    draw.text((100, 125), "SN: 4DGS-PUMP-2026-MATTE", fill=(210, 220, 230))
+    draw.text((100, 155), "RATED: 250 BAR / 1750 RPM", fill=(225, 185, 45))
+    draw.text((100, 180), "SERIES T / SUB-PIXEL TEXTURE", fill=(160, 175, 185))
+
+    img.save(out_path)
+    return out_path
+
+
+def create_procedural_black_texture(out_path: str, width: int = 1024, height: int = 1024) -> str:
+    """Generate matte industrial black / dark cast-iron stippled texture."""
+    from PIL import Image
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    rng = np.random.default_rng(42)
+
+    base = np.zeros((height, width, 3), dtype=np.uint8)
+    base[:, :, 0] = 30
+    base[:, :, 1] = 31
+    base[:, :, 2] = 34
+
+    stipple = rng.normal(0, 3, size=(height, width, 3)).astype(np.int16)
+    base = np.clip(base.astype(np.int16) + stipple, 0, 255).astype(np.uint8)
+
+    img = Image.fromarray(base)
+    img.save(out_path)
+    return out_path
+
+
 def apply_materials(
     usd_path: str,
     preset: str = "saturated_metallic",
@@ -228,6 +285,7 @@ def apply_materials(
     - 'pastel': retains original pastel displayColor, removes metallic UsdShade materials
     - 'metallic': uniform brushed steel PBR (metallic=1.0, roughness=0.32), uniform displayColor
     - 'metallic_texture': metallic PBR with procedural texture connected + cylindrical UV primvars:st
+    - 'matte_blue_black': matte industrial desaturated blue for pump body + matte black for frame/feet/fasteners
     - 'saturated_metallic': legacy mode (golden-ratio HSV palette per part)
     """
     from pxr import Gf, Sdf, Usd, UsdGeom, UsdShade, Vt
@@ -360,6 +418,99 @@ def apply_materials(
         stage.GetRootLayer().Save()
         return n
 
+    if preset == "matte_blue_black":
+        tex_dir = out_dir or os.path.dirname(usd_path)
+        blue_tex_path = os.path.join(tex_dir, "pump_matte_blue_texture.png")
+        black_tex_path = os.path.join(tex_dir, "pump_matte_black_texture.png")
+        if not os.path.isfile(blue_tex_path):
+            create_procedural_blue_texture(blue_tex_path)
+        if not os.path.isfile(black_tex_path):
+            create_procedural_black_texture(black_tex_path)
+
+        # 1. Blue Material (Matte Industrial Blue)
+        blue_mat_path = f"{mats_scope.GetPath()}/MatteBlue_mat"
+        blue_mat = UsdShade.Material.Define(stage, blue_mat_path)
+        blue_shader = UsdShade.Shader.Define(stage, f"{blue_mat_path}/PBRShader")
+        blue_shader.CreateIdAttr("UsdPreviewSurface")
+        blue_shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.06)
+        blue_shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.60)
+
+        uv_reader_b = UsdShade.Shader.Define(stage, f"{blue_mat_path}/UVReader")
+        uv_reader_b.CreateIdAttr("UsdPrimvarReader_float2")
+        uv_reader_b.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+        uv_reader_b.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+
+        tex_shader_b = UsdShade.Shader.Define(stage, f"{blue_mat_path}/DiffuseTexture")
+        tex_shader_b.CreateIdAttr("UsdUVTexture")
+        rel_tex_b = os.path.relpath(blue_tex_path, os.path.dirname(usd_path)).replace("\\", "/")
+        tex_shader_b.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(Sdf.AssetPath(rel_tex_b))
+        tex_shader_b.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(uv_reader_b.ConnectableAPI(), "result")
+        tex_shader_b.CreateInput("wrapS", Sdf.ValueTypeNames.Token).Set("repeat")
+        tex_shader_b.CreateInput("wrapT", Sdf.ValueTypeNames.Token).Set("repeat")
+        tex_shader_b.CreateOutput("rgb", Sdf.ValueTypeNames.Color3f)
+        blue_shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(tex_shader_b.ConnectableAPI(), "rgb")
+        blue_mat.CreateSurfaceOutput().ConnectToSource(blue_shader.ConnectableAPI(), "surface")
+
+        # 2. Black Material (Matte Cast Iron Black)
+        black_mat_path = f"{mats_scope.GetPath()}/MatteBlack_mat"
+        black_mat = UsdShade.Material.Define(stage, black_mat_path)
+        black_shader = UsdShade.Shader.Define(stage, f"{black_mat_path}/PBRShader")
+        black_shader.CreateIdAttr("UsdPreviewSurface")
+        black_shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(0.04)
+        black_shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(0.68)
+
+        uv_reader_k = UsdShade.Shader.Define(stage, f"{black_mat_path}/UVReader")
+        uv_reader_k.CreateIdAttr("UsdPrimvarReader_float2")
+        uv_reader_k.CreateInput("varname", Sdf.ValueTypeNames.Token).Set("st")
+        uv_reader_k.CreateOutput("result", Sdf.ValueTypeNames.Float2)
+
+        tex_shader_k = UsdShade.Shader.Define(stage, f"{black_mat_path}/DiffuseTexture")
+        tex_shader_k.CreateIdAttr("UsdUVTexture")
+        rel_tex_k = os.path.relpath(black_tex_path, os.path.dirname(usd_path)).replace("\\", "/")
+        tex_shader_k.CreateInput("file", Sdf.ValueTypeNames.Asset).Set(Sdf.AssetPath(rel_tex_k))
+        tex_shader_k.CreateInput("st", Sdf.ValueTypeNames.Float2).ConnectToSource(uv_reader_k.ConnectableAPI(), "result")
+        tex_shader_k.CreateInput("wrapS", Sdf.ValueTypeNames.Token).Set("repeat")
+        tex_shader_k.CreateInput("wrapT", Sdf.ValueTypeNames.Token).Set("repeat")
+        tex_shader_k.CreateOutput("rgb", Sdf.ValueTypeNames.Color3f)
+        black_shader.CreateInput("diffuseColor", Sdf.ValueTypeNames.Color3f).ConnectToSource(tex_shader_k.ConnectableAPI(), "rgb")
+        black_mat.CreateSurfaceOutput().ConnectToSource(black_shader.ConnectableAPI(), "surface")
+
+        black_parts_set = {
+            "frame_base",
+            "part_009", "part_010", "part_017",
+            "part_034", "part_035", "part_036", "part_037",
+            "part_040", "part_041", "part_052", "part_053",
+            "part_074", "part_075", "part_076", "part_077",
+            "part_086", "part_087", "part_088", "part_089",
+            "part_098", "part_099", "part_100", "part_101",
+            "part_102", "part_103", "part_104", "part_105",
+        }
+
+        for part in parts:
+            is_black = (part.GetName() in black_parts_set)
+            target_mat = black_mat if is_black else blue_mat
+            base_col = Gf.Vec3f(0.015, 0.015, 0.018) if is_black else Gf.Vec3f(0.08, 0.16, 0.28)
+
+            for child in part.GetChildren():
+                if child.GetTypeName() == "Mesh":
+                    m = UsdGeom.Mesh(child)
+                    pts = np.array(m.GetPointsAttr().Get() or [], dtype=np.float32)
+                    if len(pts) > 0:
+                        cen = pts.mean(axis=0)
+                        rel = pts - cen
+                        u = (np.arctan2(rel[:, 1], rel[:, 0]) / (2.0 * np.pi) + 0.5) % 1.0
+                        z_span = max(rel[:, 2].max() - rel[:, 2].min(), 1e-4)
+                        v = ((rel[:, 2] - rel[:, 2].min()) / z_span) % 1.0
+                        uvs = [Gf.Vec2f(float(u[k]), float(v[k])) for k in range(len(pts))]
+                        st_pv = UsdGeom.PrimvarsAPI(m).CreatePrimvar(
+                            "st", Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
+                        st_pv.Set(Vt.Vec2fArray(uvs))
+                        m.CreateDisplayColorAttr(Vt.Vec3fArray([base_col]))
+                    UsdShade.MaterialBindingAPI(child).Bind(target_mat)
+
+        stage.GetRootLayer().Save()
+        return n
+
     raise ValueError(f"Unknown material preset: {preset}")
 
 
@@ -377,10 +528,13 @@ def write_capture_config(
     capture_dir: str,
     num_frames: int | None = None,
     max_elev_deg: float | None = None,
+    min_elev_deg: float | None = None,
     width: int | None = None,
     height: int | None = None,
     radius_scale: float | None = None,
     rt_subframes: int | None = None,
+    center: tuple[float, float, float] | list[float] | None = None,
+    radius: float | None = None,
 ) -> None:
     """Clone the warehouse capture config, swapping usd_path / capture_dir and any
     rig/capture overrides via text substitution so all other settings survive verbatim."""
@@ -390,16 +544,22 @@ def write_capture_config(
     text = re.sub(r'capture_dir: ".*?"', f'capture_dir: "{capture_dir}"', text, count=1)
     if num_frames is not None:
         text = re.sub(r'num_frames: \d+', f'num_frames: {num_frames}', text, count=1)
-    if max_elev_deg is not None:
-        text = re.sub(r'max_elev_deg: [\d.]+', f'max_elev_deg: {max_elev_deg:g}', text, count=1)
     if width is not None:
         text = re.sub(r'width: \d+', f'width: {width}', text, count=1)
     if height is not None:
         text = re.sub(r'height: \d+', f'height: {height}', text, count=1)
-    if radius_scale is not None:
-        text = re.sub(r'radius_scale: [\d.]+', f'radius_scale: {radius_scale:g}', text, count=1)
     if rt_subframes is not None:
         text = re.sub(r'rt_subframes: \d+', f'rt_subframes: {rt_subframes}', text, count=1)
+
+    c = center if center is not None else RIG_CENTER
+    min_el = min_elev_deg if min_elev_deg is not None else DEFAULT_MIN_ELEV_DEG
+    max_el = max_elev_deg if max_elev_deg is not None else DEFAULT_MAX_ELEV_DEG
+    r = radius if radius is not None else (RIG_BASE_RADIUS * (radius_scale / 2.5) if radius_scale is not None else RIG_BASE_RADIUS)
+
+    text = re.sub(r'radius_scale: [\d.]+', f'center: [{c[0]:.1f}, {c[1]:.1f}, {c[2]:.1f}]\n  radius: {r:.1f}', text, count=1)
+    text = re.sub(r'min_elev_deg: [\d.]+', f'min_elev_deg: {min_el:g}', text, count=1)
+    text = re.sub(r'max_elev_deg: [\d.]+', f'max_elev_deg: {max_el:g}', text, count=1)
+
     with open(out_path, "w") as f:
         f.write(text)
 
@@ -443,7 +603,10 @@ def generate_cell(
     height: int | None = None,
     radius_scale: float | None = None,
     rt_subframes: int | None = None,
-    max_elev_deg: float = MAX_ELEV_DEG,
+    max_elev_deg: float = DEFAULT_MAX_ELEV_DEG,
+    min_elev_deg: float = DEFAULT_MIN_ELEV_DEG,
+    center: tuple[float, float, float] | list[float] | None = None,
+    radius: float | None = None,
 ) -> dict[str, Any]:
     """Generate a single scene variant, authoring motion, materials, composition,
     capture config, and motion.json."""
@@ -477,8 +640,9 @@ def generate_cell(
     write_capture_config(
         TEMPLATE_CONFIG, yaml_path,
         os.path.abspath(scene).replace(os.sep, "/"), capture_dir,
-        num_frames=num_frames, max_elev_deg=max_elev_deg,
-        width=width, height=height, radius_scale=radius_scale, rt_subframes=rt_subframes)
+        num_frames=num_frames, max_elev_deg=max_elev_deg, min_elev_deg=min_elev_deg,
+        width=width, height=height, radius_scale=radius_scale, rt_subframes=rt_subframes,
+        center=center, radius=radius)
 
     peak_world_mm = {k: v * SCALE for k, v in peak_mm.items()}
     c_amp_world = (amp if common_amp_mm is None else common_amp_mm) * SCALE
@@ -550,7 +714,7 @@ def generate_from_preset(
     mult = float(motion_spec.get("multiplier", 1.0))
     common_amp = motion_spec.get("common_amp_mm")
     target_amp = motion_spec.get("target_amp_mm")
-    target_part = motion_spec.get("target_part", "part_019")
+    target_part = motion_spec.get("target_part", DEFAULT_TARGET_PART)
     freq_hz = float(motion_spec.get("freq_hz", 10.0))
     seed = int(motion_spec.get("seed", 0))
 
@@ -564,7 +728,10 @@ def generate_from_preset(
     num_frames = cap_spec.get("num_frames", 60)
     fps = cap_spec.get("fps", 60.0)
     rt_subframes = cap_spec.get("rt_subframes", 16)
-    max_elev_deg = cap_spec.get("max_elev_deg", MAX_ELEV_DEG)
+    max_elev_deg = cap_spec.get("max_elev_deg", DEFAULT_MAX_ELEV_DEG)
+    min_elev_deg = cap_spec.get("min_elev_deg", DEFAULT_MIN_ELEV_DEG)
+    center = cap_spec.get("center", RIG_CENTER)
+    radius = cap_spec.get("radius")
 
     return generate_cell(
         segmented_usd=segmented_usd,
@@ -588,6 +755,9 @@ def generate_from_preset(
         radius_scale=radius_scale,
         rt_subframes=rt_subframes,
         max_elev_deg=max_elev_deg,
+        min_elev_deg=min_elev_deg,
+        center=center,
+        radius=radius,
     )
 
 
@@ -614,15 +784,15 @@ def main() -> None:
                          "over the clip so the motion loops seamlessly")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--capture-root", default="Q:/Omniverse/renders")
-    ap.add_argument("--target-part", default="part_019",
-                    help="named target/deviant part (default: part_019, Cat A neighbor)")
+    ap.add_argument("--target-part", default=DEFAULT_TARGET_PART,
+                    help=f"named target/deviant part (default: {DEFAULT_TARGET_PART}, bottom-half manifold cylinder)")
     ap.add_argument("--motion-mode", choices=["random", "common_mode"], default="random",
                     help="random (legacy grid) or common_mode (Series A in-sync motion)")
     ap.add_argument("--common-amp-mm", type=float, default=None,
                     help="amplitude A for in-sync parts in common_mode")
     ap.add_argument("--target-amp-mm", type=float, default=None,
                     help="amplitude B for target part in common_mode")
-    ap.add_argument("--material-preset", choices=["pastel", "metallic", "metallic_texture", "saturated_metallic"],
+    ap.add_argument("--material-preset", choices=["pastel", "metallic", "metallic_texture", "saturated_metallic", "matte_blue_black"],
                     default="saturated_metallic", help="material look for meshes")
     ap.add_argument("--width", type=int, default=None)
     ap.add_argument("--height", type=int, default=None)
@@ -798,6 +968,17 @@ def _selftest() -> int:
     m_tex = st_tex.GetPrimAtPath(f"/World/{GROUP}/part_002/mesh")
     st_pv = UsdGeom.PrimvarsAPI(m_tex).GetPrimvar("st")
     checks["material preset metallic_texture: primvars:st exists"] = bool(st_pv) and st_pv.Get() is not None
+
+    out_bb = os.path.join(tmp, "mat_bb.usd")
+    s_p.GetRootLayer().Export(out_bb)
+    apply_materials(out_bb, preset="matte_blue_black", out_dir=tmp)
+    st_bb = Usd.Stage.Open(out_bb)
+    m_bb_blue = st_bb.GetPrimAtPath(f"/World/{GROUP}/part_002/mesh")
+    m_bb_black = st_bb.GetPrimAtPath(f"/World/{GROUP}/frame_base/mesh")
+    b_blue = UsdShade.MaterialBindingAPI(m_bb_blue).GetDirectBinding().GetMaterial()
+    b_black = UsdShade.MaterialBindingAPI(m_bb_black).GetDirectBinding().GetMaterial()
+    checks["material preset matte_blue_black: blue bound"] = bool(b_blue) and b_blue.GetPrim().GetName() == "MatteBlue_mat"
+    checks["material preset matte_blue_black: black bound"] = bool(b_black) and b_black.GetPrim().GetName() == "MatteBlack_mat"
 
     for name_chk, ok in checks.items():
         print(f"[selftest] {name_chk}: {'ok' if ok else 'FAIL'}")

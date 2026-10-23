@@ -16,6 +16,7 @@ from rtsp_capture.web_app import (
     BatchConfigRequest,
     ExposureRequest,
     FlashRequest,
+    PictureRequest,
     WhiteBalanceRequest,
     create_app,
 )
@@ -127,16 +128,155 @@ def test_web_app_endpoint_logic(dummy_config: Path):
         BatchConfigRequest(
             white_balance=WhiteBalanceRequest(style="Manual", gain_red=55, gain_blue=48),
             exposure=ExposureRequest(mode="Manual", shutter="1/200"),
+            picture=PictureRequest(brightness=55, contrast=52),
         )
     )
     assert len(batch_res["updated_cameras"]) == 3
+    assert batch_res["ok"] is True
 
     # Verify state was updated
     cam02_state = mgr.dahua.get_state("cam02")
     assert cam02_state.color.gain_red == 55
+    assert cam02_state.color.brightness == 55
+    assert cam02_state.color.contrast == 52
     assert cam02_state.exposure.shutter == "1/200"
+
+    read_fn = next(
+        route.endpoint
+        for route in app.routes
+        if route.path == "/api/cameras/{camera_id}/config" and "GET" in route.methods
+    )
+    readback = read_fn("cam02")
+    assert readback["ok"] is True
+    assert readback["color"]["brightness"] == 55
+    assert readback["exposure"]["shutter"] == "1/200"
 
     # 5. /api/probe
     probe_fn = routes["/api/probe"]
     probe_res = probe_fn(duration=1.0)
     assert len(probe_res["probe_results"]) == 3
+
+
+def test_dahua_controller_live_schema_and_readback(monkeypatch):
+    ctrl = DahuaController()
+    ctrl.register_camera("cam01", "192.168.3.183")
+    values = {
+        "VideoInWhiteBalance[0][0].Mode": "Auto",
+        "VideoInWhiteBalance[0][0].GainRed": "75",
+        "VideoInWhiteBalance[0][0].GainBlue": "30",
+        "VideoInWhiteBalance[0][0].GainGreen": "50",
+        "VideoInColor[0][0].Brightness": "55",
+        "VideoInColor[0][0].Contrast": "52",
+        "VideoInColor[0][0].Saturation": "50",
+        "VideoInSharpness[0][0].Sharpness": "50",
+        "VideoInExposure[0][0].Mode": "0",
+        "VideoInExposure[0][0].Speed": "0",
+        "VideoInExposure[0][0].GainMax": "50",
+    }
+    calls = []
+
+    def fake_cgi(ip, script, params, method="GET"):
+        if params["action"] == "getConfig":
+            prefix = f"{params['name']}["
+            text = "\r\n".join(
+                f"table.{key}={value}"
+                for key, value in values.items()
+                if key.startswith(prefix)
+            )
+            return True, text + "\r\n"
+        calls.append(params.copy())
+        for key, value in params.items():
+            if key != "action":
+                values[key] = str(value)
+        return True, "OK\r\n"
+
+    monkeypatch.setattr(ctrl, "_cgi_request", fake_cgi)
+
+    color = ctrl.get_color_config("cam01")
+    exposure = ctrl.get_exposure_config("cam01")
+    assert color.wb_style == "Auto"
+    assert color.gain_red == 75
+    assert color.gain_blue == 30
+    assert color.brightness == 55
+    assert color.contrast == 52
+    assert exposure.mode == "Auto"
+
+    ok, msg = ctrl.set_white_balance("cam01", style="Manual", gain_red=62, gain_blue=41)
+    assert ok, msg
+    assert calls[-1] == {
+        "action": "setConfig",
+        "VideoInWhiteBalance[0][0].Mode": "Manual",
+        "VideoInWhiteBalance[0][0].GainRed": 62,
+        "VideoInWhiteBalance[0][0].GainBlue": 41,
+        "VideoInWhiteBalance[0][0].GainGreen": 50,
+    }
+
+    ok, msg = ctrl.set_picture("cam01", brightness=50, contrast=50, saturation=51, sharpness=60)
+    assert ok, msg
+    assert calls[-1] == {
+        "action": "setConfig",
+        "VideoInColor[0][0].Brightness": 50,
+        "VideoInColor[0][0].Contrast": 50,
+        "VideoInColor[0][0].Saturation": 51,
+        "VideoInSharpness[0][0].Sharpness": 60,
+    }
+
+    ok, msg = ctrl.set_exposure("cam01", mode="Manual", shutter="1/200", gain_max=70)
+    assert ok, msg
+    assert calls[-1] == {
+        "action": "setConfig",
+        "VideoInExposure[0][0].Mode": 1,
+        "VideoInExposure[0][0].Speed": 200,
+        "VideoInExposure[0][0].GainMax": 70,
+    }
+    assert ctrl.get_state("cam01").exposure.shutter == "1/200"
+    assert ctrl.get_state("cam01").exposure.gain_max == 70
+
+    ok, msg = ctrl.set_exposure("cam01", mode="Auto")
+    assert ok, msg
+    assert calls[-1]["VideoInExposure[0][0].Mode"] == 0
+    assert calls[-1]["VideoInExposure[0][0].Speed"] == 0
+    assert ctrl.get_state("cam01").exposure.mode == "Auto"
+
+
+def test_cgi_http_200_error_is_failure(monkeypatch):
+    class ErrorResponse:
+        status_code = 200
+        text = "Error\r\nInvalid parameter"
+
+    monkeypatch.setattr(
+        "rtsp_capture.dahua_api.requests.get",
+        lambda *args, **kwargs: ErrorResponse(),
+    )
+    ctrl = DahuaController()
+    ok, msg = ctrl._cgi_request("192.168.3.183", "configManager.cgi", {"action": "setConfig"})
+    assert not ok
+    assert "Invalid parameter" in msg
+
+
+def test_web_app_batch_reports_partial_failure(dummy_config: Path, monkeypatch):
+    mgr = CaptureManager(dummy_config, mock_mode=True)
+    app = create_app(mgr)
+    batch_fn = next(
+        route.endpoint
+        for route in app.routes
+        if route.path == "/api/cameras/batch-config" and "POST" in route.methods
+    )
+
+    def partial_failure(camera_ids, **kwargs):
+        return {
+            cid: (cid != "cam02", "OK" if cid != "cam02" else "readback mismatch")
+            for cid in camera_ids
+        }
+
+    monkeypatch.setattr(mgr.dahua, "batch_set_white_balance", partial_failure)
+    result = batch_fn(
+        BatchConfigRequest(
+            white_balance=WhiteBalanceRequest(style="Manual", gain_red=55, gain_blue=48),
+        )
+    )
+    assert result["ok"] is False
+    assert result["results"]["white_balance"]["cam02"] == {
+        "ok": False,
+        "message": "readback mismatch",
+    }

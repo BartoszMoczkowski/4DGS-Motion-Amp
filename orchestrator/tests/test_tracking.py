@@ -86,6 +86,30 @@ def test_finish_run_marks_success(file_store, tmp_path):
     assert get_manifest("t28-fin").run_id  # manifest untouched otherwise
 
 
+def test_partial_stage_run_terminates_as_finished(file_store, tmp_path):
+    """T28b: When a run has multiple stages registered (e.g. ['test.echo', 'render.default']),
+    but only a subset runs and succeeds (via run_dag with only=['test.echo']), the manifest
+    status must be 'success' and MLflow must terminate as 'FINISHED'."""
+    from pipeline import tracking
+    from pipeline.artifacts import create_run, get_manifest
+    from pipeline.dag.scheduler import run_dag
+
+    run_id = "t28b-partial"
+    create_run(run_id, "base", {}, stage_names=["test.echo", "render.default"])
+    mlflow_run_id = tracking.start_run(run_id, "base", {}, None)
+
+    # Run only test.echo
+    manifest = run_dag(run_id, ["test.echo", "render.default"], {}, only=["test.echo"])
+    assert manifest.status == "success"
+    assert manifest.stages["test.echo"].status == "success"
+    assert manifest.stages["render.default"].status == "pending"
+
+    tracking.track_run_completion(run_id, manifest, stage_order=["test.echo"])
+    run = _client().get_run(mlflow_run_id)
+    assert run.info.status == "FINISHED"
+    assert run.data.tags["pipeline.status"] == "success"
+
+
 # --- join key / idempotent reuse ----------------------------------------------
 
 

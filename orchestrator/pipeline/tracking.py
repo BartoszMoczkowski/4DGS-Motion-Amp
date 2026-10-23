@@ -95,6 +95,7 @@ def _mlflow():
             stream.reconfigure(errors="replace")
         except Exception:  # noqa: BLE001 — non-reconfigurable stream (redirected, closed)
             pass
+    os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
     import mlflow
 
     mlflow.set_tracking_uri(default_tracking_uri())

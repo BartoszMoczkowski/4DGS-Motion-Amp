@@ -31,7 +31,7 @@ Every cell in the series must report the standardized evaluation tuple:
 | Metric | Code Symbol / Method | Purpose / Scope | Target Threshold |
 |---|---|---|---|
 | **Interface Edge AUROC** | `paired_interface_edge_auroc` | Phasor $f_0$ and raw trajectory AUROC on paired boundary Gaussian edges across part interfaces (A16 protocol). Evaluated separately on Cat A (contact $< 0.2\text{ mm}$) and Cat B (clearance gap). | $\ge 0.80$ (Separable) |
-| **Deviant-Part IoU & F1** | `compute_part_iou_f1` | Precision, recall, $F_1$, and IoU for target part (`part_019`) against ground truth canonical mask. | $F_1 \ge 0.85$, $\text{IoU} \ge 0.75$ |
+| **Deviant-Part IoU & F1** | `compute_part_iou_f1` | Precision, recall, $F_1$, and IoU for target part (`part_008`) against ground truth canonical mask. | $F_1 \ge 0.85$, $\text{IoU} \ge 0.75$ |
 | **Discrete Seed Count & Size** | `extract_cluster_seeds` | Count of spatial CC / rigidity clusters surviving the discrete min-15 Gaussian filter (M1 metric), plus median seed Gaussian count. Directly monitors backbone extinction. | Surviving seeds $\ge 60$ |
 | **Frozen Backbone ROI ARI** | `compute_within_roi_ari` | Adjusted Rand Index evaluated strictly within the dynamic ROI (excluding static `frame_base` background). | $\text{ARI} \ge 0.70$ |
 | **Cat A Split Rate** | `compute_pairs_split_rate(cat_a)` | Fraction of the 39 baseline-merged contact part-pairs ($CAD < 0.2\text{ mm}$) correctly separated into distinct clusters. | Split Rate $\ge 0.50$ |
