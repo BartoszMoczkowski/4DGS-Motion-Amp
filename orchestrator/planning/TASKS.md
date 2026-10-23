@@ -23,7 +23,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T14 | MCP tools & resources | 4 | T13, T09 | done |
 | T15 | UI (Streamlit over Layer 1 API) | 5 | T09 | done |
 | T16 | WSL2/Linux-distro bundling (deferred) | 6 | T08 | deferred |
-| T17 | MCP job/cancel hardening (real cancel, concurrency guard, typed preview) | 4 | T14 | todo |
+| T17 | MCP job/cancel hardening (real cancel, concurrency guard, typed preview) | 4 | T14 | done |
 | T18 | Trajectory denoising + calibrated rigidity + `segment.rigid2` (proposal 06) | 7 | T07 | done |
 | T19 | ROI role: `roi.motion_gate` + roi-aware segment stages + eval extensions (proposal 01) | 7 | T18 | done |
 | T20 | `segment.kabsch` EM (proposal 05) | 7 | T18 | done |
@@ -37,7 +37,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T28 | Local MLflow tracking integration | 9 | T27 | done |
 | T28b | Partial-run manifest status rollup, MLflow termination & reconciliation | 9 | T28 | done |
 | T29 | Standardized metrics registry & report layer (research metrics catalog) | 9 | T28, T28b | todo |
-| T30 | MCP consolidation & unified experiment navigator (`amp explore`) | 10 | T28b, T29, T17, T32 | todo |
+| T30 | MCP consolidation & unified experiment navigator (`amp explore`) | 10 | T28b, T29, T17, T32 | done |
 | T31 | Repo layout cleanup & docs alignment | 11 | T26, T33 | todo |
 | T32 | Real-capture ingestion & cluster video rendering stages (`render.cluster`) | 9 | T26, T09 | todo |
 | T33 | Declarative experiments migration & script retirement | 11 | T28b, T32, T30 | todo |

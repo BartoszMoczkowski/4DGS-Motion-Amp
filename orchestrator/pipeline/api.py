@@ -17,15 +17,34 @@ config into the specific section each stage actually wants (see ``_stage_config_
 gating, adaptive knobs, and OOM-retry are all wired into ``pipeline.dag.scheduler`` directly,
 rather than through this module). ``cancel`` remains a stub — cancelling an in-flight run is
 explicitly out of scope for T12 (see ``planning/tasks/T12-resource-manager.md``'s scope), not yet
-scheduled to any task. All delegated calls use a lazy import inside the function so this module's
-own top-level imports stay light. Nothing in this module imports torch/CUDA/docker/pynvml at
-module scope — it must import cleanly on a CPU-only host with no GPU and no Docker daemon running.
+Top-level imports follow PEP 8: standard library and internal pipeline submodules are imported
+at module scope. None of the internal submodules import heavy or platform-restricted libraries
+(torch, CUDA, docker, pynvml, psutil) at module scope, so this module imports cleanly on a
+CPU-only host with no GPU and no Docker daemon running.
 """
 
 from __future__ import annotations
 
-import uuid
+from pathlib import Path
 from typing import Any, Optional
+import uuid
+
+from . import (
+    artifacts,
+    config,
+    containers,
+    dag,
+    explore as explore_module,
+    paths,
+    resources,
+    stages,
+    tracking,
+)
+from .config import models as config_models
+from .config import resolver as config_resolver
+from .dag import graph as dag_graph
+from .experiments import runner as experiments_runner
+
 
 
 def _auto_stage_plan(resolved_config: dict[str, Any]) -> list[str]:
@@ -43,10 +62,8 @@ def _auto_stage_plan(resolved_config: dict[str, Any]) -> list[str]:
     emitted for that role at all (``"none"`` is never a registered impl, so emitting
     ``f"{role}.none"`` would fail stage resolution for every preset that just left the default).
     """
-    from .stages import list_roles
-
     names: list[str] = []
-    for role, impls in sorted(list_roles().items()):
+    for role, impls in sorted(stages.list_roles().items()):
         if role == "test":
             continue
         if len(impls) == 1:
@@ -122,10 +139,9 @@ def _apply_overrides(
     """
     if not overrides:
         return resolved
-    from .config.models import PipelineConfig
-    from .config.resolver import _deep_merge
-
-    return PipelineConfig(**_deep_merge(resolved, overrides)).model_dump()
+    return config_models.PipelineConfig(
+        **config_resolver._deep_merge(resolved, overrides)
+    ).model_dump()
 
 
 def _stage_config_for(name: str, resolved_config: dict[str, Any]) -> dict[str, Any]:
@@ -252,56 +268,42 @@ def run_pipeline(
     manifest (run_dag itself records-and-returns; the failure is re-raised here so synchronous
     callers exit non-zero).
     """
-    from .artifacts import (
-        create_run,
-        manifest_path,
-        update_manifest,
-        validate_external_artifact_path,
-        validate_run_id,
-    )
-    from .config import validate_config
-    from .dag import run_dag
-
-    config = validate_config(preset)
-    resolved = _apply_overrides(config.model_dump(), overrides)
+    cfg = config.validate_config(preset)
+    resolved = _apply_overrides(cfg.model_dump(), overrides)
     stage_names = _auto_stage_plan(resolved)
     stage_configs = {name: _stage_config_for(name, resolved) for name in stage_names}
     run_id = run_id or new_run_id(preset)
 
-    validate_run_id(run_id)  # fail fast with a clear error before any directory is created
-    if manifest_path(run_id).exists():
+    artifacts.validate_run_id(run_id)  # fail fast with a clear error before any directory is created
+    if artifacts.manifest_path(run_id).exists():
         raise FileExistsError(
-            f"run_id {run_id!r} already exists ({manifest_path(run_id)}); run_pipeline always "
+            f"run_id {run_id!r} already exists ({artifacts.manifest_path(run_id)}); run_pipeline always "
             "starts a NEW run — pass a fresh run_id (or none) rather than clobbering an existing "
             "run's manifest"
         )
     if external_artifacts:
-        from .artifacts import Artifact
-
         normalized: dict[str, Any] = {}
         for name, art in external_artifacts.items():
-            art = art if isinstance(art, Artifact) else Artifact.model_validate(art)
-            validate_external_artifact_path(art.path, art.kind)
+            art = art if isinstance(art, artifacts.Artifact) else artifacts.Artifact.model_validate(art)
+            artifacts.validate_external_artifact_path(art.path, art.kind)
             normalized[name] = art
         external_artifacts = normalized
 
-    create_run(run_id, preset, resolved, stage_names=stage_names, metadata=metadata)
+    artifacts.create_run(run_id, preset, resolved, stage_names=stage_names, metadata=metadata)
     if external_artifacts:
         def _seed(m: Any) -> None:
             m.artifacts.update(external_artifacts)
 
-        update_manifest(run_id, _seed)
+        artifacts.update_manifest(run_id, _seed)
 
     # T28: local MLflow tracking. Failure-isolated by design (tracking.py swallows all its own
     # errors — a down server warns, never fails the run). The finally block records the failure
     # to MLflow *before* StageFailedError propagates out of _raise_for_failed_stages.
-    from . import tracking
-
     mlflow_run_id = tracking.start_run(run_id, preset, resolved, metadata)
     tracking.record_backlink(run_id, mlflow_run_id)
     manifest = None
     try:
-        manifest = run_dag(
+        manifest = dag.run_dag(
             run_id,
             stage_names,
             resolved,
@@ -342,23 +344,18 @@ def run_stage(
     Raises :class:`StageFailedError` if the stage's record ends up ``failed`` (see
     :func:`run_pipeline`).
     """
-    from .artifacts import get_manifest
-    from .dag import run_dag
-
-    manifest = get_manifest(run_id)
+    manifest = artifacts.get_manifest(run_id)
     resolved = _apply_overrides(manifest.resolved_config, overrides)
     stage_cfg = _stage_config_for(stage, resolved)
 
     # T28: start-or-reuse the MLflow run (same join key as run_pipeline), then incremental
     # stage-metric/artifact logging around the single-stage execution — needed for T27's
     # per-impl segmentation matrix, which re-enters existing runs via run_stage.
-    from . import tracking
-
     mlflow_run_id = tracking.start_run(run_id, manifest.preset, resolved, manifest.metadata)
     tracking.record_backlink(run_id, mlflow_run_id)
     result_manifest = None
     try:
-        result_manifest = run_dag(
+        result_manifest = dag.run_dag(
             run_id,
             [stage],
             resolved,
@@ -372,9 +369,51 @@ def run_stage(
         tracking.track_run_completion(run_id, result_manifest, stage_order=[stage])
 
 
-def cancel(run_id: str) -> None:
-    """Cancel an in-flight run."""
-    raise NotImplementedError
+def cancel(run_id: str) -> dict[str, Any]:
+    """Cancel an in-flight run (T17/T30).
+
+    Stops managed containers if running (the locked cancellation approach), updates the run
+    manifest status to ``"cancelled"``, and records terminal status in MLflow tracking.
+    """
+    # Raises FileNotFoundError synchronously if run_id does not exist
+    artifacts.get_manifest(run_id)
+
+    stopped_containers: list[str] = []
+    try:
+        container_list = containers.list_containers()
+        for c in container_list:
+            if c.get("status") == "running":
+                cid = c.get("id") or c.get("name")
+                if cid:
+                    try:
+                        containers.stop_container(cid)
+                        stopped_containers.append(cid)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    def _mutate(m: Any) -> None:
+        m.status = "cancelled"
+        for name, rec in m.stages.items():
+            if rec.status == "running":
+                rec.status = "failed"
+                rec.error = "cancelled by user"
+
+    artifacts.update_manifest(run_id, _mutate)
+
+    if tracking.is_enabled():
+        try:
+            m_updated = artifacts.get_manifest(run_id)
+            tracking.finish_run(run_id, m_updated, status="cancelled")
+        except Exception:
+            pass
+
+    return {
+        "run_id": run_id,
+        "cancelled": True,
+        "stopped_containers": stopped_containers,
+    }
 
 
 def get_status(run_id: str) -> dict[str, Any]:
@@ -383,9 +422,7 @@ def get_status(run_id: str) -> dict[str, Any]:
     Reads straight from the manifest (T03) — no scheduling knowledge needed, so this works for
     any run a hand-written or T03-level caller created, even before T05's scheduler exists.
     """
-    from .artifacts import get_manifest
-
-    manifest = get_manifest(run_id)
+    manifest = artifacts.get_manifest(run_id)
     return {
         "run_id": manifest.run_id,
         "preset": manifest.preset,
@@ -401,37 +438,39 @@ def get_status(run_id: str) -> dict[str, Any]:
 
 def list_runs() -> list[dict[str, Any]]:
     """List known runs (most recent first)."""
-    from .artifacts import list_runs as _list_runs
-
-    return _list_runs()
+    return artifacts.list_runs()
 
 
 def list_artifacts(run_id: str) -> list[dict[str, Any]]:
     """List artifacts produced by a run."""
-    from .artifacts import list_artifacts as _list_artifacts
-
-    return [a.model_dump() for a in _list_artifacts(run_id)]
+    return [a.model_dump() for a in artifacts.list_artifacts(run_id)]
 
 
 def get_artifact(run_id: str, artifact_id: str) -> dict[str, Any]:
     """Fetch a single artifact record (path, type, hash, producing stage)."""
-    from .artifacts import get_artifact as _get_artifact
-
-    return _get_artifact(run_id, artifact_id).model_dump()
+    return artifacts.get_artifact(run_id, artifact_id).model_dump()
 
 
 def list_presets() -> list[str]:
     """List available config presets (base <- scene <- experiment)."""
-    from .config import list_presets as _list_presets
-
-    return _list_presets()
+    return config.list_presets()
 
 
 def validate_config(preset: str) -> dict[str, Any]:
     """Resolve + validate a preset without running anything."""
-    from .config import validate_config as _validate_config
+    return config.validate_config(preset).model_dump()
 
-    return _validate_config(preset).model_dump()
+
+def save_preset_variant(
+    name: str,
+    base_preset: str,
+    overrides: Optional[dict[str, Any]] = None,
+    *,
+    overwrite: bool = False,
+) -> str:
+    """Save a new preset YAML extending ``base_preset`` with ``overrides``."""
+    path = config.save_preset_variant(name, base_preset, overrides=overrides, overwrite=overwrite)
+    return str(path)
 
 
 # --- resources / containers ---------------------------------------------------
@@ -443,27 +482,195 @@ def gpu_status() -> dict[str, Any]:
     couldn't be measured on this machine (no GPU / no working ``pynvml``+``nvidia-smi``/
     ``psutil``), not an error; see that module's docstring.
     """
-    from .resources import gpu_status as _gpu_status
-
-    return _gpu_status()
+    return resources.gpu_status()
 
 
 def list_containers() -> list[dict[str, Any]]:
     """List managed containers (image, state, mounts)."""
-    from .containers import list_containers as _list_containers
-
-    return _list_containers()
+    return containers.list_containers()
 
 
 def start_container(env: str) -> str:
     """Start (or reuse a warm) container for environment ``env`` (cuda|isaac)."""
-    from .containers import start_container as _start_container
-
-    return _start_container(env)
+    return containers.start_container(env)
 
 
 def stop_container(container_id: str) -> None:
     """Stop a managed container."""
-    from .containers import stop_container as _stop_container
+    containers.stop_container(container_id)
 
-    _stop_container(container_id)
+
+# --- experiment & exploration (T30) -------------------------------------------
+
+
+class MissingExternalArtifactError(RuntimeError):
+    """Raised when an external artifact required by a pipeline stage cannot be located."""
+
+    def __init__(
+        self,
+        target: str,
+        stage: str,
+        artifact_name: str,
+        artifact_kind: str,
+        checked_paths: list[str],
+    ) -> None:
+        msg = (
+            f"Cannot run '{target}': stage '{stage}' requires external artifact "
+            f"'{artifact_name}' (kind={artifact_kind!r}) which was not found.\n"
+            f"Checked locations:\n  - " + "\n  - ".join(checked_paths) + "\n"
+            f"Action needed: Provide '{artifact_name}' via external_artifacts or ensure the asset exists."
+        )
+        super().__init__(msg)
+        self.target = target
+        self.stage = stage
+        self.artifact_name = artifact_name
+        self.artifact_kind = artifact_kind
+        self.checked_paths = checked_paths
+
+
+def resolve_external_artifacts_for_preset(
+    preset: str,
+    stages: Optional[list[str]] = None,
+    provided: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Auto-discover and seed external artifacts required by ``preset``'s stage plan."""
+    provided_artifacts = dict(provided or {})
+
+    resolved_cfg = config.validate_config(preset).model_dump()
+    stage_names = stages or _auto_stage_plan(resolved_cfg)
+
+    dag_nodes = dag_graph.resolve_nodes(stage_names)
+    ext_inputs = dag_graph.external_inputs(dag_nodes)
+
+    external_needed: list[tuple[str, str]] = []
+    for inp, needing_stages in ext_inputs.items():
+        if inp not in provided_artifacts:
+            stage_name = sorted(needing_stages)[0] if needing_stages else "unknown"
+            external_needed.append((stage_name, inp))
+
+    if not external_needed:
+        return provided_artifacts
+
+    roots = paths.get_roots()
+    repo_root = roots.repo_root_host
+    assets_root = roots.assets_root_host
+
+    artifact_kind_map: dict[str, str] = {
+        "raw_mesh": "usd",
+        "capture": "dataset",
+        "scene": "dataset",
+        "gt_segmentation": "npz",
+    }
+
+    result = dict(provided_artifacts)
+    for sname, inp in external_needed:
+        kind = artifact_kind_map.get(inp, "dataset")
+        candidates: list[Path] = []
+        if inp == "scene":
+            candidates = [
+                repo_root / "data" / "multipleview" / preset,
+                repo_root / "data" / preset,
+                repo_root / "output" / preset,
+            ]
+        elif inp == "capture":
+            candidates = [
+                repo_root / "omniverse-pipeline" / "data" / "scenes" / "grid" / preset,
+                repo_root / "data" / "multipleview" / preset,
+                repo_root / "data" / "captures" / preset,
+                repo_root / "data" / preset,
+                assets_root / "renders" / f"capture_{preset}",
+                assets_root / "renders" / preset,
+            ]
+        elif inp == "raw_mesh":
+            candidates = [
+                assets_root / f"{preset}.usd",
+                repo_root / "omniverse-pipeline" / "data" / "assets" / f"{preset}.usd",
+                repo_root / "data" / f"{preset}.usd",
+            ]
+        elif inp == "gt_segmentation":
+            candidates = [
+                repo_root / "data" / "multipleview" / preset / "gt_segmentation.npz",
+                repo_root / "data" / preset / "gt_segmentation.npz",
+            ]
+
+        found_path: Optional[Path] = None
+        for cand in candidates:
+            if kind in ("dataset", "model") and cand.is_dir():
+                found_path = cand
+                break
+            elif kind not in ("dataset", "model") and cand.is_file():
+                found_path = cand
+                break
+
+        if found_path is not None:
+            result[inp] = artifacts.Artifact(
+                name=inp,
+                kind=kind,
+                path=str(found_path.resolve()),
+                producing_stage="external",
+            )
+        else:
+            raise MissingExternalArtifactError(
+                target=preset,
+                stage=sname,
+                artifact_name=inp,
+                artifact_kind=kind,
+                checked_paths=[str(c) for c in candidates],
+            )
+
+    return result
+
+
+def run_experiment(
+    target: str,
+    *,
+    stages: Optional[list[str]] = None,
+    overrides: Optional[dict[str, Any]] = None,
+    external_artifacts: Optional[dict[str, Any]] = None,
+    force: bool = False,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Run an experiment spec (e.g. ``pump_grid_v2``) or preset with auto-seeded external artifacts."""
+    repo_root = paths.get_roots().repo_root_host
+    exp_file = repo_root / "experiments" / f"{target}.yaml"
+    if not exp_file.is_file() and target.endswith(".yaml"):
+        exp_file = Path(target)
+
+    if exp_file.is_file():
+        return experiments_runner.run_experiment(str(exp_file), dry_run=dry_run)
+
+    # Target is a preset
+    seeded = resolve_external_artifacts_for_preset(
+        target, stages=stages, provided=external_artifacts
+    )
+    if dry_run:
+        resolved_cfg = config.validate_config(target).model_dump()
+        stage_names = stages or _auto_stage_plan(resolved_cfg)
+        return {
+            "preset": target,
+            "stages": stage_names,
+            "external_artifacts": {k: getattr(a, "path", str(a)) for k, a in seeded.items()},
+            "dry_run": True,
+        }
+
+    run_id = run_pipeline(
+        target,
+        only=stages,
+        overrides=overrides,
+        external_artifacts=seeded,
+        force=force,
+    )
+    return {
+        "run_id": run_id,
+        "preset": target,
+        "status": "success",
+    }
+
+
+def explore(
+    target: Optional[str] = None,
+    view: str = "default",
+    include_unregistered: bool = False,
+) -> dict[str, Any]:
+    """Unified inspection navigator (T30)."""
+    return explore_module.explore(target=target, view=view, include_unregistered=include_unregistered)

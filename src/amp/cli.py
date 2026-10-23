@@ -14,6 +14,7 @@ from core_cli import train as train_command
 from motion_seg.cli import app as seg_app
 from omniverse_pipeline.cli import app as capture_app
 from pipeline.cli import app as orch_app
+from pipeline.explore_cli import explore as explore_command
 from pipeline.tracking_cli import app as mlflow_app
 from scene_gen_cli import app as exp_app
 
@@ -28,6 +29,8 @@ app.add_typer(capture_app, name="capture")
 # command groups — register core_cli's command functions directly on the root app.
 app.command("train")(train_command)
 app.command("render")(render_command)
+# T30: `amp explore` single unified inspection navigator
+app.command("explore")(explore_command)
 app.add_typer(seg_app, name="seg")
 app.add_typer(exp_app, name="exp")
 app.add_typer(orch_app, name="orch")

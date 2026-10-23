@@ -85,27 +85,19 @@ def save_preset_variant(
     preset extending a base one). Raises ``FileExistsError`` if ``name`` already exists and
     ``overwrite`` is false. Returns the written path.
     """
-    import yaml
+    from pipeline.api import save_preset_variant as _save
 
-    from pipeline.config.resolver import PRESETS_DIR
-
-    path = PRESETS_DIR / f"{name}.yaml"
-    if path.exists() and not overwrite:
-        raise FileExistsError(f"preset {name!r} already exists at {path}")
-
-    doc: dict[str, Any] = {"name": name, "extends": extends}
+    overrides: dict[str, Any] = {}
     amp: dict[str, Any] = {}
     if amp_method is not None:
         amp["method"] = amp_method
     if amp_channels:
         amp["channels"] = {ch: dict(vals) for ch, vals in amp_channels.items()}
     if amp:
-        doc["amp"] = amp
+        overrides["amp"] = amp
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(doc, f, sort_keys=False)
-    return path
+    path_str = _save(name, extends, overrides=overrides, overwrite=overwrite)
+    return Path(path_str)
 
 
 # --- run lifecycle (async — reuses mcp_server.jobs' background-thread wrapper) ------------------
@@ -163,17 +155,39 @@ def cancel_run(run_id: str) -> dict[str, Any]:
     from pipeline.artifacts import get_manifest
 
     get_manifest(run_id)  # real 404 if run_id doesn't exist
-    try:
-        _cancel(run_id)
-        return {"cancelled": True}
-    except NotImplementedError:
-        return {
-            "cancelled": False,
-            "reason": (
-                "cancellation isn't implemented in the pipeline engine yet (T12/T17's scope) — "
-                "the run will continue; refresh status for its outcome."
-            ),
-        }
+    return _cancel(run_id)
+
+
+def get_run_report(run_id: str) -> dict[str, Any]:
+    """Fetch report bundle info and MLflow URL for ``run_id``."""
+    from pipeline.artifacts import get_manifest, get_runs_root, run_dir
+
+    m = get_manifest(run_id)
+    r_dir = run_dir(run_id, runs_root=get_runs_root())
+    rep_dir = r_dir / "report"
+
+    mlflow_info = m.metadata.get("mlflow", {})
+    mlflow_url = mlflow_info.get("url")
+
+    index_path = rep_dir / "index.md"
+    index_md = None
+    if index_path.is_file():
+        try:
+            index_md = index_path.read_text(encoding="utf-8")
+        except Exception:
+            pass
+
+    charts = [p.name for p in rep_dir.glob("*.png")] if rep_dir.is_dir() else []
+
+    return {
+        "run_id": run_id,
+        "report_dir": str(rep_dir),
+        "exists": rep_dir.is_dir(),
+        "has_index": index_path.is_file(),
+        "index_markdown": index_md,
+        "charts": charts,
+        "mlflow_url": mlflow_url,
+    }
 
 
 def list_runs() -> list[dict[str, Any]]:

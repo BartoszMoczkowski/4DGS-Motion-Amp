@@ -1,6 +1,6 @@
 # T30 — MCP consolidation & report surfaces
 
-- Status: todo
+- Status: done
 - Phase: 10 (streamlining)
 - Depends on: T28, T28b, T29, T17, T32
 - Environment: sandbox-testable over real HTTP + real MCP client (existing
@@ -94,3 +94,15 @@ artifact_view shapes (the T15 pattern that already prevents drift). The `run_exp
 seeding logic must reuse `run_pipeline`'s `external_artifacts` mechanism (T11) rather than
 reinventing artifact staging. Cancel behavior surfaced through `get_run_status` comes from
 T17 — reference, don't re-implement.
+
+## Completion Log (2026-10-23)
+
+- Consolidated MCP server to exactly 12 domain-grouped tools in `orchestrator/mcp_server/server.py`.
+- Added rich server `instructions` detailing conventions, run ID format, and usage guidelines.
+- Implemented `explore_experiment` MCP tool and `amp explore` CLI (`orchestrator/pipeline/explore.py`, `orchestrator/pipeline/explore_cli.py`, `src/amp/cli.py`) supporting overview, experiment, run_id, and capture targets with JSON default and `--human` formatting.
+- Implemented `run_experiment` with pre-flight external-artifact validation and actionable `MissingExternalArtifactError`.
+- Promoted `save_preset_variant` to Layer 1 (`pipeline/config/resolver.py`, `pipeline/api.py`).
+- Resolved T17 requirements: concurrent job guard (`is_job_running`), real cancellation stopping containers (`pipeline.api.cancel` + DAG scheduler check), and typed `VideoPreview` Pydantic model.
+- Added Streamlit "Reports" tab in `orchestrator/ui/app.py` rendering T29/T30 report bundles and linking to MLflow.
+- Updated `orchestrator/mcp_server/TOOLS.md`.
+- Verified 423 orchestrator tests passing (including `test_explore.py` and `test_mcp_tools.py`).

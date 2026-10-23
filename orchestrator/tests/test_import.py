@@ -15,17 +15,13 @@ def test_submodule_stubs_import():
     assert all(m is not None for m in (config, stages, dag, artifacts, containers, resources))
 
 
-def test_api_stubs_raise_not_implemented():
-    """``run_pipeline``/``run_stage`` were wired to a real scheduler in T05 (see
-    ``tests/test_dag.py``); ``list_containers``/``start_container``/``stop_container`` to
-    ``pipeline.containers`` in T08; ``gpu_status`` to ``pipeline.resources`` in T12 (see
-    ``tests/test_resources.py``). Only ``cancel`` remains a stub — out of scope for every task
-    scheduled so far."""
-    from pipeline import api
-
+def test_api_cancel_requires_existing_run():
+    """Cancel (T17/T30) confirms run exists, raising FileNotFoundError on unknown run."""
     import pytest
 
-    with pytest.raises(NotImplementedError):
+    from pipeline import api
+
+    with pytest.raises(FileNotFoundError):
         api.cancel("run001")
 
 

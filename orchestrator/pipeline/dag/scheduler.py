@@ -407,6 +407,12 @@ def run_dag(
     git_sha = manifest.git_sha or get_git_sha()
 
     for name in selected:
+        manifest = load_manifest(run_id, runs_root=runs_root)
+        if manifest.status == "cancelled":
+            st_logger = _stage_logger(run_id, name, runs_root=runs_root)
+            st_logger.info("run %r is cancelled — stopping scheduling further stages", run_id)
+            break
+
         node: DAGNode = nodes[name]
         stage_cfg = (stage_configs or {}).get(name, resolved_config)
 

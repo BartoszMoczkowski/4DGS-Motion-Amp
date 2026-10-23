@@ -99,8 +99,8 @@ def _render_status(run_id: str, *, key_prefix: str) -> None:
             st.error(f"Cancel failed: {exc}")
 
 
-tab_presets, tab_launch, tab_runs, tab_compare, tab_machine = st.tabs(
-    ["Presets", "Launch & Monitor", "Runs & Artifacts", "Compare Runs", "GPU / Containers"]
+tab_presets, tab_launch, tab_runs, tab_compare, tab_reports, tab_machine = st.tabs(
+    ["Presets", "Launch & Monitor", "Runs & Artifacts", "Compare Runs", "Reports", "GPU / Containers"]
 )
 
 
@@ -363,6 +363,63 @@ with tab_compare:
                 st.info("Resolved configs are identical.")
         except Exception as exc:  # noqa: BLE001
             st.error(f"Couldn't diff configs: {exc}")
+
+
+# --- Reports (T30) --------------------------------------------------------------------------
+
+
+with tab_reports:
+    st.subheader("Experiment & Run Reports")
+    st.caption("Browse standardized reports, publication charts, and MLflow tracking backlinks.")
+
+    try:
+        report_runs = client.list_runs()
+    except Exception as exc:  # noqa: BLE001
+        st.error(f"Couldn't list runs: {exc}")
+        report_runs = []
+
+    run_options = [r["run_id"] for r in report_runs]
+    selected_run = st.selectbox("Select a run to view report", run_options, key="report_run_select") if run_options else None
+
+    if selected_run:
+        try:
+            report_data = client.get_run_report(selected_run)
+            mlflow_url = report_data.get("mlflow_url")
+            col_l, col_r = st.columns([2, 1])
+            with col_l:
+                st.markdown(f"**Run ID**: `{selected_run}`")
+                st.markdown(f"**Report Path**: `{report_data.get('report_dir')}`")
+            with col_r:
+                if mlflow_url:
+                    st.link_button("Open in MLflow UI", mlflow_url)
+                else:
+                    st.caption("No MLflow backlink recorded for this run.")
+
+            st.divider()
+
+            if report_data.get("has_index") and report_data.get("index_markdown"):
+                st.markdown("### Summary Report")
+                st.markdown(report_data["index_markdown"])
+
+            charts = report_data.get("charts", [])
+            if charts:
+                st.markdown("### Generated Figures & Charts")
+                from pathlib import Path
+
+                rep_dir = Path(report_data["report_dir"])
+                cols = st.columns(2)
+                for i, chart_name in enumerate(charts):
+                    chart_path = rep_dir / chart_name
+                    with cols[i % 2]:
+                        st.image(str(chart_path), caption=chart_name, use_container_width=True)
+            elif not report_data.get("has_index"):
+                st.info(
+                    f"No report bundle found at `{report_data.get('report_dir')}` yet. "
+                    "Reports can be generated via `amp report <run_id>`."
+                )
+
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Failed to load report for {selected_run}: {exc}")
 
 
 # --- GPU / Containers --------------------------------------------------------------------------

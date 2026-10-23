@@ -72,11 +72,34 @@ def _run_and_capture(run_id: str, fn) -> None:
                 job.error = traceback.format_exc()
 
 
-def _spawn(run_id: str, kind: str, fn) -> None:
-    thread = threading.Thread(
-        target=_run_and_capture, args=(run_id, fn), name=f"pipeline-{kind}-{run_id}", daemon=True
-    )
+class JobRunningError(RuntimeError):
+    """Raised when starting a job for a run_id that already has an active running job."""
+
+
+def is_job_running(run_id: str) -> bool:
+    """Whether a background job is currently active for ``run_id``."""
     with _jobs_guard:
+        job = _jobs.get(run_id)
+        return job is not None and job.thread.is_alive()
+
+
+def cancel_job(run_id: str) -> dict[str, Any]:
+    """Cancel a background job for ``run_id``."""
+    from pipeline.api import cancel as _cancel
+
+    return _cancel(run_id)
+
+
+def _spawn(run_id: str, kind: str, fn) -> None:
+    with _jobs_guard:
+        existing = _jobs.get(run_id)
+        if existing is not None and existing.thread.is_alive():
+            raise JobRunningError(
+                f"a background job ({existing.kind}) is already running for {run_id!r}"
+            )
+        thread = threading.Thread(
+            target=_run_and_capture, args=(run_id, fn), name=f"pipeline-{kind}-{run_id}", daemon=True
+        )
         _jobs[run_id] = _Job(thread=thread, kind=kind)
     thread.start()
 
@@ -136,4 +159,66 @@ def start_stage_run(run_id: str, stage: str, *, force: bool = False) -> str:
         run_stage(run_id, stage, force=force)
 
     _spawn(run_id, "run_stage", _run)
+    return run_id
+
+
+def start_experiment_run(
+    target: str,
+    *,
+    stages: Optional[list[str]] = None,
+    overrides: Optional[dict[str, Any]] = None,
+    external_artifacts: Optional[dict[str, Any]] = None,
+    force: bool = False,
+) -> str:
+    """Validate target and external artifacts synchronously, then launch in background.
+
+    If target is an experiment spec (e.g. ``pump_grid_v2``), validates the spec and spawns
+    the experiment runner. If target is a preset, resolves external artifacts (auto-discovering
+    needed datasets/meshes/labels) and spawns the pipeline run.
+
+    Raises synchronously on invalid preset or missing required external artifacts.
+    """
+    from pathlib import Path
+
+    from pipeline.api import new_run_id, resolve_external_artifacts_for_preset, run_experiment
+    from pipeline.paths import get_roots
+
+    repo_root = get_roots().repo_root_host
+    exp_file = repo_root / "experiments" / f"{target}.yaml"
+    if not exp_file.is_file() and target.endswith(".yaml"):
+        exp_file = Path(target)
+
+    if exp_file.is_file():
+        from pipeline.experiments.spec import load_spec
+
+        spec = load_spec(str(exp_file))
+        job_key = f"exp-{spec.name}"
+
+        def _run_spec() -> None:
+            run_experiment(str(exp_file), stages=stages, overrides=overrides, force=force)
+
+        _spawn(job_key, "run_experiment", _run_spec)
+        return job_key
+
+    from pipeline.config import validate_config
+
+    validate_config(target)
+    seeded = resolve_external_artifacts_for_preset(
+        target, stages=stages, provided=external_artifacts
+    )
+    run_id = new_run_id(target)
+
+    def _run_preset() -> None:
+        from pipeline.api import run_pipeline
+
+        run_pipeline(
+            target,
+            run_id=run_id,
+            only=stages,
+            overrides=overrides,
+            external_artifacts=seeded,
+            force=force,
+        )
+
+    _spawn(run_id, "run_experiment", _run_preset)
     return run_id

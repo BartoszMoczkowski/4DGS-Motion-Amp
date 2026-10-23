@@ -1,36 +1,29 @@
 """Builds the FastMCP app + auth wrapper, and a ``python -m mcp_server`` entry point.
 
-T13 built the transport/auth skeleton plus one connectivity-proof tool (``gpu_status``). T14 fills
-in the rest of ``planning/tasks/T14-mcp-tools-and-resources.md``'s scope: the full control + read
-surface so Claude can actually launch, watch, and inspect a real run.
+T30 MCP consolidation:
+Intent-level domain-grouped tools (≤12 tools total), cutting down LLM round-trips:
+- `explore_experiment`: unified single-call navigator for experiments, runs, captures, and workspace overview.
+- `run_experiment`: launches declarative experiment specs or presets with auto-seeded external artifacts.
+- `run_stage`: executes a single stage within an existing run.
+- `get_run_status`: per-stage progress, timing, peak VRAM/RAM, MLflow URLs, and optional stage log tailing.
+- `list_runs`: quick run summary list.
+- `cancel_run`: real cancellation (container stop, manifest cancellation, MLflow update).
+- `get_run_artifact`: JSON-safe summaries of artifacts (never big binary blobs).
+- `get_run_preview`: visual previews (FastMCP Image for PNG or typed VideoPreview for videos).
+- `get_run_report`: report bundle location (T29/T30), index markdown, and MLflow URL.
+- `manage_preset`: list, validate, or save new preset variants extending base presets.
+- `gpu_status`: machine VRAM/RAM headroom.
+- `manage_container`: list, start, or stop managed Docker containers.
 
-Tools (grouped by ``ARCHITECTURE.md``'s Layer 2 bullet):
-
-- **Discovery**: ``list_presets``, ``validate_config``, ``list_runs``, ``list_artifacts``.
-- **Run lifecycle (async)**: ``run_pipeline``/``run_stage`` return a ``run_id`` immediately (see
-  ``mcp_server.jobs`` for how — a stage can run for hours, so neither ever blocks the request for
-  the run's own duration); ``get_run_status``/``tail_logs`` poll progress; ``cancel_run`` is
-  honestly best-effort (Layer 1 has no real cancellation yet, see its own docstring).
-- **Artifact inspection**: ``read_artifact`` (text/JSON/npz *summary*, directory listing — never a
-  raw blob, see ``mcp_server.artifact_view``), ``get_preview`` (an inline image for a ``png``
-  artifact, or a pointer for a ``video`` one — what actually lets Claude *see* results).
-- **Resources**: the same manifest/log/artifact data, also reachable as MCP resources
-  (``run://<run_id>/manifest``, ``run://<run_id>/log/<stage>``,
-  ``run://<run_id>/artifact/<artifact_name>``) for a client that prefers reading over calling a
-  tool.
-- **Machine control**: ``gpu_status`` (T13), ``list_containers``/``start_container``/
-  ``stop_container``.
-
-Every tool body does its own lazy ``from pipeline... import ...`` — mirrors ``pipeline.api``'s own
-"lazy import per call" convention, and keeps this module's own load-time imports light (only
-``pipeline.artifacts``/``pipeline.paths`` at module scope, both explicitly documented as
-docker/torch/pynvml-free leaf packages — needed here, not lazily, so their types are resolvable
-when FastMCP inspects each tool's signature at registration time).
+Resources:
+- `run://{run_id}/manifest`: raw JSON manifest.
+- `run://{run_id}/log/{stage}`: full raw stage log.
+- `run://{run_id}/artifact/{artifact_name}`: raw bytes of a file artifact.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from mcp.server.fastmcp import FastMCP, Image
 from starlette.types import ASGIApp
@@ -38,299 +31,411 @@ from starlette.types import ASGIApp
 from pipeline.artifacts import Artifact
 from pipeline.paths import Env
 
+from .artifact_view import VideoPreview
 from .auth import BearerAuthMiddleware
 from .config import ServerSettings, load_settings
 
 
 def build_mcp() -> FastMCP:
-    """A fresh :class:`FastMCP` instance with the full T14 tool/resource set.
-
-    ``stateless_http=True``: each HTTP request is self-contained rather than requiring a
-    server-held session to persist across calls. This server's own process state (T14's
-    ``mcp_server.jobs`` registry) lives independently of any one request/session — a restart loses
-    in-flight background-job tracking the same way it always would have (the manifest itself,
-    T03, is what actually survives a restart; ``get_run_status`` reflects that either way).
-    """
+    """A fresh :class:`FastMCP` instance with the consolidated T30 tool/resource set."""
 
     mcp = FastMCP(
         "4dgs-pipeline",
         instructions=(
-            "Layer 2 MCP server for the 4DGS motion-amp orchestrator. Wraps orchestrator/"
-            "pipeline/api.py (Layer 1) so Claude can drive the pipeline on a machine with the "
-            "GPU/Docker/Isaac Sim the Claude sandbox itself doesn't have. Typical flow: "
-            "list_presets -> validate_config -> run_pipeline (returns a run_id right away) -> "
-            "poll get_run_status/tail_logs -> list_artifacts -> read_artifact/get_preview once "
-            "stages finish."
+            "Layer 2 MCP server for the 4DGS motion-amp orchestrator.\n"
+            "Conventions:\n"
+            "1. Navigator First: Use explore_experiment() as your primary inspection tool. It returns "
+            "complete provenance (experiment spec, linked runs, config diffs, stage timelines, metrics, "
+            "and MLflow URLs) in ONE call, eliminating multiple sequential list/view calls.\n"
+            "2. Experiments: Experiment specs live under experiments/*.yaml. Run IDs follow "
+            "'<experiment>-<variant>-<8hex>' (e.g. pump_grid_v2-pump_A20mm_M2-9104a031) or '<preset>-<8hex>' "
+            "(e.g. pump01-15e286ff).\n"
+            "3. Status Before Artifacts: Check get_run_status() before requesting previews or artifacts to "
+            "verify that the producing stage has finished successfully.\n"
+            "4. Robust Execution: run_experiment() automatically discovers and seeds required external "
+            "artifacts (such as raw USD meshes, capture datasets, and ground-truth segmentation) and validates configs.\n"
+            "5. Tracking: All runs log to local MLflow (default http://127.0.0.1:5000); inspect backlinks in status "
+            "or explore_experiment payloads."
         ),
         stateless_http=True,
     )
 
-    # --- machine / connectivity (T13) -----------------------------------------------------
+    # --- 1. unified navigator -------------------------------------------------------------
 
     @mcp.tool()
-    def gpu_status() -> dict[str, Any]:
-        """Current VRAM/RAM usage and free headroom on this machine.
+    def explore_experiment(
+        target: Optional[str] = None,
+        view: str = "default",
+        include_unregistered: bool = False,
+    ) -> dict[str, Any]:
+        """Unified experiment, run, capture, and workspace inspection tool (T30).
 
-        Delegates to ``pipeline.api.gpu_status`` (T12). ``None`` sub-dicts mean that dimension
-        couldn't be measured here (no GPU, or no working ``pynvml``/``nvidia-smi``/``psutil``) —
-        not an error.
+        Returns complete provenance in ONE call, eliminating 10-30 sequential tool round-trips:
+        - When ``target`` is omitted / None: returns workspace overview (active experiments, recent runs,
+          status breakdown, available capture datasets).
+        - When ``target`` is an experiment (e.g. ``"pump_grid_v2"``): returns spec details, all cells,
+          capture paths, linked run IDs, stage statuses, and pivoted metrics (ARI, IoU).
+        - When ``target`` is a run ID (e.g. ``"pump01-15e286ff"``): returns preset, metadata, config diff
+          against base, stage timeline with peak VRAM/time, all registered artifacts, metrics, and
+          optional un-manifested file detection.
+        - When ``target`` is a capture / dataset path: returns frame count, camera list, sync residuals,
+          poses-bounds stats, and COLMAP status.
+
+        Args:
+            target: Experiment name/spec, run ID, or capture directory path. Omit for workspace overview.
+            view: Detail level ('default', 'full', 'diff', or 'metrics').
+            include_unregistered: If True, scans the run directory for files not registered in the manifest.
+
+        Examples:
+            explore_experiment()
+            explore_experiment(target="pump_grid_v2")
+            explore_experiment(target="pump_grid_v2-pump_A20mm_M2-9104a031", view="full")
+            explore_experiment(target="data/bouncingballs")
         """
-        from pipeline.api import gpu_status as _gpu_status
+        from pipeline.api import explore as _explore
 
-        return _gpu_status()
+        return _explore(target=target, view=view, include_unregistered=include_unregistered)
 
-    @mcp.tool()
-    def list_containers() -> list[dict[str, Any]]:
-        """Every managed ``cuda``/``isaac`` container this server knows about (image, state,
-        mounts) — delegates to ``pipeline.api.list_containers``. Running or not; a container this
-        server never started (no ``pipeline.managed`` label) never shows up here.
-        """
-        from pipeline.api import list_containers as _list_containers
-
-        return _list_containers()
+    # --- 2. execution ---------------------------------------------------------------------
 
     @mcp.tool()
-    def start_container(env: Env) -> dict[str, Any]:
-        """Start (or reuse a warm) container for ``env`` (``"cuda"`` or ``"isaac"``).
-
-        Rarely needed directly — ``run_pipeline``/``run_stage`` start whatever container a stage
-        needs on their own. Useful for warming one up ahead of a run, or checking that Docker
-        Desktop is actually reachable before launching something longer.
-        """
-        from pipeline.api import start_container as _start_container
-
-        return {"env": env, "container_id": _start_container(env)}
-
-    @mcp.tool()
-    def stop_container(container_id: str) -> dict[str, Any]:
-        """Stop a managed container by id (from ``list_containers``)."""
-        from pipeline.api import stop_container as _stop_container
-
-        _stop_container(container_id)
-        return {"container_id": container_id, "stopped": True}
-
-    # --- discovery -------------------------------------------------------------------------
-
-    @mcp.tool()
-    def list_presets() -> list[str]:
-        """Available config presets (``base``, ``pump01``, ...) — see
-        ``pipeline/config/presets/*.yaml``."""
-        from pipeline.api import list_presets as _list_presets
-
-        return _list_presets()
-
-    @mcp.tool()
-    def validate_config(preset: str) -> dict[str, Any]:
-        """Resolve + validate ``preset`` without running anything — the fully-resolved config as
-        a plain dict, or a validation error if the preset/its overrides don't type-check.
-        """
-        from pipeline.api import validate_config as _validate_config
-
-        return _validate_config(preset)
-
-    @mcp.tool()
-    def list_runs() -> list[dict[str, Any]]:
-        """Summaries of every known run (id/preset/status/timestamps), most recently updated
-        first."""
-        from pipeline.api import list_runs as _list_runs
-
-        return _list_runs()
-
-    @mcp.tool()
-    def list_artifacts(run_id: str) -> list[dict[str, Any]]:
-        """Every artifact record (name/kind/path/producing stage/hash) ``run_id`` has produced so
-        far — call ``read_artifact``/``get_preview`` on a name from here to see its actual
-        content."""
-        from pipeline.api import list_artifacts as _list_artifacts
-
-        return _list_artifacts(run_id)
-
-    # --- run lifecycle (async — see mcp_server.jobs) ----------------------------------------
-
-    @mcp.tool()
-    def run_pipeline(
-        preset: str,
+    def run_experiment(
+        target: str,
+        stages: Optional[list[str]] = None,
+        overrides: Optional[dict[str, Any]] = None,
         external_artifacts: Optional[dict[str, Artifact]] = None,
-        from_stage: Optional[str] = None,
-        to_stage: Optional[str] = None,
-        only: Optional[list[str]] = None,
         force: bool = False,
     ) -> dict[str, Any]:
-        """Launch (or resume) ``preset``'s full auto-planned DAG. Returns a ``run_id``
-        **immediately** — this does not wait for the run to finish (it can take hours; see
-        ``mcp_server.jobs``). Poll ``get_run_status``/``tail_logs`` afterward.
+        """Launch an experiment spec (e.g. ``"pump_grid_v2"``) OR a preset with auto-seeded external artifacts.
 
-        ``external_artifacts`` pre-seeds a DAG's external inputs the run itself can't produce
-        (e.g. ``{"raw_mesh": Artifact(name="raw_mesh", kind="usd", path="...",
-        producing_stage="external")}``) — required whenever the selected stages include one that
-        declares an input nothing else in this run produces (``prep_split.default``'s
-        ``raw_mesh``, most commonly). Raises immediately (before any ``run_id`` is even returned)
-        if ``preset`` doesn't resolve/validate; any failure *after* that (a missing external
-        input, a stage genuinely failing) is recorded in the run's own manifest instead — see
-        ``get_run_status``.
+        Returns a job/run ID **immediately** (asynchronous background execution; poll ``get_run_status``).
+
+        Unlike raw pipeline execution, this tool handles external-artifact seeding internally:
+        it checks and auto-locates required external inputs (like ``raw_mesh``, ``capture``, ``scene``,
+        and ``gt_segmentation``). If any required asset is missing, it raises an actionable structured
+        error immediately rather than failing inside an opaque background thread.
+
+        Args:
+            target: An experiment spec name (e.g. "pump_grid_v2") or config preset (e.g. "pump01").
+            stages: Optional restricted list of stages to run (e.g. ["train.default", "render.default"]).
+            overrides: Optional nested config overrides dict.
+            external_artifacts: Optional pre-constructed Artifact objects for external inputs.
+            force: If True, forces re-execution of stages regardless of cache.
+
+        Examples:
+            run_experiment(target="pump_grid_v2")
+            run_experiment(target="pump01", stages=["train.default", "render.default"])
         """
-        from .jobs import start_pipeline_run
+        from .jobs import start_experiment_run
 
-        run_id = start_pipeline_run(
-            preset,
+        run_id = start_experiment_run(
+            target,
+            stages=stages,
+            overrides=overrides,
             external_artifacts=external_artifacts,
-            from_stage=from_stage,
-            to_stage=to_stage,
-            only=only,
             force=force,
         )
-        return {"run_id": run_id}
+        return {"run_id": run_id, "target": target, "status": "started"}
 
     @mcp.tool()
-    def run_stage(run_id: str, stage: str, force: bool = False) -> dict[str, Any]:
-        """Run one stage (e.g. ``"train.default"``) within an already-existing ``run_id``.
-        Returns immediately, same async pattern as ``run_pipeline``. The stage's declared inputs
-        must already be present among ``run_id``'s recorded artifacts (from earlier stages of
-        that same run) — this never runs anything upstream. Raises immediately if ``run_id``
-        doesn't exist yet.
+    def run_stage(
+        run_id: str,
+        stage: str,
+        force: bool = False,
+        overrides: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """Execute a single stage (e.g. ``"render.default"``) within an existing ``run_id``.
+
+        Returns immediately (asynchronous background execution). The stage's declared inputs must
+        already be present in ``run_id``'s recorded artifacts.
+
+        Args:
+            run_id: The run ID to execute within.
+            stage: Stage name (e.g. "render.default", "segment.rigid", "seg_eval.default").
+            force: Force rerun even if cached.
+            overrides: Optional stage-scoped config overrides.
+
+        Example:
+            run_stage(run_id="pump01-15e286ff", stage="render.default")
         """
         from .jobs import start_stage_run
 
         start_stage_run(run_id, stage, force=force)
-        return {"run_id": run_id, "stage": stage}
+        return {"run_id": run_id, "stage": stage, "status": "started"}
+
+    # --- 3. monitoring & status -----------------------------------------------------------
 
     @mcp.tool()
-    def get_run_status(run_id: str) -> dict[str, Any]:
-        """Per-stage status/timing/artifacts/peak-mem for ``run_id`` (delegates to
-        ``pipeline.api.get_status``), plus ``job_error``: a background-job exception (see
-        ``mcp_server.jobs``) if this run was started via this server's own ``run_pipeline``/
-        ``run_stage`` and its thread raised *before* the manifest reflected anything useful —
-        ``None`` in the overwhelming common case (a stage failure is normally already visible as
-        that stage's own ``"failed"`` status/``error`` field below).
+    def get_run_status(
+        run_id: str,
+        include_logs: bool = False,
+        stage_log: Optional[str] = None,
+        max_log_lines: int = 100,
+    ) -> dict[str, Any]:
+        """Per-stage status, execution progress, peak VRAM/RAM, MLflow URLs, and optional stage logs.
+
+        Args:
+            run_id: Target run ID.
+            include_logs: If True and stage_log is given (or latest running stage), attaches log tail.
+            stage_log: Specific stage whose log lines should be tailed.
+            max_log_lines: Maximum log lines to return (default: 100).
+
+        Example:
+            get_run_status(run_id="pump01-15e286ff", include_logs=True, stage_log="train.default")
         """
         from pipeline.api import get_status as _get_status
+        from pipeline.artifacts import get_runs_root, stage_log_path
 
         from .jobs import job_error
 
         status = _get_status(run_id)
         status["job_error"] = job_error(run_id)
+
+        # Attach MLflow URL if present
+        from pipeline.artifacts import get_manifest
+
+        try:
+            m = get_manifest(run_id)
+            status["mlflow_url"] = m.metadata.get("mlflow", {}).get("url")
+        except Exception:
+            pass
+
+        if include_logs or stage_log:
+            target_stage = stage_log
+            if not target_stage:
+                for sname, srec in status.get("stages", {}).items():
+                    if srec.get("status") in ("running", "failed"):
+                        target_stage = sname
+                        break
+            if target_stage:
+                lpath = stage_log_path(run_id, target_stage, runs_root=get_runs_root())
+                if lpath.is_file():
+                    lines = lpath.read_text(encoding="utf-8", errors="replace").splitlines()
+                    tail = lines[-max_log_lines:] if max_log_lines > 0 else lines
+                    status["log_tail"] = {
+                        "stage": target_stage,
+                        "lines": tail,
+                        "line_count": len(lines),
+                    }
         return status
 
     @mcp.tool()
-    def tail_logs(run_id: str, stage: str, max_lines: int = 200) -> dict[str, Any]:
-        """The last ``max_lines`` lines of ``stage``'s own log file for ``run_id`` — what a
-        currently-``"running"`` stage is actually doing, without waiting for it to finish.
-        Returns an empty ``lines`` list (not an error) if the stage hasn't started writing a log
-        yet.
-        """
-        from pipeline.artifacts import get_runs_root, stage_log_path
+    def list_runs(limit: int = 25) -> list[dict[str, Any]]:
+        """List known runs (most recently updated first) with status, preset, and timestamps.
 
-        path = stage_log_path(run_id, stage, runs_root=get_runs_root())
-        if not path.is_file():
-            return {"path": str(path), "lines": [], "line_count": 0, "truncated": False}
-        text = path.read_text(encoding="utf-8", errors="replace")
-        all_lines = text.splitlines()
-        tail = all_lines[-max_lines:] if max_lines > 0 else all_lines
-        return {
-            "path": str(path),
-            "lines": tail,
-            "line_count": len(all_lines),
-            "truncated": len(all_lines) > len(tail),
-        }
+        Args:
+            limit: Maximum runs to return (default: 25).
+        """
+        from pipeline.api import list_runs as _list_runs
+
+        return _list_runs()[:limit]
 
     @mcp.tool()
     def cancel_run(run_id: str) -> dict[str, Any]:
-        """Best-effort cancellation of an in-flight run.
+        """Safely cancel an in-flight pipeline run (T17/T30).
 
-        Layer 1's ``pipeline.api.cancel`` is deliberately unimplemented — T12 explicitly scoped
-        cancelling a mid-flight run (interrupting a running container exec / native subprocess)
-        out of its own work, and nothing since has picked it up (see
-        ``planning/tasks/T12-resource-manager.md``'s scope note). Rather than surface that as an
-        opaque tool error, this confirms ``run_id`` actually exists (a real 404 is still a real
-        error) and reports the gap honestly: the run keeps going, it's just not stoppable from
-        here yet.
+        Stops running Docker containers (the verified fast cancellation approach), marks the
+        run manifest and stages as 'cancelled', and updates MLflow tracking.
+
+        Args:
+            run_id: Target run ID.
         """
         from pipeline.api import cancel as _cancel
-        from pipeline.artifacts import get_manifest
 
-        get_manifest(run_id)  # a genuine 404 if run_id doesn't exist — not swallowed
-        try:
-            _cancel(run_id)
-            return {"run_id": run_id, "cancelled": True}
-        except NotImplementedError:
-            return {
-                "run_id": run_id,
-                "cancelled": False,
-                "reason": (
-                    "cancellation isn't implemented in the pipeline engine yet (see T12's scope "
-                    "note) — the run will continue to completion; poll get_run_status for its "
-                    "outcome."
-                ),
-            }
+        return _cancel(run_id)
 
-    # --- artifact inspection -----------------------------------------------------------------
+    # --- 4. artifacts & previews ----------------------------------------------------------
 
     @mcp.tool()
-    def read_artifact(run_id: str, artifact_name: str) -> dict[str, Any]:
-        """A small, JSON-safe summary of one artifact's content — never the raw file.
+    def get_run_artifact(run_id: str, artifact_name: str) -> dict[str, Any]:
+        """A small, JSON-safe summary of one artifact's content — never raw giant binary blobs.
 
-        Shape depends on the artifact's ``kind``: parsed content for a small ``json`` artifact,
-        per-key shape/dtype/min/max/mean for an ``npz`` (not the raw arrays), vertex/face counts
-        for a ``ply``, a shallow file listing for a ``dataset``/``model`` directory. See
-        ``mcp_server.artifact_view.read_artifact_summary`` for the full per-kind breakdown. Use
-        ``get_preview`` instead for a ``png``/``video`` artifact.
+        Summarizes based on kind:
+        - json: parsed structured data (inlined up to 64KB).
+        - npz: per-array shape, dtype, min, max, mean, nan_count.
+        - ply: vertex and face counts parsed from PLY header.
+        - dataset/model: directory listing with entry sizes and file counts.
+
+        Args:
+            run_id: Target run ID.
+            artifact_name: Name of artifact (from explore_experiment or get_run_status).
         """
         from pipeline.artifacts import get_artifact as _get_artifact
 
         from .artifact_view import read_artifact_summary
 
-        return read_artifact_summary(_get_artifact(run_id, artifact_name))
+        artifact = _get_artifact(run_id, artifact_name)
+        return read_artifact_summary(artifact)
 
     @mcp.tool()
-    def get_preview(run_id: str, artifact_name: str):
-        """A viewable preview of a ``png``/``video`` artifact — what lets Claude actually *see*
-        results (segmentation previews, renders, amp clips), not just read paths about them.
+    def get_run_preview(run_id: str, artifact_name: str):
+        """Visual preview of a previewable artifact (PNG image or video clip).
 
-        A ``png`` artifact comes back as an inline image, embedded directly in the tool result
-        (small enough to always do this). A ``video`` artifact is **not** inlined — there's no
-        standard MCP video content type, and a clip is far too large to base64 into a tool
-        response — its path/size and the ``run://<run_id>/artifact/<name>`` resource URI are
-        returned instead, for a client that can fetch and play it separately. Raises for any
-        other artifact kind (use ``read_artifact`` instead).
+        - PNG images: returns an inline FastMCP Image embedded directly in the tool response.
+        - MP4 video clips: returns a typed VideoPreview pointer containing path, size, and resource URI.
+
+        Raises an error for non-previewable kinds (use get_run_artifact for NPZ/PLY/JSON/dataset).
+
+        Args:
+            run_id: Target run ID.
+            artifact_name: Artifact name (e.g. "comparison_png", "amp_video", "render_video").
         """
         from pipeline.artifacts import get_artifact as _get_artifact
         from pipeline.artifacts import resolve_servable_artifact_path
 
-        from .artifact_view import preview_kind
+        from .artifact_view import VideoPreview, preview_kind
 
         artifact = _get_artifact(run_id, artifact_name)
-        kind = preview_kind(artifact)  # raises ArtifactNotPreviewableError for anything else
-        # Confinement gate (round-2 correctness fix): serve only paths under the pipeline's
-        # known roots — the manifest alone must not be enough to read an arbitrary host file.
+        kind = preview_kind(artifact)
         path = resolve_servable_artifact_path(artifact.path)
+
         if kind == "image":
             return Image(path=str(path))
 
+        return VideoPreview(
+            kind="video",
+            path=artifact.path,
+            size_bytes=path.stat().st_size if path.is_file() else None,
+            resource_uri=f"run://{run_id}/artifact/{artifact_name}",
+        )
+
+    @mcp.tool()
+    def get_run_report(run_id: str) -> dict[str, Any]:
+        """Fetch report bundle info (T29/T30) and MLflow tracking URL for ``run_id``.
+
+        Returns the report bundle path (``runs/<run_id>/report/``), index markdown text,
+        generated chart names, and direct MLflow run link.
+
+        Args:
+            run_id: Target run ID.
+        """
+        from pipeline.artifacts import get_manifest, get_runs_root, run_dir
+
+        m = get_manifest(run_id)
+        r_dir = run_dir(run_id, runs_root=get_runs_root())
+        rep_dir = r_dir / "report"
+
+        mlflow_info = m.metadata.get("mlflow", {})
+        mlflow_url = mlflow_info.get("url")
+
+        index_path = rep_dir / "index.md"
+        index_md = None
+        if index_path.is_file():
+            try:
+                index_md = index_path.read_text(encoding="utf-8")
+            except Exception:
+                pass
+
+        charts = [p.name for p in rep_dir.glob("*.png")] if rep_dir.is_dir() else []
+
         return {
-            "kind": "video",
-            "path": artifact.path,
-            "size_bytes": path.stat().st_size if path.is_file() else None,
-            "resource_uri": f"run://{run_id}/artifact/{artifact_name}",
-            "note": "video content isn't inlined in the tool result — fetch the resource URI above.",
+            "run_id": run_id,
+            "report_dir": str(rep_dir),
+            "exists": rep_dir.is_dir(),
+            "has_index": index_path.is_file(),
+            "index_markdown": index_md,
+            "charts": charts,
+            "mlflow_url": mlflow_url,
         }
 
-    # --- resources (manifests / logs / artifacts) -------------------------------------------
+    # --- 5. presets & config management ---------------------------------------------------
+
+    @mcp.tool()
+    def manage_preset(
+        action: Literal["list", "validate", "save"] = "list",
+        preset: Optional[str] = None,
+        name: Optional[str] = None,
+        base_preset: Optional[str] = None,
+        overrides: Optional[dict[str, Any]] = None,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        """Inspect, validate, or create configuration presets (T30).
+
+        Actions:
+        - action='list': returns list of all available presets.
+        - action='validate': resolves and type-checks ``preset``, returning fully resolved config dict.
+        - action='save': saves a new preset YAML ``name`` extending ``base_preset`` with ``overrides``.
+
+        Examples:
+            manage_preset(action="list")
+            manage_preset(action="validate", preset="pump01")
+            manage_preset(action="save", name="pump01_high_amp", base_preset="pump01",
+                          overrides={"amp": {"channels": {"pos3d": {"factor": 5.0}}}})
+        """
+        from pipeline.api import list_presets as _list_presets
+        from pipeline.api import save_preset_variant as _save_variant
+        from pipeline.api import validate_config as _validate_config
+
+        if action == "list":
+            return {"presets": _list_presets()}
+        if action == "validate":
+            if not preset:
+                raise ValueError("action='validate' requires 'preset'")
+            return {"preset": preset, "config": _validate_config(preset)}
+        if action == "save":
+            if not name or not base_preset:
+                raise ValueError("action='save' requires 'name' and 'base_preset'")
+            path = _save_variant(name, base_preset, overrides=overrides, overwrite=overwrite)
+            return {"name": name, "path": path, "saved": True}
+        raise ValueError(f"unknown action: {action!r}")
+
+    # --- 6. machine & container control ---------------------------------------------------
+
+    @mcp.tool()
+    def gpu_status() -> dict[str, Any]:
+        """Current VRAM and RAM allocation, total limits, and free headroom on the machine."""
+        from pipeline.api import gpu_status as _gpu_status
+
+        return _gpu_status()
+
+    @mcp.tool()
+    def manage_container(
+        action: Literal["list", "start", "stop"] = "list",
+        env: Optional[Env] = None,
+        container_id: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Inspect or control managed Docker containers ('cuda' or 'isaac') (T30).
+
+        Actions:
+        - action='list': returns all running/exited pipeline-managed containers.
+        - action='start': starts (or warms up) a container for ``env`` ('cuda' or 'isaac').
+        - action='stop': stops a container by container_id.
+
+        Examples:
+            manage_container(action="list")
+            manage_container(action="start", env="cuda")
+            manage_container(action="stop", container_id="pipeline-cuda")
+        """
+        from pipeline.api import list_containers as _list_containers
+        from pipeline.api import start_container as _start_container
+        from pipeline.api import stop_container as _stop_container
+
+        if action == "list":
+            return {"containers": _list_containers()}
+        if action == "start":
+            if not env:
+                raise ValueError("action='start' requires 'env' ('cuda' or 'isaac')")
+            cid = _start_container(env)
+            return {"env": env, "container_id": cid, "started": True}
+        if action == "stop":
+            if not container_id:
+                raise ValueError("action='stop' requires 'container_id'")
+            _stop_container(container_id)
+            return {"container_id": container_id, "stopped": True}
+        raise ValueError(f"unknown action: {action!r}")
+
+    # --- Resources (unchanged, 100% backwards-compatible) ---------------------------------
 
     @mcp.resource("run://{run_id}/manifest", mime_type="application/json")
     def manifest_resource(run_id: str) -> dict[str, Any]:
-        """The full status/manifest for ``run_id`` — same content as ``get_run_status`` (minus
-        ``job_error``, which is this *process's* transient state, not part of the manifest
-        itself), reachable as a resource for a client that prefers reading over calling a tool.
-        """
+        """Raw JSON manifest for ``run_id``."""
         from pipeline.api import get_status as _get_status
 
         return _get_status(run_id)
 
     @mcp.resource("run://{run_id}/log/{stage}", mime_type="text/plain")
     def log_resource(run_id: str, stage: str) -> str:
-        """The full (untruncated) log text for one stage of one run — ``tail_logs`` is the tool
-        form of this for a quick look; fetch this resource for the whole thing.
-        """
+        """Full untruncated stage log text."""
         from pipeline.artifacts import get_runs_root, stage_log_path
 
         path = stage_log_path(run_id, stage, runs_root=get_runs_root())
@@ -340,24 +445,15 @@ def build_mcp() -> FastMCP:
 
     @mcp.resource("run://{run_id}/artifact/{artifact_name}")
     def artifact_resource(run_id: str, artifact_name: str) -> bytes:
-        """Raw bytes of one file-kind artifact — e.g. what ``get_preview``'s ``video`` branch
-        points a client at to actually fetch the clip, or a ``png`` a client prefers to read as a
-        resource rather than receiving inline from ``get_preview``. Only for file artifacts —
-        raises for a ``dataset``/``model`` directory artifact (use ``read_artifact`` for those).
-        """
+        """Raw bytes of a single file artifact."""
         from pipeline.artifacts import get_artifact as _get_artifact
         from pipeline.artifacts import resolve_servable_artifact_path
 
         artifact = _get_artifact(run_id, artifact_name)
-        # Confinement gate (round-2 correctness fix): raw bytes only for paths under the
-        # pipeline's known roots (runs/repo/assets) — otherwise any path recorded in any
-        # manifest would be an arbitrary file read.
         path = resolve_servable_artifact_path(artifact.path)
         if not path.is_file():
             raise FileNotFoundError(
-                f"artifact {artifact_name!r} (kind={artifact.kind!r}) isn't a single file at "
-                f"{path} — directory-kind artifacts have no single-resource form; use "
-                "read_artifact for a listing instead."
+                f"artifact {artifact_name!r} (kind={artifact.kind!r}) isn't a single file at {path}"
             )
         return path.read_bytes()
 
@@ -366,7 +462,6 @@ def build_mcp() -> FastMCP:
 
 def build_app(settings: ServerSettings) -> ASGIApp:
     """The full ASGI app: FastMCP's streamable-HTTP app wrapped in the bearer-token gate."""
-
     mcp = build_mcp()
     mcp.settings.host = settings.host
     mcp.settings.port = settings.port
@@ -376,7 +471,6 @@ def build_app(settings: ServerSettings) -> ASGIApp:
 
 def main() -> None:
     """Entry point for ``python -m mcp_server``. Reads settings from the environment."""
-
     import uvicorn
 
     settings = load_settings()

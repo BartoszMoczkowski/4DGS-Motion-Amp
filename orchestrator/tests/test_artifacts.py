@@ -348,9 +348,7 @@ def test_api_wiring_delegates_to_artifacts(tmp_path, monkeypatch):
     fetched = api.get_artifact("run009", "scene.npz")
     assert fetched["path"] == "/tmp/scene.npz"
 
-    # `cancel` is the one stub left untouched by T03/T05/T08/T12 — out of scope for every task
-    # scheduled so far (see tests/test_import.py). `run_pipeline`/`run_stage` were wired for real
-    # in T05 (tests/test_dag.py); `gpu_status` in T12 (tests/test_resources.py) — neither is part
-    # of this "still a stub" check anymore.
-    with pytest.raises(NotImplementedError):
-        api.cancel("run009")
+    # cancel is implemented (T17/T30) — marks run cancelled
+    cancel_res = api.cancel("run009")
+    assert cancel_res["cancelled"] is True
+    assert api.get_status("run009")["status"] == "cancelled"

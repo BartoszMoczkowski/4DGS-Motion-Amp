@@ -1,6 +1,6 @@
 # T17 — MCP job/cancel hardening
 
-- Status: todo
+- Status: done
 - Phase: 4
 - Depends on: T14
 - Environment: host (Windows) for real container-cancellation verification; everything else is

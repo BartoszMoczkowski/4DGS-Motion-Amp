@@ -18,6 +18,8 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+from pydantic import BaseModel
+
 from pipeline.artifacts import Artifact
 
 #: A JSON artifact larger than this is still read and parsed (so a caller reliably gets structured
@@ -33,6 +35,16 @@ _MAX_DIR_ENTRIES = 200
 #: kinds `get_preview` can actually render, and how.
 _PREVIEW_IMAGE_KINDS = frozenset({"png"})
 _PREVIEW_VIDEO_KINDS = frozenset({"video"})
+
+
+class VideoPreview(BaseModel):
+    """Typed preview metadata for a video artifact (T17/T30)."""
+
+    kind: str = "video"
+    path: str
+    size_bytes: Optional[int] = None
+    resource_uri: str
+    note: str = "video content isn't inlined in the tool result — fetch the resource URI above."
 
 
 class ArtifactNotPreviewableError(ValueError):

@@ -42,11 +42,12 @@ from .models import (
     SegmentRigidConfig,
     TrainConfig,
 )
-from .resolver import list_presets, resolve_preset, validate_config
+from .resolver import list_presets, resolve_preset, save_preset_variant, validate_config
 
 __all__ = [
     # top-level
     "PipelineConfig",
+    "save_preset_variant",
     # 4DGS core param groups
     "ModelParams",
     "PipelineParams",

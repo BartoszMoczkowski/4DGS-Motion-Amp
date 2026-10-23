@@ -113,3 +113,34 @@ def validate_config(name: str) -> PipelineConfig:
     merged = resolve_preset(name)
     merged.setdefault("name", name)
     return PipelineConfig(**merged)
+
+
+def save_preset_variant(
+    name: str,
+    base_preset: str,
+    overrides: Optional[dict[str, Any]] = None,
+    *,
+    overwrite: bool = False,
+) -> Path:
+    """Save a new preset YAML file that extends ``base_preset`` with ``overrides``.
+
+    Validates both preset names first. If ``overwrite=False`` and the preset already exists,
+    raises ``FileExistsError``.
+    """
+    validate_preset_name(name)
+    validate_preset_name(base_preset)
+
+    path = PRESETS_DIR / f"{name}.yaml"
+    if path.exists() and not overwrite:
+        raise FileExistsError(f"preset {name!r} already exists at {path}")
+
+    doc: dict[str, Any] = {"name": name, "extends": base_preset}
+    if overrides:
+        for k, v in overrides.items():
+            if v is not None:
+                doc[k] = v
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        yaml.safe_dump(doc, f, sort_keys=False)
+    return path

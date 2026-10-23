@@ -194,7 +194,12 @@ def test_gpu_status_over_real_http_with_valid_token() -> None:
     # exists here, so "gpu" is None; "ram" comes back a real, live reading — proving the full
     # Claude -> HTTP -> auth -> MCP tool -> pipeline.api -> pipeline.resources chain actually ran,
     # not just that some canned value was echoed back.
-    assert payload["gpu"] is None
+    # Live reading: on a GPU host payload["gpu"] is a dict; on a CPU-only runner it is None.
+    assert payload["gpu"] is None or isinstance(payload["gpu"], dict)
+    if isinstance(payload["gpu"], dict):
+        for key in ("total_mb", "free_mb", "used_mb"):
+            assert isinstance(payload["gpu"][key], (int, float))
+            assert payload["gpu"][key] >= 0
     assert isinstance(payload["ram"], dict)
     for key in ("total_mb", "free_mb", "used_mb"):
         assert isinstance(payload["ram"][key], (int, float))

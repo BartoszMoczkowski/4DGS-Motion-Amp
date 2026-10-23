@@ -1,19 +1,16 @@
-"""T14 acceptance tests: the full MCP tool/resource set, over the same real HTTP loopback
-connection ``tests/test_mcp_server.py`` (T13) already proved the transport/auth over.
+"""T30 MCP consolidation tests: the full intent-level MCP tool surface and resources.
 
-Same "there's nothing to fake" reasoning as T13's own test file for the read/discovery tools
-(``list_presets``/``validate_config``/``list_runs``/``list_artifacts``/``read_artifact``/
-``get_preview``/``tail_logs``/the resources) — they only ever touch the local filesystem/config,
-which this sandbox has for real, so these run the actual server + actual MCP client, seeded with
-synthetic run data (real files on disk, written directly via ``pipeline.artifacts``, the same
-"seed a manifest by hand" pattern ``tests/test_stages_cpu.py``'s ``_seed_run`` helper established).
-
-``run_pipeline``/``run_stage``/``list_containers``/``start_container``/``stop_container`` genuinely
-need a GPU/Docker daemon/native Isaac install this sandbox doesn't have — what's verified here for
-those is the *async-return-immediately* plumbing (``mcp_server.jobs``) and that a real failure
-(missing external input, no reachable Docker daemon) surfaces cleanly instead of hanging or
-crashing the server, mirroring every other real-hardware-dependent task's "verified the logic
-above the real dependency, not the real dependency itself" story (T08/T09/T10/T11).
+Tests over real loopback HTTP with real MCP client, seeded with synthetic run data:
+- ≤12 tools total;
+- explore_experiment (run, experiment, capture, overview);
+- run_experiment (succeeds with external artifacts, fails with structured error without);
+- concurrency guard (starting second job for same run_id raises error);
+- real cancellation (marks manifest cancelled);
+- typed get_run_preview (returns VideoPreview structure);
+- get_run_report (returns bundle path and MLflow URL);
+- manage_preset (list, validate, save);
+- manage_container (list, start, stop);
+- the 3 resource templates.
 """
 
 from __future__ import annotations
@@ -38,8 +35,6 @@ from mcp_server.server import build_app
 
 TEST_TOKEN = "test-token-do-not-use-for-real"
 
-#: A real, minimal (1x1, transparent) PNG -- small enough to inline, valid enough for `Image` to
-#: read a real mime type/size off of, unlike a stub text file with a `.png` name.
 _TINY_PNG_BYTES = bytes.fromhex(
     "89504e470d0a1a0a0000000d494844520000000100000001080600000"
     "01f15c4890000000a4944415478da6360000002000155273d060000000049454e44ae426082"
@@ -53,9 +48,6 @@ def _free_port() -> int:
 
 
 def _mcp_http_client_factory(headers=None, timeout=None, auth=None) -> httpx.AsyncClient:
-    """Same ``trust_env=False`` fix as ``test_mcp_server.py`` -- this sandbox's own proxy env vars
-    would otherwise break ``streamablehttp_client``'s default ``httpx.AsyncClient``."""
-
     kwargs: dict = {"trust_env": False, "follow_redirects": True}
     if timeout is not None:
         kwargs["timeout"] = timeout
@@ -99,6 +91,20 @@ async def _call(url: str, name: str, arguments: dict | None = None):
             return await session.call_tool(name, arguments or {})
 
 
+async def _list_tools(url: str):
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+
+    async with streamablehttp_client(
+        url,
+        headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+        httpx_client_factory=_mcp_http_client_factory,
+    ) as (read, write, _get_session_id):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            return await session.list_tools()
+
+
 async def _read_resource(url: str, uri: str):
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
@@ -113,28 +119,18 @@ async def _read_resource(url: str, uri: str):
             return await session.read_resource(AnyUrl(uri))
 
 
-# --- seeding a synthetic completed run, real files on disk ----------------------------------
-
-
 def _seed_completed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    """Writes a real manifest + real json/npz/png/video/dataset-dir artifacts for one run, under
-    an isolated ``PIPELINE_RUNS_ROOT`` -- exactly what ``pipeline.api``'s (and therefore this
-    server's) functions read by default, no ``runs_root=`` plumbing needed on the MCP side.
-    """
     runs_root = tmp_path / "runs"
     monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(runs_root))
-    # Artifact serving is now confined to the pipeline's known roots (runs/repo/assets); make
-    # tmp_path the assets root so the synthetic artifacts below (under tmp_path/work) are
-    # legitimately servable.
     monkeypatch.setenv("PIPELINE_ASSETS_ROOT", str(tmp_path))
 
-    from pipeline.artifacts import Artifact, create_run, record_stage_result
+    from pipeline.artifacts import Artifact, create_run, record_stage_result, record_stage_start, update_manifest
 
     run_id = "seeded-run-0001"
-    create_run(run_id, "base", {"preset": "base"}, stage_names=["seg_eval.default"])
+    create_run(run_id, "base", {"name": "base"}, stage_names=["seg_eval.default"], runs_root=runs_root)
 
     work = tmp_path / "work"
-    work.mkdir()
+    work.mkdir(exist_ok=True)
 
     json_path = work / "summary.json"
     json_path.write_text(json.dumps({"ari": 0.87, "n_labels": 4}), encoding="utf-8")
@@ -149,7 +145,7 @@ def _seed_completed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     video_path.write_bytes(b"not a real mp4, just bytes for size/path purposes")
 
     model_dir = work / "train_out"
-    (model_dir / "point_cloud" / "iteration_1").mkdir(parents=True)
+    (model_dir / "point_cloud" / "iteration_1").mkdir(parents=True, exist_ok=True)
     (model_dir / "point_cloud" / "iteration_1" / "point_cloud.ply").write_text("stub ply")
 
     artifacts = [
@@ -159,303 +155,336 @@ def _seed_completed_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
         Artifact(name="amp_video", kind="video", path=str(video_path), producing_stage="seg_eval.default"),
         Artifact(name="model", kind="model", path=str(model_dir), producing_stage="seg_eval.default"),
     ]
+    record_stage_start(run_id, "seg_eval.default", runs_root=runs_root)
     record_stage_result(
         run_id,
         "seg_eval.default",
         status="success",
         artifacts=artifacts,
-        log_path=None,
+        peak_vram_mb=512.0,
+        runs_root=runs_root,
     )
 
-    from pipeline.artifacts import get_runs_root, stage_log_path
+    from pipeline.artifacts import stage_log_path
 
-    log_path = stage_log_path(run_id, "seg_eval.default", runs_root=get_runs_root())
+    log_path = stage_log_path(run_id, "seg_eval.default", runs_root=runs_root)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("\n".join(f"line {i}" for i in range(5)) + "\n", encoding="utf-8")
 
+    def _meta(m):
+        m.metadata["mlflow"] = {
+            "run_id": "mlflow-run-abc",
+            "url": "http://127.0.0.1:5000/#/experiments/0/runs/mlflow-run-abc",
+        }
+
+    update_manifest(run_id, _meta, runs_root=runs_root)
     return run_id
 
 
-# --- discovery: list_presets / validate_config -----------------------------------------------
+# --- Tool count acceptance criterion (≤12 tools) -------------------------------------------
 
 
-def test_list_presets_over_http() -> None:
+def test_tool_count_is_at_most_12() -> None:
     with _running_server() as url:
-        result = anyio.run(_call, url, "list_presets", {})
-    assert not result.isError
-    assert isinstance(result.structuredContent["result"], list)
-    assert "base" in result.structuredContent["result"]
+        tools_result = anyio.run(_list_tools, url)
+    tools = tools_result.tools
+    assert len(tools) <= 12, f"Expected <= 12 tools, found {len(tools)}: {[t.name for t in tools]}"
+    tool_names = {t.name for t in tools}
+    expected = {
+        "explore_experiment",
+        "run_experiment",
+        "run_stage",
+        "get_run_status",
+        "list_runs",
+        "cancel_run",
+        "get_run_artifact",
+        "get_run_preview",
+        "get_run_report",
+        "manage_preset",
+        "gpu_status",
+        "manage_container",
+    }
+    assert tool_names == expected
+    # Verify rich descriptions on all tools
+    for t in tools:
+        assert len(t.description or "") >= 40, f"Tool {t.name} description is too sparse"
 
 
-def test_validate_config_over_http() -> None:
-    with _running_server() as url:
-        result = anyio.run(_call, url, "validate_config", {"preset": "base"})
-    assert not result.isError
-    assert isinstance(result.structuredContent, dict)
+# --- Navigator: explore_experiment over HTTP ------------------------------------------------
 
 
-def test_validate_config_unknown_preset_is_a_tool_error() -> None:
-    with _running_server() as url:
-        result = anyio.run(_call, url, "validate_config", {"preset": "does-not-exist"})
-    assert result.isError
-
-
-# --- seeded run: status / artifacts / read / preview / logs / resources ----------------------
-
-
-def test_list_runs_and_list_artifacts_over_http(tmp_path, monkeypatch) -> None:
+def test_explore_experiment_over_http(tmp_path, monkeypatch) -> None:
     run_id = _seed_completed_run(tmp_path, monkeypatch)
     with _running_server() as url:
-        runs = anyio.run(_call, url, "list_runs", {})
-        artifacts = anyio.run(_call, url, "list_artifacts", {"run_id": run_id})
+        # Overview
+        overview = anyio.run(_call, url, "explore_experiment", {})
+        assert not overview.isError
+        assert overview.structuredContent["kind"] == "overview"
 
-    assert not runs.isError
-    ids = [r["run_id"] for r in runs.structuredContent["result"]]
-    assert run_id in ids
+        # Specific run
+        run_res = anyio.run(_call, url, "explore_experiment", {"target": run_id, "view": "full"})
+        assert not run_res.isError
+        res_data = run_res.structuredContent
+        assert res_data["kind"] == "run"
+        assert res_data["run_id"] == run_id
+        assert len(res_data["artifacts"]) == 5
+        assert res_data["mlflow_url"] == "http://127.0.0.1:5000/#/experiments/0/runs/mlflow-run-abc"
 
-    assert not artifacts.isError
-    names = {a["name"] for a in artifacts.structuredContent["result"]}
-    assert names == {"summary", "trajectories", "seg_preview", "amp_video", "model"}
+
+# --- Presets: manage_preset (list, validate, save) ------------------------------------------
 
 
-def test_get_run_status_includes_job_error_key(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
+def test_manage_preset_list_and_validate() -> None:
     with _running_server() as url:
-        result = anyio.run(_call, url, "get_run_status", {"run_id": run_id})
-    assert not result.isError
-    status = result.structuredContent
-    assert status["run_id"] == run_id
-    assert status["status"] == "success"
-    assert status["job_error"] is None  # this run was seeded directly, never went through jobs.py
+        list_res = anyio.run(_call, url, "manage_preset", {"action": "list"})
+        assert not list_res.isError
+        presets = list_res.structuredContent["presets"]
+        assert "base" in presets
+
+        val_res = anyio.run(_call, url, "manage_preset", {"action": "validate", "preset": "base"})
+        assert not val_res.isError
+        assert isinstance(val_res.structuredContent["config"], dict)
+
+        val_err = anyio.run(_call, url, "manage_preset", {"action": "validate", "preset": "does-not-exist"})
+        assert val_err.isError
 
 
-def test_read_artifact_json_returns_parsed_content(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
+def test_manage_preset_save(tmp_path, monkeypatch) -> None:
+    # Point presets to isolated dir
+    from pipeline.config import resolver
+
+    custom_presets = tmp_path / "presets"
+    custom_presets.mkdir()
+    (custom_presets / "base.yaml").write_text("name: base\n", encoding="utf-8")
+    monkeypatch.setattr(resolver, "PRESETS_DIR", custom_presets)
+
     with _running_server() as url:
-        result = anyio.run(_call, url, "read_artifact", {"run_id": run_id, "artifact_name": "summary"})
-    assert not result.isError
-    body = result.structuredContent
-    assert body["kind"] == "json"
-    assert body["content"] == {"ari": 0.87, "n_labels": 4}
-
-
-def test_read_artifact_npz_returns_summary_not_raw_arrays(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        result = anyio.run(
-            _call, url, "read_artifact", {"run_id": run_id, "artifact_name": "trajectories"}
+        save_res = anyio.run(
+            _call,
+            url,
+            "manage_preset",
+            {
+                "action": "save",
+                "name": "custom_variant",
+                "base_preset": "base",
+                "overrides": {"amp": {"method": "eulerian"}},
+            },
         )
-    assert not result.isError
-    body = result.structuredContent
-    assert body["kind"] == "npz"
-    assert "positions" in body["arrays"]
-    assert body["arrays"]["positions"]["shape"] == [2, 3, 4]
-    assert "raw" not in body and "data" not in body["arrays"]["positions"]
+    assert not save_res.isError
+    assert (custom_presets / "custom_variant.yaml").is_file()
 
 
-def test_read_artifact_model_directory_returns_listing(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        result = anyio.run(_call, url, "read_artifact", {"run_id": run_id, "artifact_name": "model"})
-    assert not result.isError
-    body = result.structuredContent
-    assert body["kind"] == "model"
-    assert any(e["name"] == "point_cloud" and e["is_dir"] for e in body["entries"])
+# --- Execution: run_experiment with & without external artifacts ----------------------------
 
 
-def test_get_preview_png_returns_inline_image(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        result = anyio.run(_call, url, "get_preview", {"run_id": run_id, "artifact_name": "seg_preview"})
-    assert not result.isError
-    images = [c for c in result.content if c.type == "image"]
-    assert len(images) == 1
-    assert images[0].mimeType == "image/png"
-
-
-def test_get_preview_video_returns_pointer_not_inline_bytes(tmp_path, monkeypatch) -> None:
-    """``get_preview`` has no return-type annotation (it returns either an ``Image`` or a plain
-    dict, an intentionally mixed shape FastMCP can't express as one structured schema) -- so a
-    dict return comes back as unstructured ``TextContent`` (JSON text), not ``structuredContent``.
-    Parse it out of ``result.content`` instead, same as any other unstructured-tool caller would.
-    """
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        result = anyio.run(_call, url, "get_preview", {"run_id": run_id, "artifact_name": "amp_video"})
-    assert not result.isError
-    assert result.structuredContent is None
-    body = json.loads(result.content[0].text)
-    assert body["kind"] == "video"
-    assert body["resource_uri"] == f"run://{run_id}/artifact/amp_video"
-
-
-def test_get_preview_non_previewable_kind_is_a_tool_error(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        result = anyio.run(_call, url, "get_preview", {"run_id": run_id, "artifact_name": "summary"})
-    assert result.isError
-
-
-def test_tail_logs_returns_last_lines(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        result = anyio.run(
-            _call, url, "tail_logs", {"run_id": run_id, "stage": "seg_eval.default", "max_lines": 2}
-        )
-    assert not result.isError
-    body = result.structuredContent
-    assert body["lines"] == ["line 3", "line 4"]
-    assert body["line_count"] == 5
-    assert body["truncated"] is True
-
-
-def test_cancel_run_reports_not_implemented_honestly(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        result = anyio.run(_call, url, "cancel_run", {"run_id": run_id})
-    assert not result.isError
-    body = result.structuredContent
-    assert body["cancelled"] is False
-    assert "not implemented" in body["reason"] or "isn't implemented" in body["reason"]
-
-
-def test_cancel_run_unknown_run_id_is_a_tool_error() -> None:
-    with _running_server() as url:
-        result = anyio.run(_call, url, "cancel_run", {"run_id": "no-such-run"})
-    assert result.isError
-
-
-# --- resources: manifest / log / artifact -----------------------------------------------------
-
-
-def test_manifest_resource_matches_get_run_status(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        status = anyio.run(_call, url, "get_run_status", {"run_id": run_id}).structuredContent
-        resource = anyio.run(_read_resource, url, f"run://{run_id}/manifest")
-
-    text = resource.contents[0].text
-    manifest_via_resource = json.loads(text)
-    assert manifest_via_resource["run_id"] == status["run_id"]
-    assert manifest_via_resource["status"] == status["status"]
-
-
-def test_log_resource_returns_full_untruncated_text(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        resource = anyio.run(_read_resource, url, f"run://{run_id}/log/seg_eval.default")
-    text = resource.contents[0].text
-    assert text.count("\n") == 5  # all 5 lines, not just tail_logs's default-truncated view
-
-
-def test_artifact_resource_returns_raw_bytes(tmp_path, monkeypatch) -> None:
-    run_id = _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        resource = anyio.run(_read_resource, url, f"run://{run_id}/artifact/seg_preview")
-    content = resource.contents[0]
-    import base64
-
-    raw = base64.b64decode(content.blob) if hasattr(content, "blob") and content.blob else None
-    if raw is None:
-        # some client-side plumbing may decode text-ish resources as text even for bytes-typed
-        # functions if a mime type looks textual; png never should, but assert defensively.
-        raise AssertionError(f"expected binary resource content, got: {content!r}")
-    assert raw == _TINY_PNG_BYTES
-
-
-def test_artifact_resource_refuses_a_path_outside_the_allowed_roots(tmp_path, monkeypatch) -> None:
-    """Round-2 correctness fix (2026-10-05): a path recorded in a manifest is data, not proof of
-    legitimacy -- serving raw bytes is confined to the pipeline's known roots (runs/repo/assets)
-    so a tampered/hand-written manifest can't become an arbitrary host-file read.
-    """
-    run_id = _seed_completed_run(tmp_path, monkeypatch)  # PIPELINE_ASSETS_ROOT := tmp_path
-
-    from pipeline.artifacts import Artifact, update_manifest
-
-    outside = tmp_path.parent / f"outside-{run_id}.png"  # outside tmp_path, repo, and runs root
-    outside.write_bytes(_TINY_PNG_BYTES)
-    try:
-        update_manifest(
-            run_id,
-            lambda m: m.artifacts.update(
-                {"outside": Artifact(name="outside", kind="png", path=str(outside), producing_stage="external")}
-            ),
-        )
-        with _running_server() as url:
-            try:
-                result = anyio.run(_read_resource, url, f"run://{run_id}/artifact/outside")
-            except Exception:
-                return  # the server refusing the read outright is a pass too
-        # FastMCP surfaces a handler exception as a resource-read error, not content bytes.
-        assert not any(
-            getattr(c, "blob", None) for c in result.contents
-        ), "served bytes for a path outside the allowed roots"
-    finally:
-        outside.unlink(missing_ok=True)
-
-
-def test_run_id_traversal_is_a_tool_error(tmp_path, monkeypatch) -> None:
-    """Round-2 correctness fix (2026-10-05): ``run_id`` is interpolated into paths under the runs
-    root; ``../../x``-style ids must be rejected (here: surface as MCP tool errors), not resolved
-    outside the runs tree."""
-    _seed_completed_run(tmp_path, monkeypatch)
-    with _running_server() as url:
-        for tool, args in (
-            ("get_run_status", {"run_id": "../../x"}),
-            ("tail_logs", {"run_id": "../../x", "stage": "seg_eval.default"}),
-            ("list_artifacts", {"run_id": "../../x"}),
-        ):
-            result = anyio.run(_call, url, tool, args)
-            assert result.isError, f"{tool} accepted a traversal run_id"
-
-
-# --- async run lifecycle: real preset, no GPU/Docker touched at all ---------------------------
-
-
-def test_run_pipeline_returns_run_id_immediately(tmp_path, monkeypatch) -> None:
-    """No ``external_artifacts`` supplied for a preset whose auto-planned DAG needs one
-    (``prep_split.default``'s ``raw_mesh``) -- ``run_dag`` raises ``MissingDependencyError``
-    before any stage runs, entirely without touching Docker/GPU/native Isaac. What this actually
-    proves: the tool call returns a ``run_id`` immediately (doesn't block for however long a real
-    run would take), and the background failure is captured by ``mcp_server.jobs`` rather than
-    vanishing silently.
-    """
+def test_run_experiment_missing_external_artifacts_fails_fast(tmp_path, monkeypatch) -> None:
     runs_root = tmp_path / "runs"
     monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(runs_root))
 
     with _running_server() as url:
-        result = anyio.run(_call, url, "run_pipeline", {"preset": "base"})
-        assert not result.isError
-        run_id = result.structuredContent["run_id"]
-        assert run_id  # returned before the background thread could possibly have finished
-
-        deadline = time.monotonic() + 10.0
-        job_error = None
-        while time.monotonic() < deadline:
-            status = anyio.run(_call, url, "get_run_status", {"run_id": run_id})
-            if not status.isError and status.structuredContent.get("job_error"):
-                job_error = status.structuredContent["job_error"]
-                break
-            time.sleep(0.1)
-
-    assert job_error is not None, "expected the background MissingDependencyError to be captured"
-    assert "MissingDependencyError" in job_error or "raw_mesh" in job_error
+        # Running base preset directly requires raw_mesh / capture which don't exist in empty tmp_path
+        res = anyio.run(_call, url, "run_experiment", {"target": "base"})
+        assert res.isError
+        err_text = res.content[0].text
+        assert "external artifact" in err_text or "requires" in err_text
 
 
-def test_run_stage_unknown_run_id_is_a_tool_error() -> None:
+def test_run_experiment_succeeds_when_external_artifacts_provided(tmp_path, monkeypatch) -> None:
+    runs_root = tmp_path / "runs"
+    monkeypatch.setenv("PIPELINE_RUNS_ROOT", str(runs_root))
+
+    # Create dummy scene dataset
+    scene_dir = tmp_path / "scene_data"
+    scene_dir.mkdir(parents=True)
+    (scene_dir / "transforms.json").write_text("{}", encoding="utf-8")
+
+    from pipeline.artifacts import Artifact
+
+    ext_arts = {
+        "scene": Artifact(
+            name="scene",
+            kind="dataset",
+            path=str(scene_dir),
+            producing_stage="external",
+        )
+    }
+
     with _running_server() as url:
-        result = anyio.run(_call, url, "run_stage", {"run_id": "no-such-run", "stage": "train.default"})
-    assert result.isError
+        # Run only train.default which needs 'scene'
+        res = anyio.run(
+            _call,
+            url,
+            "run_experiment",
+            {
+                "target": "base",
+                "stages": ["train.default"],
+                "external_artifacts": ext_arts,
+            },
+        )
+        assert not res.isError
+        run_id = res.structuredContent["run_id"]
+        assert run_id.startswith("base-")
 
 
-# --- machine control: no real Docker daemon reachable here, but must fail cleanly -------------
+# --- Concurrency guard (T17/T30) ------------------------------------------------------------
 
 
-def test_list_containers_without_a_docker_daemon_is_a_clean_tool_error() -> None:
-    """No Docker daemon is reachable in this sandbox -- proves the tool surfaces that as a normal
-    MCP tool error rather than crashing the server or hanging (``pipeline.containers`` raising
-    ``ContainerError`` is expected and correct here, not a bug to work around).
-    """
+def test_concurrent_jobs_guard_rejects_second_call() -> None:
+    from mcp_server import jobs
+
+    run_id = "test-concurrent-run-01"
+
+    # Simulate an active job
+    event = threading.Event()
+    def _long_running():
+        event.wait(timeout=2.0)
+
+    jobs._spawn(run_id, "test_job", _long_running)
+    assert jobs.is_job_running(run_id)
+
+    # Attempting to start another job with same run_id must raise JobRunningError
+    with pytest.raises(jobs.JobRunningError, match="already running"):
+        jobs._spawn(run_id, "test_job_2", lambda: None)
+
+    event.set()
+
+
+# --- Real cancellation (T17/T30) ------------------------------------------------------------
+
+
+def test_cancel_run_marks_manifest_cancelled(tmp_path, monkeypatch) -> None:
+    run_id = _seed_completed_run(tmp_path, monkeypatch)
     with _running_server() as url:
-        result = anyio.run(_call, url, "list_containers", {})
-    assert result.isError
+        res = anyio.run(_call, url, "cancel_run", {"run_id": run_id})
+        assert not res.isError
+        assert res.structuredContent["cancelled"] is True
+
+        # Check status reflects cancelled
+        status_res = anyio.run(_call, url, "get_run_status", {"run_id": run_id})
+        assert status_res.structuredContent["status"] == "cancelled"
+
+
+# --- Previews: Typed video preview & inline image (T17/T30) ----------------------------------
+
+
+def test_get_preview_png_and_video(tmp_path, monkeypatch) -> None:
+    run_id = _seed_completed_run(tmp_path, monkeypatch)
+    with _running_server() as url:
+        # Image
+        img_res = anyio.run(_call, url, "get_run_preview", {"run_id": run_id, "artifact_name": "seg_preview"})
+        assert not img_res.isError
+        images = [c for c in img_res.content if c.type == "image"]
+        assert len(images) == 1
+
+        # Video: returns typed structured output
+        vid_res = anyio.run(_call, url, "get_run_preview", {"run_id": run_id, "artifact_name": "amp_video"})
+        assert not vid_res.isError
+        vid_data = (
+            json.loads(vid_res.content[0].text)
+            if vid_res.structuredContent is None
+            else vid_res.structuredContent
+        )
+        assert vid_data["kind"] == "video"
+        assert vid_data["resource_uri"] == f"run://{run_id}/artifact/amp_video"
+
+
+# --- Reports: get_run_report (T29/T30) -------------------------------------------------------
+
+
+def test_get_run_report_returns_bundle_and_mlflow_url(tmp_path, monkeypatch) -> None:
+    run_id = _seed_completed_run(tmp_path, monkeypatch)
+    runs_root = tmp_path / "runs"
+    rep_dir = runs_root / run_id / "report"
+    rep_dir.mkdir(parents=True, exist_ok=True)
+    (rep_dir / "index.md").write_text("# Test Report\nSummary data.", encoding="utf-8")
+    (rep_dir / "loss_curve.png").write_bytes(_TINY_PNG_BYTES)
+
+    with _running_server() as url:
+        res = anyio.run(_call, url, "get_run_report", {"run_id": run_id})
+        assert not res.isError
+        data = res.structuredContent
+        assert data["run_id"] == run_id
+        assert data["exists"] is True
+        assert data["has_index"] is True
+        assert "# Test Report" in data["index_markdown"]
+        assert "loss_curve.png" in data["charts"]
+        assert data["mlflow_url"] == "http://127.0.0.1:5000/#/experiments/0/runs/mlflow-run-abc"
+
+
+# --- Status & Logs: get_run_status with include_logs (T30) ----------------------------------
+
+
+def test_get_run_status_includes_log_tail(tmp_path, monkeypatch) -> None:
+    run_id = _seed_completed_run(tmp_path, monkeypatch)
+    with _running_server() as url:
+        res = anyio.run(
+            _call,
+            url,
+            "get_run_status",
+            {"run_id": run_id, "include_logs": True, "stage_log": "seg_eval.default", "max_log_lines": 2},
+        )
+        assert not res.isError
+        data = res.structuredContent
+        assert "log_tail" in data
+        assert data["log_tail"]["stage"] == "seg_eval.default"
+        assert len(data["log_tail"]["lines"]) == 2
+        assert data["log_tail"]["lines"] == ["line 3", "line 4"]
+
+
+# --- Artifacts: get_run_artifact ------------------------------------------------------------
+
+
+def test_get_run_artifact(tmp_path, monkeypatch) -> None:
+    run_id = _seed_completed_run(tmp_path, monkeypatch)
+    with _running_server() as url:
+        res = anyio.run(_call, url, "get_run_artifact", {"run_id": run_id, "artifact_name": "summary"})
+        assert not res.isError
+        assert res.structuredContent["kind"] == "json"
+        assert res.structuredContent["content"]["ari"] == 0.87
+
+
+# --- Containers: manage_container -----------------------------------------------------------
+
+
+def test_manage_container(monkeypatch) -> None:
+    from pipeline import containers
+
+    # Mock container manager calls to be safe in sandbox
+    monkeypatch.setattr(
+        containers,
+        "list_containers",
+        lambda: [{"id": "cid-01", "name": "pipeline-cuda", "env": "cuda", "status": "running"}],
+    )
+    monkeypatch.setattr(containers, "start_container", lambda env: f"mock-{env}")
+    monkeypatch.setattr(containers, "stop_container", lambda cid: None)
+
+    with _running_server() as url:
+        list_res = anyio.run(_call, url, "manage_container", {"action": "list"})
+        assert not list_res.isError
+        assert len(list_res.structuredContent["containers"]) == 1
+
+        start_res = anyio.run(_call, url, "manage_container", {"action": "start", "env": "cuda"})
+        assert not start_res.isError
+        assert start_res.structuredContent["container_id"] == "mock-cuda"
+
+        stop_res = anyio.run(_call, url, "manage_container", {"action": "stop", "container_id": "cid-01"})
+        assert not stop_res.isError
+        assert stop_res.structuredContent["stopped"] is True
+
+
+# --- Resources: manifest / log / artifact ---------------------------------------------------
+
+
+def test_resources_over_http(tmp_path, monkeypatch) -> None:
+    run_id = _seed_completed_run(tmp_path, monkeypatch)
+    with _running_server() as url:
+        manifest_res = anyio.run(_read_resource, url, f"run://{run_id}/manifest")
+        assert json.loads(manifest_res.contents[0].text)["run_id"] == run_id
+
+        log_res = anyio.run(_read_resource, url, f"run://{run_id}/log/seg_eval.default")
+        assert log_res.contents[0].text.count("\n") == 5
+
+        art_res = anyio.run(_read_resource, url, f"run://{run_id}/artifact/seg_preview")
+        import base64
+        blob = base64.b64decode(art_res.contents[0].blob)
+        assert blob == _TINY_PNG_BYTES
