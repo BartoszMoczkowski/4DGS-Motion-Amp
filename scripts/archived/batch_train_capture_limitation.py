@@ -1,4 +1,13 @@
 """
+[DEPRECATED / ARCHIVED — T33]
+This ad-hoc batch driver has been retired.
+Its workflow is now executed declaratively via:
+    amp exp run experiments/capture_limitation.yaml
+
+Retained for historical audit and reference only.
+"""
+
+"""
 batch_train_capture_limitation.py — Sequential batch 4DGS training for the Capture-Limitation suite.
 
 Iterates over all 18 cells in Series A, R, T, F:

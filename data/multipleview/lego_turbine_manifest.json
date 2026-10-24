@@ -1,0 +1,59 @@
+{
+  "name": "lego_turbine",
+  "cells": [
+    {
+      "cell": "lego_turbine_base",
+      "name": "lego_turbine_base",
+      "capture_dir": "data/multipleview/lego_turbine_base",
+      "dataset_name": "lego_turbine_base",
+      "description": "Baseline Lego turbine with all blades intact",
+      "cams": 10,
+      "frames": 164
+    },
+    {
+      "cell": "lego_turbine_2_missing",
+      "name": "lego_turbine_2_missing",
+      "capture_dir": "data/multipleview/lego_turbine_2_missing",
+      "dataset_name": "lego_turbine_2_missing",
+      "description": "Lego turbine with 2 blades missing (mass imbalance)",
+      "cams": 10,
+      "frames": 164
+    },
+    {
+      "cell": "lego_turbine_5_missing",
+      "name": "lego_turbine_5_missing",
+      "capture_dir": "data/multipleview/lego_turbine_5_missing",
+      "dataset_name": "lego_turbine_5_missing",
+      "description": "Lego turbine with 5 blades missing (severe asymmetric damage)",
+      "cams": 10,
+      "frames": 164
+    },
+    {
+      "cell": "base",
+      "name": "lego_turbine_base",
+      "capture_dir": "data/multipleview/lego_turbine_base",
+      "dataset_name": "lego_turbine_base",
+      "description": "Baseline Lego turbine with all blades intact",
+      "cams": 10,
+      "frames": 164
+    },
+    {
+      "cell": "2_missing",
+      "name": "lego_turbine_2_missing",
+      "capture_dir": "data/multipleview/lego_turbine_2_missing",
+      "dataset_name": "lego_turbine_2_missing",
+      "description": "Lego turbine with 2 blades missing (mass imbalance)",
+      "cams": 10,
+      "frames": 164
+    },
+    {
+      "cell": "5_missing",
+      "name": "lego_turbine_5_missing",
+      "capture_dir": "data/multipleview/lego_turbine_5_missing",
+      "dataset_name": "lego_turbine_5_missing",
+      "description": "Lego turbine with 5 blades missing (severe asymmetric damage)",
+      "cams": 10,
+      "frames": 164
+    }
+  ]
+}

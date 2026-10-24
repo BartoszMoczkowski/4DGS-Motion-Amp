@@ -156,8 +156,14 @@ def _find_runs(spec_name: str, *, runs_root: Optional[Path] = None) -> dict[tupl
         except (FileNotFoundError, ManifestError):
             continue
         if m.metadata.get("experiment") == spec_name:
-            key = (str(m.metadata.get("cell", "")), str(m.metadata.get("variant", "")))
-            found.setdefault(key, []).append(m)
+            c = str(m.metadata.get("cell", ""))
+            v = str(m.metadata.get("variant", ""))
+            found.setdefault((c, v), []).append(m)
+            prefix = f"{spec_name}_"
+            if c.startswith(prefix) and v.startswith(prefix):
+                found.setdefault((c.removeprefix(prefix), v.removeprefix(prefix)), []).append(m)
+            elif not c.startswith(prefix) and not v.startswith(prefix):
+                found.setdefault((f"{prefix}{c}", f"{prefix}{v}"), []).append(m)
     return found
 
 
@@ -269,7 +275,9 @@ def run_experiment(
     grid_manifest = load_grid_manifest(spec)
     variants = _variants(spec, grid_manifest)
     if only_cells:
-        variants = [v for v in variants if v.cell in only_cells]
+        prefix = f"{spec.name}_"
+        expanded = set(only_cells) | {f"{prefix}{c}" for c in only_cells} | {c.removeprefix(prefix) for c in only_cells}
+        variants = [v for v in variants if v.cell in expanded]
     entries = [e for e in spec.segment if only_impls is None or e.impl in only_impls]
     existing = _find_runs(spec.name)
 

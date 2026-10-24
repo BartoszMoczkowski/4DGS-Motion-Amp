@@ -79,6 +79,8 @@ def read_point_cloud_ply(ply_path: Path) -> dict[str, np.ndarray]:
     }
 
 MAPPING_FILE = REPO_ROOT / "runs" / "capture_limitation_trained_runs.json"
+if not MAPPING_FILE.is_file():
+    MAPPING_FILE = REPO_ROOT / "runs" / "legacy_status" / "capture_limitation_trained_runs.json"
 BACKBONE_CSV = REPO_ROOT / "runs" / "capture_limitation_backbone_results.csv"
 AUROC_CSV = REPO_ROOT / "runs" / "capture_limitation_edge_auroc.csv"
 

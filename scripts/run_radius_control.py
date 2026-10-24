@@ -48,6 +48,8 @@ from pipeline.vendored.host.metrics import (
 from pipeline.vendored.host.multicut import build_multichannel_graph
 
 MAPPING_FILE = REPO_ROOT / "runs" / "capture_limitation_trained_runs.json"
+if not MAPPING_FILE.is_file():
+    MAPPING_FILE = REPO_ROOT / "runs" / "legacy_status" / "capture_limitation_trained_runs.json"
 BACKBONE_CSV = REPO_ROOT / "runs" / "capture_limitation_backbone_results.csv"
 RADIUS_CSV = REPO_ROOT / "runs" / "capture_limitation_radius_control.csv"
 SEED_CSV = REPO_ROOT / "runs" / "capture_limitation_seed_uncertainty.csv"

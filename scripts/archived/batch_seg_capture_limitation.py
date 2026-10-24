@@ -1,4 +1,13 @@
 """
+[DEPRECATED / ARCHIVED — T33]
+This ad-hoc batch driver has been retired.
+Its workflow is now executed declaratively via:
+    amp exp run experiments/capture_limitation.yaml
+
+Retained for historical audit and reference only.
+"""
+
+"""
 batch_seg_capture_limitation.py — Batch motion segmentation and evaluation across all 18 cells
 of the Capture-Limitation suite (Series A, R, T, F).
 

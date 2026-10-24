@@ -1,4 +1,13 @@
 """
+[DEPRECATED / ARCHIVED — T33]
+This ad-hoc batch driver has been retired.
+Its workflow is now executed declaratively via:
+    amp exp run experiments/capture_limitation.yaml
+
+Retained for historical audit and reference only.
+"""
+
+"""
 batch_capture_series_a.py — Sequential batch capture and conversion for Series A.
 
 Runs native Isaac Sim capture for sA1 through sA5, verifies frame completeness,

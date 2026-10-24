@@ -114,6 +114,8 @@ def reconcile_mlflow_runs(dry_run: bool = False, runs_root: Optional[Path] = Non
     from mlflow.entities import Metric
 
     mapping_file = root / "capture_limitation_trained_runs.json"
+    if not mapping_file.is_file():
+        mapping_file = root / "legacy_status" / "capture_limitation_trained_runs.json"
     cell_to_run: dict[str, str] = {}
     if mapping_file.is_file():
         try:
@@ -198,7 +200,7 @@ def reconcile_mlflow_runs(dry_run: bool = False, runs_root: Optional[Path] = Non
             # Upload evaluation diagnostic figures for capture limitation series
             figs_dir = root.parent / "docs" / "figures"
             run_to_cell = {v: k for k, v in cell_to_run.items()}
-            cell_id = run_to_cell.get(run_id)
+            cell_id = run_to_cell.get(run_id) or meta.get("cell")
             if cell_id and figs_dir.is_dir():
                 series_figs = ["composite_all_runs_camera_views.png"]
                 if cell_id.startswith("sA"):

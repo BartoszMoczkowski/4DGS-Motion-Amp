@@ -24,6 +24,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 MAPPING_FILE = REPO_ROOT / "runs" / "capture_limitation_trained_runs.json"
+if not MAPPING_FILE.is_file():
+    MAPPING_FILE = REPO_ROOT / "runs" / "legacy_status" / "capture_limitation_trained_runs.json"
 OUT_IMG = REPO_ROOT / "docs" / "figures" / "composite_all_runs_camera_views.png"
 OUT_IMG.parent.mkdir(parents=True, exist_ok=True)
 

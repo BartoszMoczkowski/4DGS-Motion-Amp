@@ -1,4 +1,13 @@
 """
+[DEPRECATED / ARCHIVED — T33]
+This ad-hoc batch driver has been retired.
+Its workflow is now executed declaratively via:
+    amp exp run experiments/lego_turbine.yaml
+
+Retained for historical audit and reference only.
+"""
+
+"""
 scripts/run_lego_turbine_pipeline.py — End-to-end 4DGS Training, Rendering,
 Evaluation, and Motion Segmentation for the Lego Turbine series:
 1. lego_turbine_base

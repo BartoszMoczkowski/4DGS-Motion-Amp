@@ -1,0 +1,23 @@
+# Lego-Turbine declarative experiment specification (T33).
+# Declares the 3 physical turbine variants: base, 2_missing, 5_missing.
+# Replaces ad-hoc driver run_lego_turbine_pipeline.py.
+# Executed via: amp exp run experiments/lego_turbine.yaml
+name: lego_turbine
+
+scene_gen:
+  enabled: false
+
+capture:
+  manifest: data/multipleview/lego_turbine_manifest.json
+  cells:
+    - base
+    - 2_missing
+    - 5_missing
+  reuse_existing: true
+
+pipeline:
+  preset: real_capture
+  overrides:
+    render: {skip_train: true, skip_test: true}
+
+stages: [train.default]

@@ -1,0 +1,46 @@
+# Capture-Limitation suite declarative experiment specification (T33).
+# Replaces ad-hoc drivers batch_capture_series_*.py, batch_train_capture_limitation.py,
+# and batch_seg_capture_limitation.py.
+# Executed via: amp exp run experiments/capture_limitation.yaml
+name: capture_limitation
+
+scene_gen:
+  enabled: false
+
+capture:
+  manifest: omniverse-pipeline/data/scenes/capture_limitation/grid_manifest.json
+  cells:
+    - sA0
+    - sA1
+    - sA2
+    - sA3
+    - sA4
+    - sA5
+    - sR0
+    - sR1
+    - sR2
+    - sR3
+    - sR4
+    - sR5
+    - sT0
+    - sT1
+    - sT2
+    - sF0
+    - sF1
+    - sF2
+  renders_root: Q:/Omniverse/renders
+  reuse_existing: true
+
+pipeline:
+  preset: pump01
+  overrides:
+    render: {skip_train: true, skip_test: true}
+
+stages: [train.default]
+
+segment:
+  - {impl: rigid, preset: pump01, extract: true, overrides: {seg_eval: {bg_label: 0}}}
+  - {impl: rigid2, preset: pump01_segB2, overrides: {seg_eval: {bg_label: 0}}}
+
+eval:
+  gt: data/multipleview/pump01/gt_segmentation.npz

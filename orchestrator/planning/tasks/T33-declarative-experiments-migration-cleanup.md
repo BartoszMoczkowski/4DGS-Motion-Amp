@@ -1,9 +1,10 @@
 # T33 — Declarative Experiments Migration & Script Retirement
 
-- Status: todo
+- Status: completed
 - Phase: 11 (streamlining / cleanup)
 - Depends on: T28b, T32, T30
-- Environment: sandbox-testable (YAML validation + manifest parsing); filesystem verification on Bartosz's machine
+- Completed: 2026-10-24
+- Environment: sandbox-testable (YAML validation + manifest parsing); verified against active run store and manifests
 
 ## Goal
 
