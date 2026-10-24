@@ -40,7 +40,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T30 | MCP consolidation & unified experiment navigator (`amp explore`) | 10 | T28b, T29, T17, T32 | done |
 | T31 | Repo layout cleanup & docs alignment | 11 | T26, T33 | done |
 | T32 | Real-capture ingestion & cluster video rendering stages (`render.cluster`) | 9 | T26, T09 | done |
-| T33 | Declarative experiments migration & script retirement | 11 | T28b, T32, T30 | todo |
+| T33 | Declarative experiments migration & script retirement | 11 | T28b, T32, T30 | done |
 
 Phase 7 (segmentation rescue — `docs/proposals/IMPLEMENTATION_PLAN.md`): T18–T20 and T22 are
 done (sandbox-verified, some real GPU runs pending Bartosz's machine); T21 (subspace spectral)
