@@ -10,7 +10,10 @@ mcp_server/server.py
 pipeline/__init__.py
 pipeline/api.py
 pipeline/cli.py
+pipeline/explore.py
+pipeline/explore_cli.py
 pipeline/paths.py
+pipeline/reconcile.py
 pipeline/tracking.py
 pipeline/tracking_cli.py
 pipeline.egg-info/PKG-INFO
@@ -30,6 +33,7 @@ pipeline/config/loader.py
 pipeline/config/models.py
 pipeline/config/resolver.py
 pipeline/config/presets/base.yaml
+pipeline/config/presets/controler_test_01.yaml
 pipeline/config/presets/cubes.yaml
 pipeline/config/presets/cubes_kabsch.yaml
 pipeline/config/presets/cubes_mask_oracle.yaml
@@ -38,6 +42,10 @@ pipeline/config/presets/cubes_roi_gate.yaml
 pipeline/config/presets/cubes_segA.yaml
 pipeline/config/presets/cubes_segB2.yaml
 pipeline/config/presets/grid_seg.yaml
+pipeline/config/presets/hand_test_002.yaml
+pipeline/config/presets/lego_turbine_2_missing.yaml
+pipeline/config/presets/lego_turbine_5_missing.yaml
+pipeline/config/presets/lego_turbine_base.yaml
 pipeline/config/presets/pump01.yaml
 pipeline/config/presets/pump01_kabsch.yaml
 pipeline/config/presets/pump01_mask_lift.yaml
@@ -47,6 +55,8 @@ pipeline/config/presets/pump01_roi_gate.yaml
 pipeline/config/presets/pump01_segA.yaml
 pipeline/config/presets/pump01_segB2.yaml
 pipeline/config/presets/pump01_segB_tuned.yaml
+pipeline/config/presets/real_capture.yaml
+pipeline/config/presets/turbine_r1_missing_6.yaml
 pipeline/containers/__init__.py
 pipeline/containers/config.py
 pipeline/containers/manager.py
@@ -59,6 +69,12 @@ pipeline/experiments/results.py
 pipeline/experiments/runner.py
 pipeline/experiments/spec.py
 pipeline/experiments/variants.py
+pipeline/reporting/__init__.py
+pipeline/reporting/charts.py
+pipeline/reporting/cli.py
+pipeline/reporting/house_style.mplstyle
+pipeline/reporting/metrics.py
+pipeline/reporting/report.py
 pipeline/resources/__init__.py
 pipeline/resources/adaptive.py
 pipeline/resources/gating.py
@@ -78,6 +94,7 @@ pipeline/stages/prep_motion.py
 pipeline/stages/prep_split.py
 pipeline/stages/registry.py
 pipeline/stages/render.py
+pipeline/stages/render_cluster.py
 pipeline/stages/roi_mask_lift.py
 pipeline/stages/roi_mask_oracle.py
 pipeline/stages/roi_motion_gate.py
@@ -95,6 +112,7 @@ pipeline/vendored/cuda/amp.py
 pipeline/vendored/cuda/mask_lift.py
 pipeline/vendored/cuda/mbs_infer.py
 pipeline/vendored/cuda/render.py
+pipeline/vendored/cuda/render_cluster.py
 pipeline/vendored/cuda/seg_extract.py
 pipeline/vendored/cuda/train.py
 pipeline/vendored/host/__init__.py
@@ -124,12 +142,16 @@ tests/test_config.py
 tests/test_containers.py
 tests/test_containers_gpu.py
 tests/test_dag.py
+tests/test_docs_consistency.py
 tests/test_experiments.py
+tests/test_explore.py
 tests/test_import.py
 tests/test_mask_lift_helpers.py
 tests/test_mcp_server.py
 tests/test_mcp_tools.py
 tests/test_paths.py
+tests/test_reporting_charts.py
+tests/test_reporting_metrics.py
 tests/test_resources.py
 tests/test_roi_mask_oracle.py
 tests/test_roi_motion_gate.py

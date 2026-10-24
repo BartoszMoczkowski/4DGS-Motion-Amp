@@ -56,6 +56,7 @@ TAG_LOGGED_STAGES = "pipeline.logged_stages"  # CSV of stage names already logge
 
 #: Metrics-file ingest contract (see module docstring).
 STAGE_METRICS_FILENAME = "metrics.json"
+TRAINING_CURVES_FILENAME = "training_curves.json"
 
 #: Artifact policy: only small preview/summary files are logged as MLflow artifacts;
 #: checkpoints/PLY stay path-referenced via the ``manifest_path`` tag — never uploaded.
@@ -260,9 +261,8 @@ def log_stage_metrics(
                 value = getattr(rec, field)
                 if value is not None:
                     metrics.append(_metric(prefix + field, value, index))
-            metrics_file = (
-                run_dir(run_id) / f"{name.replace('.', '_')}_out" / STAGE_METRICS_FILENAME
-            )
+            stage_dir = run_dir(run_id) / f"{name.replace('.', '_')}_out"
+            metrics_file = stage_dir / STAGE_METRICS_FILENAME
             if metrics_file.is_file():
                 try:
                     payload = json.loads(metrics_file.read_text(encoding="utf-8"))
@@ -276,6 +276,49 @@ def log_stage_metrics(
                         metrics.append(_metric(prefix + str(key), float(value), step))
                 except (OSError, ValueError, TypeError) as exc:
                     logger.warning("ignoring unreadable %s: %r", metrics_file, exc)
+
+            # Ingest structured training curves (T29) with native step=iteration
+            curves_file = stage_dir / TRAINING_CURVES_FILENAME
+            if not curves_file.is_file() and (name == "train.default" or name.startswith("train")):
+                curves_file = run_dir(run_id) / "train_out" / TRAINING_CURVES_FILENAME
+            if curves_file.is_file():
+                try:
+                    payload = json.loads(curves_file.read_text(encoding="utf-8"))
+                    curves_list = payload.get("curves", payload) if isinstance(payload, dict) else payload
+                    if isinstance(curves_list, list):
+                        for item in curves_list:
+                            if not isinstance(item, dict):
+                                continue
+                            step = int(item.get("iteration", item.get("step", index)))
+                            for key, value in item.items():
+                                if key in ("iteration", "step", "stage"):
+                                    continue
+                                try:
+                                    metrics.append(_metric(prefix + str(key), float(value), step))
+                                except (ValueError, TypeError):
+                                    continue
+                except (OSError, ValueError, TypeError) as exc:
+                    logger.warning("ignoring unreadable %s: %r", curves_file, exc)
+
+            # Ingest stage artifact metrics (e.g. seg_eval_result.json and artifact metadata)
+            for art_name in rec.artifacts:
+                art = manifest.artifacts.get(art_name)
+                if art is None:
+                    continue
+                for mk, mv in art.metadata.items():
+                    if isinstance(mv, (int, float)) and not isinstance(mv, bool):
+                        metrics.append(_metric(prefix + str(mk), float(mv), index))
+                if art.kind == "json" and ("seg_eval" in art.name or "metrics" in art.name):
+                    try:
+                        art_p = Path(art.path)
+                        if art_p.is_file():
+                            j_data = json.loads(art_p.read_text(encoding="utf-8"))
+                            for jk in ("ari", "mean_iou", "n_pred", "n_gt", "pairs_split_rate"):
+                                if jk in j_data and isinstance(j_data[jk], (int, float)):
+                                    metrics.append(_metric(prefix + str(jk), float(j_data[jk]), index))
+                    except Exception:
+                        pass
+
             client.set_tag(mlflow_run_id, f"stage.{name}.status", rec.status)
             if rec.error:
                 client.set_tag(mlflow_run_id, f"stage.{name}.error", rec.error[:5000])
@@ -499,3 +542,36 @@ def server_status() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         info["error"] = repr(exc)
     return info
+
+
+def get_metric_history(run_id: str, metric_key: str) -> list[dict[str, Any]]:
+    """Retrieve full step-metric history for `run_id` and `metric_key` (T29).
+
+    Returns a list of dicts: `[{'step': int, 'value': float, 'timestamp': int}, ...]`.
+    Degradation-safe: returns [] if tracking is disabled or server is unreachable.
+    """
+    if not is_enabled():
+        return []
+    try:
+        from mlflow.tracking import MlflowClient
+
+        _mlflow()
+        client = MlflowClient()
+        from .artifacts import load_manifest
+
+        m = load_manifest(run_id)
+        existing = _find_run(client, _client_and_experiment(m.preset, m.metadata)[2], run_id)
+        if existing is None:
+            for exp in client.search_experiments():
+                found = _find_run(client, exp.experiment_id, run_id)
+                if found is not None:
+                    existing = found
+                    break
+        if existing is None:
+            return []
+        mlflow_run_id = existing.info.run_id
+        history = client.get_metric_history(mlflow_run_id, metric_key)
+        return [{"step": m.step, "value": m.value, "timestamp": m.timestamp} for m in history]
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Failed getting metric history for %s/%s: %r", run_id, metric_key, exc)
+        return []

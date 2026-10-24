@@ -1,6 +1,6 @@
 # T29 — Standardized metrics registry & report layer (MLflow-native)
 
-- Status: todo
+- Status: done
 - Phase: 9 (streamlining)
 - Depends on: T28, T28b
 - Environment: pure CPU, fully sandbox-testable (synthetic manifests + fabricated metrics JSONs +
@@ -123,3 +123,13 @@ ad-hoc PNGs), `orchestrator/pipeline/artifacts/` (`StageRecord` `wall_time_s`/`p
   them literally.
 - Chart functions take typed dataclasses/DataFrames, never raw manifest dictionaries directly, ensuring
   they remain reusable across CLI, UI, and test fixtures.
+
+## Implementation notes (2026-10-24)
+
+- **`pipeline/reporting/metrics.py`**: Canonical metric catalog (`METRIC_CATALOG`, `MetricDef`) declaring name, phase, source, schema, units, and formatting across train, render, segment, research, bench, and amp. Added `extract_manifest_metrics` to categorize scalar metrics from manifests, stage records, and disk files.
+- **`pipeline/reporting/house_style.mplstyle`**: Committed publication-quality matplotlib style sheet ensuring uniform typography, crisp lines, subtle borders, and color palettes across all surfaces.
+- **`pipeline/reporting/charts.py`**: Committed house-style figure plotting functions using locked `IMPL_COLORS` (`rigid`, `rigid2`, `kabsch`, `multicut`, `mbs`, `rigid2_roi`, `mask_lift`, `mask_lift_oracle`). Implemented `plot_training_curves`, `plot_multi_run_training_curves`, `plot_segmentation_grid_scatter_heatmap`, `plot_deformation_spectral`, `plot_gaussian_sweep`, `plot_benchmark_bars`, `plot_segmentation_preview`, `plot_amp_frame_strip`, and `save_report_figure`. Adheres to strict Layer 1 light-import discipline (no module-scope matplotlib/numpy).
+- **`pipeline/reporting/report.py`**: Standardized single-run report bundle generator (`build_run_report`) creating `runs/<id>/report/` with canonical `summary.png`, `training_curves.png`, and `index.md` (and auto-logging to MLflow). Added cross-run comparison report generator (`build_comparison_report`) with overlaid curves, pivot tables, and deep-links to MLflow compare UI (`#/compare-runs?...`).
+- **`pipeline/reporting/cli.py` & `src/amp/cli.py`**: Built `amp report <run_id>` and `amp report compare` commands using `ReportDefaultGroup`. Passes `test_amp_cli.py` lazy-import probe.
+- **Structured step metrics in training**: `core/train.py` and `pipeline/vendored/cuda/train.py` updated in exact sync to write `train_out/training_curves.json` during training and evaluation. `TrainStage` registers `training_curves` artifact. `pipeline/tracking.py` ingests step metrics into MLflow via `client.log_batch` with native `step=iteration`, and provides `get_metric_history`.
+- **Test verification**: Added 21 new unit tests across 4 test modules (`test_reporting_metrics.py`, `test_reporting_charts.py`, `test_reporting_report.py`, `test_tracking_step_metrics.py`). Full suite passes cleanly: 459 passed, 9 skipped. Docs consistency check passes (24/24 files).

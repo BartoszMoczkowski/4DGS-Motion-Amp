@@ -136,7 +136,7 @@ First-time Windows machine setup is documented in `orchestrator/planning/WINDOWS
 The unified entry point is the `amp` CLI (T25/T26; installed by `uv sync`, run via `uv run amp`):
 
 ```bash
-amp --help   # groups: capture, train, render, seg, exp, orch, bench, mlflow; report (T29) reserved
+amp --help   # groups: capture, train, render, seg, exp, orch, bench, mlflow, report
 ```
 
 ```bash
@@ -257,6 +257,16 @@ uv run amp explore <run_id>                             # inspect specific run (
 uv run amp explore <experiment_name>                    # inspect experiment (variant progress, cell matrix)
 uv run amp explore <target> --view full                 # full configuration and detailed metrics
 uv run amp explore <target> --human                     # format as human-readable markdown tables
+```
+
+### 5.9 Reporting (T29)
+
+Standardized single-run and multi-run report generator in committed house style:
+
+```bash
+uv run amp report <run_id> [--force]                    # build single-run bundle: index.md + charts
+uv run amp report compare --experiment <name>           # cross-run comparative bundle & MLflow link
+uv run amp report compare -e pump_grid_v2 -m ari        # comparative pivot table & heatmap
 ```
 
 ## 6. Testing strategy

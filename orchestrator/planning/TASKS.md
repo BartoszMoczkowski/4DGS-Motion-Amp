@@ -36,7 +36,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T27 | Declarative experiment specs & amp exp run | 9 | T26, T05 | done |
 | T28 | Local MLflow tracking integration | 9 | T27 | done |
 | T28b | Partial-run manifest status rollup, MLflow termination & reconciliation | 9 | T28 | done |
-| T29 | Standardized metrics registry & report layer (research metrics catalog) | 9 | T28, T28b | todo |
+| T29 | Standardized metrics registry & report layer (research metrics catalog) | 9 | T28, T28b | done |
 | T30 | MCP consolidation & unified experiment navigator (`amp explore`) | 10 | T28b, T29, T17, T32 | done |
 | T31 | Repo layout cleanup & docs alignment | 11 | T26, T33 | done |
 | T32 | Real-capture ingestion & cluster video rendering stages (`render.cluster`) | 9 | T26, T09 | done |

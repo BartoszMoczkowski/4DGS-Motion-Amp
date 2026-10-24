@@ -99,7 +99,7 @@ class TrainStage(Stage):
                 f"save_iterations list; see pipeline/vendored/cuda/train.py's module docstring."
             )
 
-        return {
+        artifacts = {
             "model": Artifact(
                 name="model",
                 kind="model",
@@ -108,3 +108,13 @@ class TrainStage(Stage):
                 metadata={"port": cfg.get("port", 6009), "expname": cfg.get("expname") or ctx.run_id},
             )
         }
+        curves_file = model_host / "training_curves.json"
+        if curves_file.is_file():
+            artifacts["training_curves"] = Artifact(
+                name="training_curves",
+                kind="json",
+                path=str(curves_file),
+                producing_stage=ctx.stage_name,
+                metadata={"is_training_curves": True},
+            )
+        return artifacts

@@ -1945,6 +1945,7 @@ version = "0.1.0"
 source = { editable = "orchestrator" }
 dependencies = [
     { name = "docker" },
+    { name = "matplotlib" },
     { name = "mlflow" },
     { name = "numpy" },
     { name = "pillow" },
@@ -1972,6 +1973,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "docker", specifier = ">=7.1" },
+    { name = "matplotlib", specifier = ">=3.8" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.28" },
     { name = "mlflow", specifier = ">=2.16" },
     { name = "numpy", specifier = ">=1.24" },

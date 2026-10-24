@@ -19,6 +19,9 @@ dependencies = [
     # T28: local MLflow tracking (pipeline/tracking.py). Base, not an extra — every run logs;
     # `mlflow` itself is only ever imported inside functions (light-import rule).
     "mlflow>=2.16",
+    # T29: standard reporting and charts (pipeline/reporting/). Matplotlib imported inside
+    # functions (light-import rule).
+    "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +42,7 @@ build-backend = "setuptools.build_meta"
 include = ["pipeline*", "mcp_server*", "ui*"]
 
 [tool.setuptools.package-data]
-pipeline = ["config/presets/*.yaml"]
+pipeline = ["config/presets/*.yaml", "reporting/*.mplstyle"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

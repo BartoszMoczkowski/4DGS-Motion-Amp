@@ -1,0 +1,53 @@
+# 4DGS Motion-Amp Orchestrator House Style
+# Publication-quality clean aesthetics
+
+figure.figsize: 8.0, 5.0
+figure.dpi: 150
+figure.facecolor: white
+figure.edgecolor: white
+figure.autolayout: True
+
+font.family: sans-serif
+font.sans-serif: DejaVu Sans, Arial, Helvetica, sans-serif
+font.size: 10.0
+
+axes.facecolor: white
+axes.edgecolor: 333333
+axes.linewidth: 1.0
+axes.grid: True
+axes.titlesize: 12.0
+axes.titleweight: bold
+axes.titlepad: 10.0
+axes.labelsize: 10.0
+axes.labelweight: medium
+axes.labelcolor: 222222
+axes.spines.top: False
+axes.spines.right: False
+axes.prop_cycle: cycler('color', ['1f77b4', '2ca02c', 'ff7f0e', '9467bd', 'd62728', '17becf', '8c564b', 'e377c2'])
+
+grid.color: E5E7EB
+grid.linestyle: --
+grid.linewidth: 0.8
+grid.alpha: 0.8
+
+lines.linewidth: 1.8
+lines.markersize: 5.0
+
+legend.frameon: True
+legend.framealpha: 0.95
+legend.facecolor: white
+legend.edgecolor: E5E7EB
+legend.fontsize: 9.0
+legend.title_fontsize: 10.0
+
+xtick.color: 333333
+xtick.labelsize: 9.0
+xtick.direction: out
+ytick.color: 333333
+ytick.labelsize: 9.0
+ytick.direction: out
+
+savefig.dpi: 200
+savefig.facecolor: white
+savefig.edgecolor: white
+savefig.bbox: tight

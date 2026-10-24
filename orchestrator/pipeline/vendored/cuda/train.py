@@ -30,6 +30,7 @@ missing ``point_cloud`` directory, with no error at all from ``train.default`` i
 ``iterations`` value.
 """
 import copy
+import json
 import os
 import random
 import sys
@@ -492,6 +493,21 @@ def scene_reconstruction(
                 )
 
 
+_TRAINING_CURVES = []
+
+
+def _flush_training_curves(model_path):
+    global _TRAINING_CURVES
+    if not model_path:
+        return
+    try:
+        curves_path = os.path.join(model_path, "training_curves.json")
+        with open(curves_path, "w", encoding="utf-8") as f:
+            json.dump({"curves": _TRAINING_CURVES}, f, indent=2)
+    except Exception as e:
+        print(f"Warning: could not write training curves to {curves_path}: {e}")
+
+
 def training(
     dataset,
     hyper,
@@ -504,7 +520,8 @@ def training(
     debug_from,
     expname,
 ):
-    # first_iter = 0
+    global _TRAINING_CURVES
+    _TRAINING_CURVES = []
     tb_writer = prepare_output_and_logger(expname)
     gaussians = GaussianModel(dataset.sh_degree, hyper)
     dataset.model_path = args.model_path
@@ -545,6 +562,7 @@ def training(
         opt.iterations,
         timer,
     )
+    _flush_training_curves(args.model_path)
 
 
 def prepare_output_and_logger(expname):
@@ -585,6 +603,18 @@ def training_report(
     stage,
     dataset_type,
 ):
+    global _TRAINING_CURVES
+    record_step = (iteration % 20 == 0) or (iteration in testing_iterations)
+    entry = None
+    if record_step:
+        entry = {
+            "stage": stage,
+            "iteration": iteration,
+            "loss": float(loss.item()),
+            "l1": float(Ll1.item()),
+            "elapsed": float(elapsed),
+        }
+
     if tb_writer:
         tb_writer.add_scalar(
             f"{stage}/train_loss_patches/l1_loss", Ll1.item(), iteration
@@ -666,6 +696,11 @@ def training_report(
                     psnr_test += psnr(image, gt_image, mask=None).mean().double()
                 psnr_test /= len(config["cameras"])
                 l1_test /= len(config["cameras"])
+                if entry is not None:
+                    if config["name"] == "test":
+                        entry["test_psnr"] = float(psnr_test)
+                    elif config["name"] == "train":
+                        entry["train_psnr"] = float(psnr_test)
                 print(
                     "\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(
                         iteration, config["name"], l1_test, psnr_test
@@ -708,6 +743,16 @@ def training_report(
             )
 
         torch.cuda.empty_cache()
+
+    if entry is not None:
+        if scene and hasattr(scene, "gaussians"):
+            try:
+                entry["points"] = int(scene.gaussians.get_xyz.shape[0])
+            except Exception:
+                pass
+        _TRAINING_CURVES.append(entry)
+        if iteration % 500 == 0 or iteration in testing_iterations:
+            _flush_training_curves(args.model_path)
 
 
 def setup_seed(seed):

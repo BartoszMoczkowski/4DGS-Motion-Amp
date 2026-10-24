@@ -12,6 +12,7 @@ Requires-Dist: scipy>=1.10
 Requires-Dist: Pillow>=10.0
 Requires-Dist: psutil>=5.9
 Requires-Dist: mlflow>=2.16
+Requires-Dist: matplotlib>=3.8
 Provides-Extra: mcp
 Requires-Dist: mcp>=1.28; extra == "mcp"
 Provides-Extra: ui
