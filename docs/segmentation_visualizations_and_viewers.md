@@ -42,18 +42,24 @@ A dedicated, standalone Three.js WebGL viewer has been generated and placed in t
 ---
 
 ### Option B: Local Python Open3D Viewer (High Performance Desktop GUI)
-An interactive viewer script [view_gaussians_open3d.py](file:///c:/Users/barte/Code/PythonScripts/4DGS-Motion-Amp/view_gaussians_open3d.py) allows you to inspect any generated `.ply` point cloud directly:
+An interactive viewer script [view_gaussians_open3d.py](file:///c:/Users/barte/Code/PythonScripts/4DGS-Motion-Amp/scene-gen/view_gaussians_open3d.py) allows you to inspect any generated `.ply` point cloud directly:
 
 ```bash
 # View Kabsch EM segmentation:
-uv run python view_gaussians_open3d.py --ply runs/grid-A20mm_M2/segmentation_colored_kabsch.ply
+uv run python scene-gen/view_gaussians_open3d.py --ply runs/grid-A20mm_M2/segmentation_colored_kabsch.ply
 
 # View Rigid2 (Denoised) segmentation:
-uv run python view_gaussians_open3d.py --ply runs/grid-A20mm_M2/segmentation_colored_rigid2.ply
+uv run python scene-gen/view_gaussians_open3d.py --ply runs/grid-A20mm_M2/segmentation_colored_rigid2.ply
 
 # View the full canonical 4DGS point cloud:
-uv run python view_gaussians_open3d.py --raw runs/grid-A20mm_M2/train_out/point_cloud/iteration_15000/point_cloud.ply
+uv run python scene-gen/view_gaussians_open3d.py --raw runs/grid-A20mm_M2/train_out/point_cloud/iteration_15000/point_cloud.ply
 ```
+
+> [!TIP]
+> To inspect artifact paths, metrics, and progress of any run from the command line, use the unified navigator:
+> ```bash
+> uv run amp explore <run_id>
+> ```
 
 **Controls**:
 - `Left Click + Drag`: Orbit / Rotate

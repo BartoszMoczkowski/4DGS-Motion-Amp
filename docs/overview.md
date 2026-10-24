@@ -21,17 +21,23 @@ Key design decisions (locked with the author): static segmentation (one labeling
 
 | Path | What it is |
 |---|---|
+| `src/amp/` | Unified root `amp` CLI entry point (`amp capture`, `amp train`, `amp render`, `amp seg`, `amp exp`, `amp orch`, `amp bench`, `amp mlflow`, `amp explore`) |
 | `core/` (package `4dgs-core`: `train.py`, `render.py`, `render_amp.py`, `scene/`, …) | Upstream [4DGaussians](https://github.com/hustvl/4DGaussians) codebase (base of this fork) plus the author's motion-amplification code (FFT-based Eulerian amplification over per-Gaussian trajectory tensors) |
 | `amp-ui/` (package `amp-ui`: `amp_ui/ampUI.py`, `cameras.py`, `run_renders_auto.py`) | Standalone Streamlit UI, USB camera recorder, benchmark harness |
 | `omniverse-pipeline/` | Isaac Sim capture + USD prep + converter to 4DGS `multipleview` format — see [omniverse-pipeline.md](omniverse-pipeline.md) |
 | `motion-seg/` | Motion segmentation: rigidity-graph clustering (Option B) + MBS inference adapter (Option A) + evaluation — see [motion-segmentation.md](motion-segmentation.md) |
-| `orchestrator/` | Pipeline orchestration: DAG execution package, HTTP MCP server, Streamlit UI — see [orchestrator.md](orchestrator.md) |
+| `orchestrator/` | Pipeline orchestration: DAG execution package (`pipeline/`), HTTP MCP server (`mcp_server/`), Streamlit UI (`ui/`) — see [orchestrator.md](orchestrator.md) |
+| `experiments/` | Declarative experiment specifications (`pump_grid_v2.yaml`, `spinning_cubes.yaml`) run via `amp exp run` |
+| `runs/` | Canonical orchestrator run tree (`runs/<run_id>/` with `manifest.json`, `config_snapshot.json`, logs, and stage directories) |
+| `output/` | Legacy model output directory (from direct-script runs; superseded by `runs/`, migration guide in [migration_legacy_output.md](migration_legacy_output.md)) |
+| `scratch/` | Unsupported one-off scripts, diagnostic harnesses, and retired ad-hoc code (see [scratch/README.md](../scratch/README.md)) |
 | `submodules/multibody-sync-4dgs` | Fork of MultiBodySync (CVPR 2021), used as segmentation reference |
 | `.claude_notes/` | Chronological working notes (the primary detailed record) |
-| `data/`, `output/` | Datasets (DNeRF synthetics + `multipleview` scenes incl. the generated `pump01`) and trained models |
+| `data/` | Datasets (DNeRF synthetics + `multipleview` scenes incl. the generated `pump01`) |
 
-## Status (2026-07-19)
+## Status & Milestones
 
-- Omniverse → 4DGS pipeline works end-to-end; the "pump" test asset (107 rigid parts, authored mm-scale periodic motion, exact GT labels) is captured, converted, and trainable.
-- Option B segmentation (`segment.rigid`) is implemented and verified on synthetic data (ARI ≈ 0.999); first real pump run was poor (low reconstruction SNR), log-space Otsu fix applied, quality still gated by training quality. Option A (`segment.mbs`) is wired into the orchestrator but not yet run on real GPU data. (2026-10-05/06 updates: the ARI ≈ 0.999 selftest figure came from a fixture whose parts were spatially disjoint, so it never exercised rigidity edge-cutting — the reworked selftest uses adjacent jittered parts, pass bar ARI ≥ 0.99, fixture scores 1.0. Option A has since run on real data with ARI ≈ 0, but that column is substantially a measurement artifact — 4 000 labeled points, ≥98% scored as one −1 segment; re-score with `--drop-floaters`. And the T20 "BIC says 107 parts not resolvable" conclusion was invalidated — malformed BIC + a degenerate sigma-annealing start; fixed code uses a proper Gaussian BIC, no annealing, and a new spectral init reaching ARI 0.9988 on the T20 fixture. See [motion-segmentation.md](motion-segmentation.md) for the dated annotations.)
-- The orchestrator is complete through milestone M5: **the full 9-stage pipeline (`prep_split → prep_motion → capture.isaac → convert → train → render → seg_extract → segment.rigid → amp`) completed end-to-end on real hardware on 2026-07-19**, with cross-run caching working. The MCP server (15 tools, 3 resources) and Streamlit UI are done. Remaining: T17 (cancel/job hardening, open) and T16 (WSL bundling, deferred).
+- **M5 (2026-07-19)**: The full 9-stage pipeline (`prep_split → prep_motion → capture.isaac → convert → train → render → seg_extract → segment.rigid → amp`) completed end-to-end on real hardware, with cross-run caching working. The MCP server (15 tools, 3 resources) and Streamlit UI (`amp orch ui`) are fully operational.
+- **M6 (Workspace & CLI Streamlining, 2026-10 — T24–T26)**: Single root workspace install via `uv sync`; unified `amp` CLI replaces all raw script invocations; legacy `motion_seg/run.sh` deleted; one-off analysis scripts moved to `scratch/`.
+- **M7 (Experiment Standardization & Exploration, 2026-10 — T27–T30)**: Declarative experiment specs (`experiments/*.yaml`) executed via `amp exp run`; unified run ID convention (`<experiment>-<cell>-<8hex>`); results store `runs/experiment_results.csv`; local MLflow tracking (`amp mlflow serve` / `amp mlflow status`) with degradation-safe logging; unified inspection navigator `amp explore`; job concurrency guard and container cancellation hardening (T17).
+- Segmentation diagnostics (T18–T22): Trajectory denoising (T18), Kabsch EM (T20), ROI motion gating (T19), and Oracle mask lifting (T22) confirm that on mm-scale periodic motions with ~10⁵ Gaussians, motion-only segmentation is reconstruction-quality-limited (jitter ≈ motion). Practical contributions center on the motion amplification pipeline and synthetic evaluation framework.

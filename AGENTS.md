@@ -56,8 +56,11 @@ The codebase is a fork of [4DGaussians](https://github.com/hustvl/4DGaussians), 
 | `orchestrator/` | Three-layer pipeline system: DAG execution (`pipeline/`), HTTP MCP server (`mcp_server/`), Streamlit UI (`ui/`) |
 | `submodules/` | `depth-diff-gaussian-rasterization`, `simple-knn`, `multibody-sync-4dgs` |
 | `data/` | D-NeRF synthetic scenes (`bouncingballs`, `lego`, `mutant`, ...) + generated `multipleview` scenes (e.g. `pump01`) |
-| `output/` | Trained 4DGS models (not committed due to size) |
-| `docs/` | Compiled documentation (`overview.md`, `motion-segmentation.md`, `omniverse-pipeline.md`, `orchestrator.md`, ...) |
+| `runs/` | Canonical orchestrator run tree (`runs/<run_id>/` with `manifest.json`, `config_snapshot.json`, `logs/`, and stage output dirs) |
+| `experiments/` | Declarative experiment specifications (`pump_grid_v2.yaml`, `spinning_cubes.yaml`, ...) executed via `amp exp run` |
+| `output/` | Legacy trained model directory (from upstream 4DGaussians direct scripts; superseded by `runs/`, migration guide in `docs/migration_legacy_output.md`) |
+| `scratch/` | Unsupported one-off scripts, diagnostic harnesses, and retired ad-hoc code (see `scratch/README.md`) |
+| `docs/` | Compiled documentation (`overview.md`, `motion-segmentation.md`, `omniverse-pipeline.md`, `orchestrator.md`, `migration_legacy_output.md`, ...) |
 | `.claude_notes/` | Chronological working notes (primary detailed record) |
 | `LLFF/`, `viseron/` | Bundled reference tools and an unrelated NVR setup respectively |
 
@@ -208,9 +211,9 @@ uv run amp capture verify <capture_dir> [--cams 10 --frames 60 | --config <captu
 ### 5.6 Orchestrator
 
 ```bash
-# Run the full automated DAG (from Python; see orchestrator/planning/ARCHITECTURE.md for the API)
-python -c "from pipeline.api import run_pipeline; ..."
-# run_pipeline/run_stage accept an `overrides` dict (deep-merged, re-validated; T26)
+# Python API (orchestrator/planning/ARCHITECTURE.md):
+#   from pipeline.api import run_pipeline
+#   run_pipeline("pump01", overrides={...})
 
 # Start the MCP server (never defaults the token)
 $env:PIPELINE_MCP_TOKEN = "<generate-with-secrets.token_urlsafe(32)>"
@@ -243,6 +246,18 @@ uv run amp exp export [--out runs/experiment_results.csv]      # rebuild the res
 ```
 
 `experiments/pump_grid_v2.yaml` is the reference spec (pump amplitude×multiplier grid + Gaussian-count sweep + the 8-impl segmentation matrix). Runs are created via `run_pipeline` with run IDs `<experiment>-<variant>-<8hex>`; idempotency is by run-manifest metadata (`experiment`/`cell`/`variant`), never `force=True`. Results land in the unified store `runs/experiment_results.csv` keyed `(run_id, impl)`, re-derivable from manifests at any time via `amp exp export`. Per-impl seg eval results are keyed `seg_eval_result_<impl>.json` inside each run (Phase A).
+
+### 5.8 Unified Exploration (T30)
+
+Single-command experiment, run, configuration, and artifact navigator:
+
+```bash
+uv run amp explore                                       # workspace overview (experiments, runs, captures)
+uv run amp explore <run_id>                             # inspect specific run (status, timeline, artifacts, metrics)
+uv run amp explore <experiment_name>                    # inspect experiment (variant progress, cell matrix)
+uv run amp explore <target> --view full                 # full configuration and detailed metrics
+uv run amp explore <target> --human                     # format as human-readable markdown tables
+```
 
 ## 6. Testing strategy
 
@@ -303,8 +318,10 @@ These conventions are locked in `orchestrator/planning/INSTRUCTIONS.md` and appl
 - **The `cuda` Dockerfile builds the venv in `/opt/build`, not `/workspace`**, because `/workspace` is bind-mounted from the live repo at runtime and would shadow anything built there. Do not move the build back into `/workspace`.
 - **The pre-uv `requirements.txt` files were deleted in T24** (root, torch 1.13.1 era; `submodules/multibody-sync-4dgs`, `open3d==0.11.2` era). The authoritative dependency set is the workspace `pyproject.toml` files + `uv.lock`. The mmcv pin remains a cu121/torch2.4 wheel URL (no cu126/torch≥2.5 cp312 wheel exists on download.openmmlab.com as of 2026-10-06 — known risk, Linux/Docker only).
 - **`motion-seg/motion_seg/checkpoint-best.pth.tar` is not used.** The MultiBodySync checkpoint lives at `submodules/multibody-sync-4dgs/ckpt/mbs_full.pth.tar` (downloaded from the Google Drive link in `orchestrator/planning/WINDOWS_SETUP.md` §7; gitignored, not vendored).
-- **Option-A segmentation (`mbs_infer.py`) now runs on real data** (checkpoint downloaded to the expected path; ran on the 7 grid/sweep pump models via `scene-gen/run_grid_seg.py --impl mbs`), but segments poorly on these scenes (ARI ≈ 0, 2–8 clusters vs 107 GT parts — MotNet is out-of-distribution for mm-scale 4DGS trajectories, see `orchestrator/planning/WINDOWS_SETUP.md` §7). 2026-10-05 caveat: the published ARI ≈ 0 numbers substantially measure an evaluation artifact — the preset labels only 4 000 points, so ≥98% of points are labeled −1 and scored as one giant segment (`drop_floaters=False`); the out-of-distribution conclusion may hold but is not isolated by those numbers. Re-score the existing `segmentation_mbs.npz` artifacts with `--drop-floaters` before citing them. Option B (`segment_rigid.py`) remains the default.
+- **Option-A segmentation (`mbs_infer.py`) now runs on real data** (checkpoint downloaded to the expected path; evaluated across the pump grid/sweep models via `amp exp run pump_grid_v2 --only-impls mbs`), but segments poorly on these scenes (ARI ≈ 0, 2–8 clusters vs 107 GT parts — MotNet is out-of-distribution for mm-scale 4DGS trajectories, see `orchestrator/planning/WINDOWS_SETUP.md` §7). 2026-10-05 caveat: the published ARI ≈ 0 numbers substantially measure an evaluation artifact — the preset labels only 4 000 points, so ≥98% of points are labeled −1 and scored as one giant segment (`drop_floaters=False`); the out-of-distribution conclusion may hold but is not isolated by those numbers. Re-score the existing `segmentation_mbs.npz` artifacts with `--drop-floaters` before citing them. Option B (`segment_rigid.py`) remains the default.
 - **The pump01 scene is the primary real-hardware benchmark:** 107 rigid parts, 10 cameras, 60 frames, mm-scale periodic motion.
+- **Canonical output root is `runs/<run_id>/`**: all orchestrator pipeline stages, CLI commands (`amp explore`, `amp render`, `amp seg`), and local MLflow tracking expect run directories containing a valid `manifest.json`. Legacy directories under `output/multipleview/<scene>` (from direct-script runs) can be wrapped into modern `runs/` using `scripts/migrate_legacy_output.py` (see `docs/migration_legacy_output.md`).
+- **Run ID convention**: Run IDs follow `<experiment>-<cell>-<8hex>` (for declarative experiments run via `amp exp run`) or `<preset>-<8hex>` (for standalone runs); characters are restricted to `[A-Za-z0-9_.-]+` and checked by `validate_run_id`.
 
 ## 10. Where to read more
 

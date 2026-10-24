@@ -31,7 +31,29 @@ A three-round review-and-fix pass (full detail: `reviews/orchestrator-correctnes
 
 ## Task history
 
-T01 scaffold → T02 config → T03 artifacts/manifests → T04 stage base/registry → T05 DAG scheduler + caching → T06 path translation → T07 CPU stages (redone under the copy-in rule; M1) → T08 container manager (GPU-verified on real hardware) → T09 CUDA stages → T10 `segment.mbs` → T11 Isaac stages (revised to native capture; M3) → T12 resources → T13 MCP skeleton → T14 full MCP tool set (M4) → T15 UI (M5). All done as of 2026-07-19. Open: **T17** (real `cancel_run` — decided mechanism: stop the whole container; job concurrency guard; typed preview return). Deferred: **T16** (WSL2/Docker bundling). Test suite: 232 passed / 9 skipped (GPU-only tests auto-skip in the sandbox).
+T01 scaffold → T02 config → T03 artifacts/manifests → T04 stage base/registry → T05 DAG scheduler + caching → T06 path translation → T07 CPU stages (redone under the copy-in rule; M1) → T08 container manager (GPU-verified on real hardware) → T09 CUDA stages → T10 `segment.mbs` → T11 Isaac stages (revised to native capture; M3) → T12 resources → T13 MCP skeleton → T14 full MCP tool set (M4) → T15 UI (M5).
+
+Streamlining & Experiment phases:
+- T17 container cancellation hardening & concurrency guard (done).
+- T18–T22 segmentation rescue series: trajectory denoising (`rigid2`), ROI motion gating, Kabsch EM, and Oracle mask lifting (done).
+- T24 uv workspace restructure: root aggregator, cu126 GPU torch by default, CUDA submodules built in container (done; M6).
+- T25/T26 unified `amp` CLI: Typer foundation, command migration eliminating raw python invocations, `run.sh` deleted, one-off scripts retired to `scratch/` (done; M6).
+- T27 declarative experiment specs: `experiments/*.yaml`, `amp exp run`, `<experiment>-<cell>-<8hex>` run IDs, `runs/experiment_results.csv` (done; M7).
+- T28 / T28b local MLflow tracking: `amp mlflow serve/status/prune`, SQLite store at `runs/mlflow/mlflow.db`, partial manifest status rollup & reconciliation (done; M7).
+- T30 MCP consolidation & unified navigator: 8 high-level tools, `amp explore` single-command inspection (done; M7).
+- T31 repo layout cleanup & docs alignment (done).
+
+Deferred: **T16** (WSL2/Docker bundling). Test suite: 423 passed / 9 skipped (GPU/Isaac tests auto-skip in the sandbox).
+
+## Milestones
+
+- **M1 (end of Phase 0): reached 2026-07-14.** CPU stages (`convert.default`/`segment.rigid`/`seg_eval.default`) run from `run_pipeline(preset=...)` with caching, no containers, calling only orchestrator-owned (`pipeline/vendored/host/`) code.
+- **M2 (end of Phase 1):** Reconstruction → segmentation → amplification runs end-to-end from one call using containers.
+- **M3 (end of Phase 2): reached 2026-07-16.** True end-to-end from raw USD asset through amplified render (`prep_split → prep_motion → capture.isaac → convert → train → render → seg_extract → segment.* → seg_eval → amp`).
+- **M4 (end of Phase 4): reached 2026-07-19.** Claude drives pipeline execution over HTTP MCP (15 tools, 3 resources).
+- **M5 (end of Phase 5): reached 2026-07-19.** Single-file Streamlit UI (`amp orch ui`) over Layer 1 API.
+- **M6 (Workspace & CLI streamlining): reached 2026-10-06.** Unified root uv workspace (`uv sync`); root `amp` CLI (`amp capture`, `amp train`, `amp render`, `amp seg`, `amp exp`, `amp orch`, `amp bench`) replaces all raw script invocations; `run.sh` deleted; loose scripts retired.
+- **M7 (Experiment standardization & Exploration): reached 2026-10-24.** Declarative experiment runner (`amp exp run`), unified `<experiment>-<cell>-<8hex>` run IDs, results store `runs/experiment_results.csv`; local MLflow tracking (`amp mlflow serve`) joined to run manifests; single-command explorer `amp explore`; container cancellation and concurrency hardening (T17).
 
 ## The real-hardware debugging saga (2026-07-16 → 07-19)
 

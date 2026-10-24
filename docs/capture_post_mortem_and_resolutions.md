@@ -97,9 +97,12 @@ This report compiles all technical issues, root causes, operational friction poi
 - **Root Cause**: Heavy stdout buffering in headless Isaac Sim obscured live progress updates, forcing external disk checking.
 
 ### ✅ Permanent Resolution
-1. **Dedicated Progress CLI Tool (`scene-gen/check_capture_progress.py`)**:
-   - Standardize external progress checking into a single CLI script that outputs camera counts, frame completion percentages, and GT artifact status.
-2. **Structured `status.json` Runtime File**:
+1. **Unified Capture Verification (`amp capture verify <capture_dir>`)**:
+   - Replaces ad-hoc counting with a standardized frame-count and camera QA command:
+     `uv run amp capture verify <capture_dir> [--cams N --frames N | --config <capture.yaml>]`
+2. **Dedicated Progress CLI Tool (`scene-gen/check_capture_progress.py`)**:
+   - Standardize external progress checking during live capture to report camera counts and frame completion percentages.
+3. **Structured `status.json` Runtime File**:
    - `omni_capture.py` writes a lightweight `status.json` file inside `capture_dir` every 10 frames:
      ```json
      {

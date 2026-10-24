@@ -1,10 +1,10 @@
 # T31 — Repo layout cleanup & docs alignment
 
-- Status: todo
+- Status: done (2026-10-24)
 - Phase: 11 (streamlining)
 - Depends on: T26
 - Environment: sandbox-testable (docs/consistency checks, link and command-reference greps);
-  final newcomer-flow validation is a manual pass on Bartosz's machine
+  final newcomer-flow validation verified on Windows host
 
 ## Goal
 

@@ -19,6 +19,27 @@ the remaining data in ./data is synthetic data from DNerf https://github.com/alb
 
 Due to the size limitations the ./output folder containing the generated trained models is not included in the repository.
 
-### Documentation
+### Documentation & Quick Start
 
-Compiled project documentation lives in [`docs/`](docs/README.md): project overview, the motion-segmentation work (`motion-seg/motion_seg/`), the Omniverse→4DGS synthetic-data pipeline (`omniverse-pipeline/omniverse_pipeline/`), and the pipeline orchestrator (`orchestrator/`). Detailed chronological working notes are in `.claude_notes/`.
+Compiled project documentation lives in [`docs/`](docs/README.md) and [`AGENTS.md`](AGENTS.md).
+
+#### Quick Start (from clone to running experiment)
+
+```bash
+# 1. Install entire workspace environment (Python 3.12 + PyTorch cu126)
+uv sync
+
+# 2. Inspect available commands across pipeline phases
+uv run amp --help
+
+# 3. Dry-run an experiment spec (touches nothing, validates plan)
+uv run amp exp run experiments/pump_grid_v2.yaml --dry-run
+
+# 4. Start local MLflow dashboard (SQLite store at runs/mlflow/mlflow.db)
+uv run amp mlflow serve    # UI at http://127.0.0.1:5000
+
+# 5. Explore runs, configs, metrics, and artifacts
+uv run amp explore
+```
+
+For detailed architecture, pipeline stages, and command catalogs, see [`AGENTS.md`](AGENTS.md) and [`docs/overview.md`](docs/overview.md).
