@@ -145,8 +145,64 @@ def test_capture_run_missing_isaac_launcher(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "cmd", ["split", "motion", "gen-grid", "run", "convert", "preview", "verify"]
+    "cmd", ["split", "motion", "gen-grid", "run", "convert", "preview", "verify", "prep-real"]
 )
 def test_capture_subcommand_help(cmd):
     result = runner.invoke(app, ["capture", cmd, "--help"])
     assert result.exit_code == 0, result.output
+
+
+# --- amp capture prep-real (T32) ----------------------------------------------------
+
+
+def test_capture_prep_real_missing_capture_dir_fails(tmp_path):
+    result = runner.invoke(app, ["capture", "prep-real", "--capture", str(tmp_path / "nope"), "--out", "test_scene"])
+    assert result.exit_code != 0
+    assert "--capture" in result.output
+
+
+def test_capture_prep_real_restructure_frames(tmp_path):
+    from omniverse_pipeline.prep_real import restructure_frames
+
+    synced_dir = tmp_path / "synced"
+    synced_dir.mkdir(parents=True)
+    for f_idx in range(1, 4):
+        f_dir = synced_dir / f"frame_{f_idx:06d}"
+        f_dir.mkdir()
+        for c_idx in range(1, 3):
+            (f_dir / f"cam{c_idx:02d}.jpg").write_text(f"frame {f_idx} cam {c_idx}")
+
+    dst_dir = tmp_path / "out_scene"
+    dst_dir.mkdir(parents=True)
+
+    n_frames = restructure_frames(synced_dir, dst_dir)
+    assert n_frames == 3
+    assert (dst_dir / "cam01" / "frame_00001.jpg").is_file()
+    assert (dst_dir / "cam01" / "frame_00002.jpg").is_file()
+    assert (dst_dir / "cam02" / "frame_00001.jpg").is_file()
+    assert (dst_dir / "cam02" / "frame_00003.jpg").is_file()
+
+
+def test_capture_prep_real_idempotent_skip(tmp_path):
+    from omniverse_pipeline.prep_real import prep_real_dataset
+
+    synced_dir = tmp_path / "synced"
+    synced_dir.mkdir(parents=True)
+    f_dir = synced_dir / "frame_000001"
+    f_dir.mkdir()
+    (f_dir / "cam01.jpg").write_text("frame1")
+
+    dst_dir = tmp_path / "my_scene"
+    dst_dir.mkdir(parents=True)
+    sparse = dst_dir / "sparse_"
+    sparse.mkdir(parents=True)
+    (sparse / "cameras.bin").write_text("stub")
+    (sparse / "images.bin").write_text("stub")
+    (sparse / "points3D.bin").write_text("stub")
+    (dst_dir / "points3D_multipleview.ply").write_text("stub")
+    (dst_dir / "poses_bounds_multipleview.npy").write_text("stub")
+
+    # prep_real_dataset should notice existing calibration and skip without calling colmap
+    out = prep_real_dataset(synced_dir, dst_dir)
+    assert out == dst_dir
+    assert (dst_dir / "cam01" / "frame_00001.jpg").is_file()

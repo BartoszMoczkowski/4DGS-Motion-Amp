@@ -60,6 +60,7 @@ from . import echo  # noqa: F401
 from . import prep_motion  # noqa: F401
 from . import prep_split  # noqa: F401
 from . import render  # noqa: F401
+from . import render_cluster  # noqa: F401  (T32)
 from . import roi_mask_lift  # noqa: F401  (T22)
 from . import roi_mask_oracle  # noqa: F401  (T22)
 from . import roi_motion_gate  # noqa: F401  (T19)

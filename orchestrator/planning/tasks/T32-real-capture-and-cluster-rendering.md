@@ -1,9 +1,10 @@
 # T32 — Real-Capture Ingestion & Cluster Video Rendering Stages
 
-- Status: todo
+- Status: done
 - Phase: 9 (streamlining / pipeline extensibility)
 - Depends on: T26, T09
 - Environment: sandbox-testable (mocked container exec + CLI parsing); real CUDA / container verification on Bartosz's machine
+- Completed: 2026-10-24
 
 ## Goal
 
@@ -38,8 +39,41 @@ During real-capture evaluations (e.g. Lego turbine series and `turbine_r1_missin
 - Real-time OpenGL viewers or GUI Streamlit panels (owned by T15/T30).
 
 ## Deliverables
-
+ 
 - `orchestrator/pipeline/stages/render_cluster.py` + `pipeline/vendored/cuda/render_cluster.py`.
-- `amp render <run_id> --cluster` integration in `orchestrator/pipeline/render_cli.py`.
-- `amp capture prep-real` command in `orchestrator/pipeline/capture_cli.py`.
+- `amp render <run_id> --cluster` integration in `core/core_cli.py`.
+- `amp capture prep-real` command in `omniverse-pipeline/omniverse_pipeline/cli.py` + `prep_real.py`.
+- Config bridge for real captures: `RenderClusterConfig` model, `real_capture.yaml` preset, and updated real scene presets.
 - Sandbox test suite verifying CLI argument construction and stage artifact declaration.
+
+## Implementation Details
+
+1. **`render.cluster` Stage (`orchestrator/pipeline/stages/render_cluster.py`)**:
+   - Registered under `@register("render.cluster")` with `inputs=("model", "segmentation")`, optional `("scene",)`, and `outputs=("cluster_video",)` (`kind: "video"`).
+   - Generates bridge argument file via `write_stage_bridge(ctx)` and translates paths into container space.
+   - Executes vendored container script `orchestrator/pipeline/vendored/cuda/render_cluster.py` via `run_cuda_script`.
+   - Verified in sandbox tests: CLI flag generation, `--source_path` inclusion when `scene` is present, missing output checks, and video artifact declaration.
+
+2. **CLI Command `amp render <run_id> --cluster`**:
+   - Added `--cluster`, `--camera`, `--side-by-side / --no-side-by-side`, `--add-labels / --no-add-labels`, `--resolution-scale`, and `--fps` flags to `core/core_cli.py`.
+   - Strictly validates mutual exclusivity between `--cluster` and `--amp-factors`.
+   - Configures overrides under `render.cluster` and launches `run_stage(run_id, "render.cluster")`.
+   - Supports `--dry-run` and `--force`.
+
+3. **CLI Command `amp capture prep-real` (`omniverse-pipeline/omniverse_pipeline/cli.py` & `prep_real.py`)**:
+   - Ported and standardized from `scripts/prep_real_multipleview.py` into `omniverse_pipeline.prep_real`.
+   - Automatically restructures multi-camera synced frames into `cam{01..10}/frame_{00001..N}.jpg`.
+   - Locates COLMAP binary on PATH or via `colmap/COLMAP.bat`.
+   - Runs feature extraction, matching, and mapper calibration, or borrows calibration rig from `--colmap-source`.
+   - Exports `poses_bounds_multipleview.npy` and `points3D_multipleview.ply`.
+   - Idempotently skips COLMAP execution when existing calibration files are present unless `--force` is given.
+
+4. **Config Bridge & Presets**:
+   - Added `RenderClusterConfig` and `render.impl = Literal["default", "cluster"]` to `orchestrator/pipeline/config/models.py`.
+   - Added `real_capture.yaml` preset establishing standard real-camera defaults:
+     - `opacity_reset_interval: 60000`
+     - `kplanes_config.resolution: [64, 64, 64, 200]`
+     - `seg_extract.n_times: 160`
+     - default `render.cluster` settings.
+   - Updated real-scene presets (`lego_turbine_base`, `lego_turbine_2_missing`, `lego_turbine_5_missing`, `controler_test_01`, `hand_test_002`, `turbine_r1_missing_6`) to inherit from `real_capture`.
+

@@ -1,4 +1,4 @@
-extends: base
+extends: real_capture
 name: hand_test_002
 
 model:
@@ -8,9 +8,6 @@ model:
 train:
   port: 6017
   expname: "multipleview/hand_test_002"
-
-optim:
-  opacity_reset_interval: 60000
 
 hidden:
   kplanes_config:

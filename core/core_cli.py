@@ -216,6 +216,24 @@ def render(
     frozen_cam: Optional[bool] = typer.Option(
         None, "--frozen-cam/--no-frozen-cam", help="Hold the camera fixed while amplifying."
     ),
+    cluster: bool = typer.Option(
+        False, "--cluster", help="Render motion clusters video (runs stage render.cluster)."
+    ),
+    camera: Optional[str] = typer.Option(
+        None, "--camera", help="Camera name (e.g. cam01) or index for cluster video rendering."
+    ),
+    side_by_side: Optional[bool] = typer.Option(
+        None, "--side-by-side/--no-side-by-side", help="Render RGB + cluster colored side by side."
+    ),
+    add_labels: Optional[bool] = typer.Option(
+        None, "--add-labels/--no-add-labels", help="Overlay text labels on cluster video."
+    ),
+    resolution_scale: Optional[float] = typer.Option(
+        None, "--resolution-scale", help="Resolution scale factor for cluster video (default: 0.5)."
+    ),
+    fps: Optional[int] = typer.Option(
+        None, "--fps", help="Frames per second for cluster video (default: 25)."
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Print the resolved stage + config slice and exit."
     ),
@@ -223,17 +241,56 @@ def render(
         False, "--force", help="Re-run even if the stage's cache key is unchanged."
     ),
 ) -> None:
-    """Render a run — plain (``render.default``) or motion-amplified (``amp.default``).
+    """Render a run — plain (``render.default``), motion-amplified (``amp.default``),
+    or cluster-colored (``render.cluster``).
 
-    Without ``--amp-factors`` this is a plain ``render.default`` re-render. With
-    ``--amp-factors`` it runs ``amp.default`` with the given per-slot factors mapped onto
-    ``amp.channels`` config overrides.
+    Without ``--amp-factors`` or ``--cluster`` this is a plain ``render.default`` re-render.
+    With ``--amp-factors`` it runs ``amp.default``. With ``--cluster`` it runs ``render.cluster``.
     """
     from pipeline import api
 
+    if cluster and amp_factors is not None:
+        raise _bad("--cluster and --amp-factors are mutually exclusive")
+
     overrides: Optional[dict] = None
     stage = "render.default"
-    if amp_factors is not None:
+    if cluster:
+        for flag_name, value in (
+            ("--method", method),
+            ("--freq-low/--freq-high", freq_low or freq_high),
+            ("--low-vram", low_vram),
+            ("--frozen-cam", frozen_cam),
+        ):
+            if value is not None:
+                raise _bad(f"{flag_name} only makes sense together with --amp-factors, not --cluster")
+
+        stage = "render.cluster"
+        cluster_cfg: dict = {
+            "camera": camera or "cam01",
+            "fps": 25 if fps is None else fps,
+            "resolution_scale": 0.5 if resolution_scale is None else resolution_scale,
+            "side_by_side": True if side_by_side is None else side_by_side,
+            "add_labels": True if add_labels is None else add_labels,
+        }
+        if video is not None:
+            cluster_cfg["output_video"] = video
+        overrides = {
+            "render": {
+                "impl": "cluster",
+                "cluster": cluster_cfg,
+            }
+        }
+    elif amp_factors is not None:
+        for flag_name, value in (
+            ("--camera", camera),
+            ("--side-by-side", side_by_side),
+            ("--add-labels", add_labels),
+            ("--resolution-scale", resolution_scale),
+            ("--fps", fps),
+        ):
+            if value is not None:
+                raise _bad(f"{flag_name} only makes sense together with --cluster")
+
         stage = "amp.default"
         factors = _validate_amp_factors(_parse_ints(amp_factors, "--amp-factors"))
         freqs = _validate_freqs(
@@ -263,13 +320,22 @@ def render(
     else:
         for flag_name, value in (
             ("--method", method),
-            ("--freq-low/--freq-high", freq_low),
+            ("--freq-low/--freq-high", freq_low or freq_high),
             ("--video", video),
             ("--low-vram", low_vram),
             ("--frozen-cam", frozen_cam),
         ):
             if value is not None:
                 raise _bad(f"{flag_name} only makes sense together with --amp-factors")
+        for flag_name, value in (
+            ("--camera", camera),
+            ("--side-by-side", side_by_side),
+            ("--add-labels", add_labels),
+            ("--resolution-scale", resolution_scale),
+            ("--fps", fps),
+        ):
+            if value is not None:
+                raise _bad(f"{flag_name} only makes sense together with --cluster")
 
     from pipeline.artifacts import get_manifest
 

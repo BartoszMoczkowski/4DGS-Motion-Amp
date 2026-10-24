@@ -26,6 +26,7 @@ from pipeline.containers.manager import ExecResult
 from pipeline.stages.amp import AmpFactorNotIntegerError, AmpStage
 from pipeline.stages.base import StageContext
 from pipeline.stages.render import RenderStage
+from pipeline.stages.render_cluster import RenderClusterStage
 from pipeline.stages.seg_extract import SegExtractStage
 from pipeline.stages.train import TrainStage
 
@@ -82,6 +83,12 @@ class _FakeContainers:
                 split_dir = model_host / split / "ours_1"
                 split_dir.mkdir(parents=True, exist_ok=True)
                 (split_dir / "stub.png").write_text("stub")
+        if self.exit_code == 0 and any(str(c).endswith("render_cluster.py") for c in cmd):
+            import pipeline.paths as paths_mod
+
+            out_host = paths_mod.to_host(_flag_value(cmd, "output_video"))
+            out_host.parent.mkdir(parents=True, exist_ok=True)
+            out_host.write_text("stub_video")
         return ExecResult(exit_code=self.exit_code, log_path=log_path)
 
 
@@ -478,3 +485,126 @@ def test_train_then_render_via_run_dag_with_caching(tmp_path, monkeypatch):
     assert len(calls) == 2  # unchanged
 
     assert m2.artifacts["model"].path == m1.artifacts["model"].path  # reused, not retrained
+
+
+# --- render.cluster tests (T32) ------------------------------------------------------------
+
+
+def test_render_cluster_arguments_construction(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repo_root = _setup_roots(tmp_path, monkeypatch)
+    model_dir = repo_root / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    seg_file = repo_root / "segmentation.npz"
+    seg_file.write_text("stub_seg")
+
+    bridge = {
+        "model": {"sh_degree": 3, "source_path": "", "model_path": "", "images": "images", "resolution": -1, "white_background": True, "data_device": "cuda", "eval": True, "render_process": False, "add_points": False, "extension": ".png", "llffhold": 8},
+        "pipeline_params": {"convert_SHs_python": False, "compute_cov3D_python": False, "debug": False},
+        "hidden": {"net_width": 128, "timebase_pe": 4, "defor_depth": 0, "posebase_pe": 10, "scale_rotation_pe": 2, "opacity_pe": 2, "timenet_width": 64, "timenet_output": 32, "bounds": 1.6, "plane_tv_weight": 0.0002, "time_smoothness_weight": 0.001, "l1_time_planes": 0.0001, "kplanes_config": {"grid_dimensions": 2, "input_coordinate_dim": 4, "output_coordinate_dim": 16, "resolution": [64, 64, 64, 200]}, "multires": [1, 2], "no_dx": False, "no_grid": False, "no_ds": False, "no_dr": False, "no_do": False, "no_dshs": False, "empty_voxel": False, "grid_pe": 0, "static_mlp": False, "apply_rotation": False, "render_process": False},
+        "optim": {"dataloader": True, "zerostamp_init": False, "custom_sampler": None, "iterations": 15000, "coarse_iterations": 3000, "position_lr_init": 0.00016, "position_lr_final": 0.0000016, "position_lr_delay_mult": 0.01, "position_lr_max_steps": 20000, "deformation_lr_init": 0.00016, "deformation_lr_final": 0.000016, "deformation_lr_delay_mult": 0.01, "grid_lr_init": 0.0016, "grid_lr_final": 0.00016, "feature_lr": 0.0025, "opacity_lr": 0.05, "scaling_lr": 0.005, "rotation_lr": 0.001, "percent_dense": 0.01, "lambda_dssim": 0, "lambda_lpips": 0, "weight_constraint_init": 1, "weight_constraint_after": 0.2, "weight_decay_iteration": 5000, "opacity_reset_interval": 60000, "densification_interval": 100, "densify_from_iter": 500, "densify_until_iter": 10000, "densify_grad_threshold_coarse": 0.0002, "densify_grad_threshold_fine_init": 0.0002, "densify_grad_threshold_after": 0.0002, "pruning_from_iter": 500, "pruning_interval": 100, "opacity_threshold_coarse": 0.005, "opacity_threshold_fine_init": 0.005, "opacity_threshold_fine_after": 0.005, "batch_size": 1, "add_point": False},
+    }
+
+    config = {
+        "camera": "cam05",
+        "fps": 30,
+        "resolution_scale": 0.5,
+        "side_by_side": True,
+        "add_labels": True,
+        "iteration": -1,
+        "output_video": "cluster_out.mp4",
+        "quiet": False,
+        "_bridge": bridge,
+    }
+
+    inputs = {
+        "model": Artifact(name="model", kind="model", path=str(model_dir), producing_stage="train.default"),
+        "segmentation": Artifact(name="segmentation", kind="npz", path=str(seg_file), producing_stage="segment.rigid"),
+    }
+
+    ctx, fake = _ctx(repo_root, stage_name="render.cluster", config=config, inputs=inputs)
+    out = RenderClusterStage().run(ctx)
+
+    assert "cluster_video" in out
+    art = out["cluster_video"]
+    assert art.kind == "video"
+    assert art.producing_stage == "render.cluster"
+    assert Path(art.path).name == "cluster_out.mp4"
+    assert art.metadata["camera"] == "cam05"
+    assert art.metadata["fps"] == 30
+
+    cmd = fake.calls[0]["cmd"]
+    assert any(str(c).endswith("render_cluster.py") for c in cmd)
+    assert _flag_value(cmd, "camera") == "cam05"
+    assert _flag_value(cmd, "fps") == "30"
+    assert _flag_value(cmd, "resolution_scale") == "0.5"
+    assert "--side_by_side" in cmd
+    assert "--add_labels" in cmd
+
+
+def test_render_cluster_optional_scene_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    repo_root = _setup_roots(tmp_path, monkeypatch)
+    model_dir = repo_root / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    seg_file = repo_root / "segmentation.npz"
+    seg_file.write_text("stub_seg")
+    scene_dir = repo_root / "data" / "multipleview" / "scene01"
+    scene_dir.mkdir(parents=True, exist_ok=True)
+
+    bridge = {
+        "model": {"sh_degree": 3, "source_path": "", "model_path": "", "images": "images", "resolution": -1, "white_background": True, "data_device": "cuda", "eval": True, "render_process": False, "add_points": False, "extension": ".png", "llffhold": 8},
+        "pipeline_params": {"convert_SHs_python": False, "compute_cov3D_python": False, "debug": False},
+        "hidden": {"net_width": 128, "timebase_pe": 4, "defor_depth": 0, "posebase_pe": 10, "scale_rotation_pe": 2, "opacity_pe": 2, "timenet_width": 64, "timenet_output": 32, "bounds": 1.6, "plane_tv_weight": 0.0002, "time_smoothness_weight": 0.001, "l1_time_planes": 0.0001, "kplanes_config": {"grid_dimensions": 2, "input_coordinate_dim": 4, "output_coordinate_dim": 16, "resolution": [64, 64, 64, 200]}, "multires": [1, 2], "no_dx": False, "no_grid": False, "no_ds": False, "no_dr": False, "no_do": False, "no_dshs": False, "empty_voxel": False, "grid_pe": 0, "static_mlp": False, "apply_rotation": False, "render_process": False},
+        "optim": {"dataloader": True, "zerostamp_init": False, "custom_sampler": None, "iterations": 15000, "coarse_iterations": 3000, "position_lr_init": 0.00016, "position_lr_final": 0.0000016, "position_lr_delay_mult": 0.01, "position_lr_max_steps": 20000, "deformation_lr_init": 0.00016, "deformation_lr_final": 0.000016, "deformation_lr_delay_mult": 0.01, "grid_lr_init": 0.0016, "grid_lr_final": 0.00016, "feature_lr": 0.0025, "opacity_lr": 0.05, "scaling_lr": 0.005, "rotation_lr": 0.001, "percent_dense": 0.01, "lambda_dssim": 0, "lambda_lpips": 0, "weight_constraint_init": 1, "weight_constraint_after": 0.2, "weight_decay_iteration": 5000, "opacity_reset_interval": 60000, "densification_interval": 100, "densify_from_iter": 500, "densify_until_iter": 10000, "densify_grad_threshold_coarse": 0.0002, "densify_grad_threshold_fine_init": 0.0002, "densify_grad_threshold_after": 0.0002, "pruning_from_iter": 500, "pruning_interval": 100, "opacity_threshold_coarse": 0.005, "opacity_threshold_fine_init": 0.005, "opacity_threshold_fine_after": 0.005, "batch_size": 1, "add_point": False},
+    }
+
+    config = {
+        "camera": "cam01",
+        "side_by_side": False,
+        "add_labels": False,
+        "_bridge": bridge,
+    }
+
+    inputs = {
+        "model": Artifact(name="model", kind="model", path=str(model_dir), producing_stage="train.default"),
+        "segmentation": Artifact(name="segmentation", kind="npz", path=str(seg_file), producing_stage="segment.rigid"),
+        "scene": Artifact(name="scene", kind="dataset", path=str(scene_dir), producing_stage="convert.default"),
+    }
+
+    ctx, fake = _ctx(repo_root, stage_name="render.cluster", config=config, inputs=inputs)
+    RenderClusterStage().run(ctx)
+
+    cmd = fake.calls[0]["cmd"]
+    assert "--source_path" in cmd
+    assert "--side_by_side" not in cmd
+    assert "--add_labels" not in cmd
+
+
+def test_render_cluster_missing_output_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from pipeline.stages.cuda_common import CudaStageError
+
+    repo_root = _setup_roots(tmp_path, monkeypatch)
+    model_dir = repo_root / "model"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    seg_file = repo_root / "segmentation.npz"
+    seg_file.write_text("stub_seg")
+
+    bridge = {
+        "model": {"sh_degree": 3, "source_path": "", "model_path": "", "images": "images", "resolution": -1, "white_background": True, "data_device": "cuda", "eval": True, "render_process": False, "add_points": False, "extension": ".png", "llffhold": 8},
+        "pipeline_params": {"convert_SHs_python": False, "compute_cov3D_python": False, "debug": False},
+        "hidden": {"net_width": 128, "timebase_pe": 4, "defor_depth": 0, "posebase_pe": 10, "scale_rotation_pe": 2, "opacity_pe": 2, "timenet_width": 64, "timenet_output": 32, "bounds": 1.6, "plane_tv_weight": 0.0002, "time_smoothness_weight": 0.001, "l1_time_planes": 0.0001, "kplanes_config": {"grid_dimensions": 2, "input_coordinate_dim": 4, "output_coordinate_dim": 16, "resolution": [64, 64, 64, 200]}, "multires": [1, 2], "no_dx": False, "no_grid": False, "no_ds": False, "no_dr": False, "no_do": False, "no_dshs": False, "empty_voxel": False, "grid_pe": 0, "static_mlp": False, "apply_rotation": False, "render_process": False},
+        "optim": {"dataloader": True, "zerostamp_init": False, "custom_sampler": None, "iterations": 15000, "coarse_iterations": 3000, "position_lr_init": 0.00016, "position_lr_final": 0.0000016, "position_lr_delay_mult": 0.01, "position_lr_max_steps": 20000, "deformation_lr_init": 0.00016, "deformation_lr_final": 0.000016, "deformation_lr_delay_mult": 0.01, "grid_lr_init": 0.0016, "grid_lr_final": 0.00016, "feature_lr": 0.0025, "opacity_lr": 0.05, "scaling_lr": 0.005, "rotation_lr": 0.001, "percent_dense": 0.01, "lambda_dssim": 0, "lambda_lpips": 0, "weight_constraint_init": 1, "weight_constraint_after": 0.2, "weight_decay_iteration": 5000, "opacity_reset_interval": 60000, "densification_interval": 100, "densify_from_iter": 500, "densify_until_iter": 10000, "densify_grad_threshold_coarse": 0.0002, "densify_grad_threshold_fine_init": 0.0002, "densify_grad_threshold_after": 0.0002, "pruning_from_iter": 500, "pruning_interval": 100, "opacity_threshold_coarse": 0.005, "opacity_threshold_fine_init": 0.005, "opacity_threshold_fine_after": 0.005, "batch_size": 1, "add_point": False},
+    }
+
+    config = {"_bridge": bridge}
+    inputs = {
+        "model": Artifact(name="model", kind="model", path=str(model_dir), producing_stage="train.default"),
+        "segmentation": Artifact(name="segmentation", kind="npz", path=str(seg_file), producing_stage="segment.rigid"),
+    }
+
+    ctx, fake = _ctx(repo_root, stage_name="render.cluster", config=config, inputs=inputs)
+    # Clear fake writer for render_cluster so file is not created
+    fake.exec_in_container = lambda env, cmd, **kw: ExecResult(exit_code=0)
+
+    with pytest.raises(CudaStageError, match="wrote no video"):
+        RenderClusterStage().run(ctx)
+

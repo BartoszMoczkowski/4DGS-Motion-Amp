@@ -37,6 +37,7 @@ VENDORED_CUDA_SCRIPTS: dict[str, str] = {
     "amp": "orchestrator/pipeline/vendored/cuda/amp.py",
     "mbs_infer": "orchestrator/pipeline/vendored/cuda/mbs_infer.py",
     "mask_lift": "orchestrator/pipeline/vendored/cuda/mask_lift.py",
+    "render_cluster": "orchestrator/pipeline/vendored/cuda/render_cluster.py",
 }
 
 #: `PYTHONPATH` a container-side script needs so `from arguments import ...` etc. resolve —

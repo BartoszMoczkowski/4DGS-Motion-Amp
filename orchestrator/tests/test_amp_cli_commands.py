@@ -197,6 +197,53 @@ def test_render_amp_dry_run_channel_mapping(fresh_run):
     assert cfg["frozen_cam"] is True
 
 
+def test_render_cluster_and_amp_factors_mutually_exclusive(fresh_run):
+    result = runner.invoke(app, ["render", fresh_run, "--cluster", *FACTORS_8])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_render_cluster_dry_run(fresh_run):
+    result = runner.invoke(
+        app,
+        [
+            "render", fresh_run,
+            "--cluster",
+            "--camera", "cam03",
+            "--fps", "30",
+            "--resolution-scale", "0.75",
+            "--side-by-side",
+            "--add-labels",
+            "--video", "my_cluster.mp4",
+            "--dry-run",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert "render.cluster" in result.output
+    import json
+
+    blob = result.output.split("resolved config slice for render.cluster:", 1)[1]
+    cfg = json.loads(blob.split("[dry-run] nothing executed.", 1)[0])
+    assert cfg["camera"] == "cam03"
+    assert cfg["fps"] == 30
+    assert cfg["resolution_scale"] == 0.75
+    assert cfg["side_by_side"] is True
+    assert cfg["add_labels"] is True
+    assert cfg["output_video"] == "my_cluster.mp4"
+
+
+def test_render_cluster_rejects_amp_options(fresh_run):
+    result = runner.invoke(app, ["render", fresh_run, "--cluster", "--method", "eulerian"])
+    assert result.exit_code != 0
+    assert "only makes sense together with --amp-factors" in result.output
+
+
+def test_render_rejects_cluster_options_without_cluster_flag(fresh_run):
+    result = runner.invoke(app, ["render", fresh_run, "--camera", "cam02"])
+    assert result.exit_code != 0
+    assert "only makes sense together with --cluster" in result.output
+
+
 # --- amp orch --------------------------------------------------------------------
 
 

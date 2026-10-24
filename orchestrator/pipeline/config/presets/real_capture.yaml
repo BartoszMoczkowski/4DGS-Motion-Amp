@@ -1,0 +1,28 @@
+# Base preset for real multi-cam captures (RTSP / USB multi-camera rig).
+# Extends base and configures standard defaults for real captures:
+# - Raised opacity reset interval for stable real-capture deformation
+# - 200 time-resolution grid in kplanes
+# - Default cluster video rendering configuration
+# - 160 trajectory sample timesteps for motion segmentation
+extends: base
+name: real_capture
+
+optim:
+  opacity_reset_interval: 60000
+
+hidden:
+  kplanes_config:
+    resolution: [64, 64, 64, 200]
+
+render:
+  impl: cluster
+  cluster:
+    camera: "cam01"
+    fps: 25
+    resolution_scale: 0.5
+    side_by_side: true
+    add_labels: true
+    output_video: "cluster_video.mp4"
+
+seg_extract:
+  n_times: 160

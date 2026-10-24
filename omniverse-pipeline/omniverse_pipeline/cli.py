@@ -315,3 +315,42 @@ def verify(
     if not ok:
         raise typer.Exit(1)
     typer.echo("verify: OK")
+
+
+@app.command("prep-real")
+def prep_real(
+    capture: Path = typer.Option(..., "--capture", help="Directory of synchronized multi-camera frames."),
+    out: str = typer.Option(..., "--out", help="Scene name (written under data/multipleview/) or destination path."),
+    colmap_source: Optional[str] = typer.Option(
+        None, "--colmap-source", help="Optional source scene/sparse directory to borrow calibration from."
+    ),
+    camera_model: str = typer.Option("SIMPLE_RADIAL", "--camera-model", help="COLMAP camera model."),
+    colmap_bin: Optional[Path] = typer.Option(None, "--colmap-bin", help="Explicit COLMAP binary path."),
+    force: bool = typer.Option(False, "--force", help="Re-run calibration even if outputs already exist."),
+) -> None:
+    """Prepare real multi-camera capture into standard 4DGS multipleview dataset format."""
+    from omniverse_pipeline.prep_real import prep_real_dataset
+
+    if not capture.is_dir():
+        raise _bad(f"--capture directory not found: {capture}")
+
+    try:
+        dst = prep_real_dataset(
+            capture_dir=capture,
+            out_name_or_dir=out,
+            colmap_source=colmap_source,
+            camera_model=camera_model,
+            colmap_bin=colmap_bin,
+            force=force,
+        )
+    except FileNotFoundError as e:
+        typer.secho(f"prep-real error: {e}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from e
+    except subprocess.CalledProcessError as e:
+        typer.secho(f"COLMAP command failed with exit code {e.returncode}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(e.returncode) from e
+    except Exception as e:
+        typer.secho(f"prep-real failed: {e}", err=True, fg=typer.colors.RED)
+        raise typer.Exit(1) from e
+
+    typer.echo(f"prep-real finished; dataset prepared at: {dst}")

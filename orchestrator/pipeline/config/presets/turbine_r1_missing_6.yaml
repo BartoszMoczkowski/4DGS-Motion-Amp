@@ -1,4 +1,4 @@
-extends: base
+extends: real_capture
 name: turbine_r1_missing_6
 
 model:
@@ -8,9 +8,6 @@ model:
 train:
   port: 6023
   expname: "multipleview/turbine_r1_missing_6"
-
-optim:
-  opacity_reset_interval: 60000
 
 hidden:
   kplanes_config:

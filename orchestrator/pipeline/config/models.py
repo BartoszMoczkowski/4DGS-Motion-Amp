@@ -70,6 +70,7 @@ class ModelHiddenParams(StrictModel):
     grid_pe: int = 0
     static_mlp: bool = False
     apply_rotation: bool = False
+    render_process: bool = False
 
 
 class OptimizationParams(StrictModel):
@@ -86,6 +87,7 @@ class OptimizationParams(StrictModel):
     position_lr_max_steps: int = 20_000
     deformation_lr_init: float = 0.00016
     deformation_lr_final: float = 0.000016
+    deformation_lr_delay_mult: float = 0.01
     grid_lr_init: float = 0.0016
     grid_lr_final: float = 0.00016
     feature_lr: float = 0.0025
@@ -166,15 +168,30 @@ class TrainConfig(StrictModel):
     configs: str = ""
 
 
+class RenderClusterConfig(StrictModel):
+    """Flags for cluster-colored video rendering (stage ``render.cluster``, T32)."""
+
+    camera: str = "cam01"
+    fps: int = 25
+    resolution_scale: float = 0.5
+    side_by_side: bool = True
+    add_labels: bool = True
+    iteration: int = -1
+    output_video: str = "cluster_video.mp4"
+    quiet: bool = False
+
+
 class RenderConfig(StrictModel):
     """``render.py`` flags (also shared, minus ``--configs``, by ``extract_trajectories.py``)."""
 
+    impl: Literal["default", "cluster"] = "default"
     iteration: int = -1
     skip_train: bool = False
     skip_test: bool = False
     quiet: bool = False
     skip_video: bool = False
     configs: Optional[str] = None
+    cluster: RenderClusterConfig = Field(default_factory=RenderClusterConfig)
 
 
 class SegExtractConfig(StrictModel):

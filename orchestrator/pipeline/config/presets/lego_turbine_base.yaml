@@ -1,4 +1,4 @@
-extends: base
+extends: real_capture
 name: lego_turbine_base
 
 model:
@@ -8,10 +8,3 @@ model:
 train:
   port: 6017
   expname: "multipleview/lego_turbine_base"
-
-optim:
-  opacity_reset_interval: 60000
-
-hidden:
-  kplanes_config:
-    resolution: [64, 64, 64, 200]

@@ -39,7 +39,7 @@ respect the dependency graph. Update the `Status` line in each task file **and**
 | T29 | Standardized metrics registry & report layer (research metrics catalog) | 9 | T28, T28b | todo |
 | T30 | MCP consolidation & unified experiment navigator (`amp explore`) | 10 | T28b, T29, T17, T32 | done |
 | T31 | Repo layout cleanup & docs alignment | 11 | T26, T33 | done |
-| T32 | Real-capture ingestion & cluster video rendering stages (`render.cluster`) | 9 | T26, T09 | todo |
+| T32 | Real-capture ingestion & cluster video rendering stages (`render.cluster`) | 9 | T26, T09 | done |
 | T33 | Declarative experiments migration & script retirement | 11 | T28b, T32, T30 | todo |
 
 Phase 7 (segmentation rescue — `docs/proposals/IMPLEMENTATION_PLAN.md`): T18–T20 and T22 are
