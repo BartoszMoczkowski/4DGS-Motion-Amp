@@ -121,6 +121,9 @@ class OptimizationParams(StrictModel):
     opacity_threshold_fine_after: float = 0.005
     batch_size: int = 1
     add_point: bool = False
+    use_motion_mask: bool = False
+    motion_mask_dir: str = ""
+    motion_mask_max: float = 50.0
 
 
 class ModelParams(StrictModel):

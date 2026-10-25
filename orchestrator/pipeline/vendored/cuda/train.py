@@ -259,6 +259,8 @@ def scene_reconstruction(
         radii_list = []
         visibility_filter_list = []
         viewspace_point_tensor_list = []
+        masks = []
+        has_mask = False
         for viewpoint_cam in viewpoint_cams:
             render_pkg = render(
                 viewpoint_cam,
@@ -285,13 +287,46 @@ def scene_reconstruction(
             visibility_filter_list.append(visibility_filter.unsqueeze(0))
             viewspace_point_tensor_list.append(viewspace_point_tensor)
 
+            cam_mask = getattr(viewpoint_cam, "mask", None)
+            if cam_mask is not None:
+                has_mask = True
+                if not isinstance(cam_mask, torch.Tensor):
+                    cam_mask = torch.as_tensor(cam_mask, dtype=torch.float32)
+                cam_mask = cam_mask.to(device=gt_image.device, dtype=torch.float32)
+                if cam_mask.dim() == 2:
+                    cam_mask = cam_mask.unsqueeze(0)
+                if cam_mask.shape[-2:] != (gt_image.shape[1], gt_image.shape[2]):
+                    cam_mask = torch.nn.functional.interpolate(
+                        cam_mask.unsqueeze(0),
+                        size=(gt_image.shape[1], gt_image.shape[2]),
+                        mode="bilinear",
+                        align_corners=False,
+                    ).squeeze(0)
+                mask_max = float(getattr(opt, "motion_mask_max", 50.0) or 50.0)
+                if cam_mask.max() <= 1.01:
+                    cam_mask = 1.0 + (mask_max - 1.0) * cam_mask
+                masks.append(cam_mask.unsqueeze(0))
+            else:
+                masks.append(None)
+
         radii = torch.cat(radii_list, 0).max(dim=0).values
         visibility_filter = torch.cat(visibility_filter_list).any(dim=0)
         image_tensor = torch.cat(images, 0)
         gt_image_tensor = torch.cat(gt_images, 0)
+
+        mask_tensor = None
+        if getattr(opt, "use_motion_mask", False) and has_mask:
+            full_masks = []
+            for i, m in enumerate(masks):
+                if m is not None:
+                    full_masks.append(m)
+                else:
+                    full_masks.append(torch.ones((1, 1, gt_images[i].shape[2], gt_images[i].shape[3]), device=gt_images[i].device))
+            mask_tensor = torch.cat(full_masks, 0)
+
         # Loss
         # breakpoint()
-        Ll1 = l1_loss(image_tensor, gt_image_tensor[:, :3, :, :])
+        Ll1 = l1_loss(image_tensor, gt_image_tensor[:, :3, :, :], mask=mask_tensor)
 
         psnr_ = psnr(image_tensor, gt_image_tensor).mean().double()
         # norm

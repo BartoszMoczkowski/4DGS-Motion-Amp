@@ -7,3 +7,7 @@ hidden:
   regularizer_anneal_iter: 0
   time_smoothness_weight_final: null
   l1_time_planes_final: null
+
+optim:
+  use_motion_mask: false
+

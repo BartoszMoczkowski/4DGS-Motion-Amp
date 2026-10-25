@@ -153,6 +153,9 @@ class OptimizationParams(ParamGroup):
         self.opacity_threshold_fine_after = 0.005
         self.batch_size=1
         self.add_point=False
+        self.use_motion_mask = False # Enable motion-mask weighted L1 loss (R2)
+        self.motion_mask_dir = "" # Optional custom directory containing motion masks
+        self.motion_mask_max = 50.0 # Maximum loss weight multiplier for moving regions
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

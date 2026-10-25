@@ -6,6 +6,7 @@ from utils.graphics_utils import focal2fov
 from scene.colmap_loader import qvec2rotmat
 from scene.dataset_readers import CameraInfo
 from scene.neural_3D_dataset_NDC import get_orbit
+import torch
 from torchvision import transforms as T
 
 
@@ -23,24 +24,66 @@ class multipleview_dataset(Dataset):
         self.FovY = focal2fov(self.focal[0], height)
         self.FovX = focal2fov(self.focal[0], width)
         self.transform = T.ToTensor()
-        self.image_paths, self.image_poses, self.image_times= self.load_images_path(cam_folder, cam_extrinsics,cam_intrinsics,split)
+        self.image_paths, self.image_poses, self.image_times, self.image_cam_names = self.load_images_path(cam_folder, cam_extrinsics,cam_intrinsics,split)
+        self.camera_masks = self._load_motion_masks(cam_folder, cam_extrinsics)
         if split=="test":
             self.video_cam_infos=self.get_video_cam_infos(cam_folder)
         
-    
+    def _load_motion_masks(self, cam_folder, cam_extrinsics):
+        masks = {}
+        mask_dirs = [
+            os.path.join(cam_folder, "motion_masks"),
+            os.path.join(cam_folder, "masks"),
+        ]
+        target_dir = None
+        for md in mask_dirs:
+            if os.path.isdir(md):
+                target_dir = md
+                break
+        if target_dir is None:
+            return masks
+
+        for idx, key in enumerate(cam_extrinsics):
+            extr = cam_extrinsics[key]
+            number = os.path.basename(extr.name)[5:-4]
+            cam_name = "cam" + number.zfill(2)
+            npy_path = os.path.join(target_dir, f"{cam_name}.npy")
+            png_path = os.path.join(target_dir, f"{cam_name}.png")
+            alt_png = os.path.join(target_dir, f"{cam_name}_mask.png")
+            if os.path.exists(npy_path):
+                arr = np.load(npy_path).astype(np.float32)
+                masks[cam_name] = torch.from_numpy(arr)
+            elif os.path.exists(png_path):
+                img = Image.open(png_path).convert("L")
+                arr = np.array(img, dtype=np.float32) / 255.0
+                masks[cam_name] = torch.from_numpy(arr)
+            elif os.path.exists(alt_png):
+                img = Image.open(alt_png).convert("L")
+                arr = np.array(img, dtype=np.float32) / 255.0
+                masks[cam_name] = torch.from_numpy(arr)
+        return masks
+
+    def get_mask(self, index):
+        if hasattr(self, "image_cam_names") and index < len(self.image_cam_names):
+            cam_name = self.image_cam_names[index]
+            return self.camera_masks.get(cam_name, None)
+        return None
+
     def load_images_path(self, cam_folder, cam_extrinsics,cam_intrinsics,split):
         image_length = len(os.listdir(os.path.join(cam_folder,"cam01")))
         #len_cam=len(cam_extrinsics)
         image_paths=[]
         image_poses=[]
         image_times=[]
+        image_cam_names=[]
         for idx, key in enumerate(cam_extrinsics):
             extr = cam_extrinsics[key]
             R = np.transpose(qvec2rotmat(extr.qvec))
             T = np.array(extr.tvec)
 
             number = os.path.basename(extr.name)[5:-4]
-            images_folder=os.path.join(cam_folder,"cam"+number.zfill(2))
+            cam_name = "cam" + number.zfill(2)
+            images_folder=os.path.join(cam_folder,cam_name)
 
             image_range=range(image_length)
             if split=="test":
@@ -52,8 +95,9 @@ class multipleview_dataset(Dataset):
                 image_paths.append(image_path)
                 image_poses.append((R,T))
                 image_times.append(float(i/image_length))
+                image_cam_names.append(cam_name)
 
-        return image_paths, image_poses,image_times
+        return image_paths, image_poses, image_times, image_cam_names
     
     def get_video_cam_infos(self,datadir):
         poses_arr = np.load(os.path.join(datadir, "poses_bounds_multipleview.npy"))

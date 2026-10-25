@@ -21,7 +21,7 @@
 | T33 | `track_wobble_phase.py` optical offset fitter | 12 | — | done |
 | T34 | Flash / common-event ambiguity resolution | 12 | T33 | todo |
 | T35 | Regularizer schedule presets (R1) | 12 | — | done |
-| T36 | Motion-mask weighted loss (R2) | 12 | — | todo |
+| T36 | Motion-mask weighted loss (R2) | 12 | — | done |
 | T37 | Coarse-stage gating (R10) | 12 | — | todo |
 | T38 | Synthetic sync pre-flight scene | 12 | — | todo |
 | T39 | Per-camera timestamps in loader (R6) | 12 | T32 or T33 | todo |

@@ -1,0 +1,14 @@
+# Ladder step R2: Motion-mask loss weighting preset for lego_turbine_2_missing.
+# Weights photometric L1 loss by precomputed temporal-variance motion masks (clamped [1, 50]).
+# Combines with R1 regularizer schedule for Phase 1 baseline retrain.
+extends: lego_turbine_2_missing
+name: lego_turbine_2_missing_r2
+
+hidden:
+  regularizer_anneal_iter: 3000
+  time_smoothness_weight_final: 0.0001
+  l1_time_planes_final: 0.0
+
+optim:
+  use_motion_mask: true
+  motion_mask_max: 50.0

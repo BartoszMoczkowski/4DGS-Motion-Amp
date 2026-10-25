@@ -32,4 +32,6 @@ OptimizationParams = dict(
     opacity_threshold_coarse = 0.005,
     opacity_threshold_fine_init = 0.005,
     opacity_threshold_fine_after = 0.005,
+    use_motion_mask = True,
+    motion_mask_max = 50.0,
 )
