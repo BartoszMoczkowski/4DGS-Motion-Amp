@@ -195,23 +195,25 @@ Principle: **measure, don't synchronize** — NTP on a LAN tops out at ±2–5 m
 
 ---
 
-## 11. Proposed task-board registration
+## 11. Task registration
 
-Suggested as Phase 12 in `orchestrator/planning/TASKS.md` (IDs free from T32):
+Registered as a docs-proposal series (not on the orchestrator board, since the
+work is in the data pipeline and 4DGS core): **`docs/proposals/turbine-wobble/`**
+— status board in `00-index.md`, one spec per task:
 
-| ID | Title | Phase | Depends on |
-|----|-------|-------|-----------|
-| T32 | Timing recovery: sidecar archaeology + offsets.json | 12 | — |
-| T33 | `track_wobble_phase.py` optical offset fitter | 12 | — |
-| T34 | Flash/common-event ambiguity resolution | 12 | T33 |
-| T35 | Regularizer schedule presets (R1) | 12 | — |
-| T36 | Motion-mask weighted loss (R2) | 12 | — |
-| T37 | Coarse-stage gating (R10) | 12 | — |
-| T38 | Synthetic sync pre-flight scene | 12 | — |
-| T39 | Per-camera timestamps in loader (R6) | 12 | T32 or T33 |
-| T40 | Learnable offsets + trajectory loss (R7+R8) | 12 | T39, T36 |
-| T41 | Fourier-rigid deformation head (R9) | 12 | T39 |
-| T42 | Cross-scene validation & amplitude-ordering report | 12 | T40, T41 |
+| ID | Title | Spec | Depends on |
+|----|-------|------|-----------|
+| T32 | Timing recovery: sidecar archaeology + offsets.json | `T32-sidecar-offset-recovery.md` | — |
+| T33 | `track_wobble_phase.py` optical offset fitter | `T33-optical-phase-offset-fitter.md` | — |
+| T34 | Flash/common-event ambiguity resolution | `T34-flash-ambiguity-resolution.md` | T33 |
+| T35 | Regularizer schedule presets (R1) | `T35-regularizer-schedule.md` | — |
+| T36 | Motion-mask weighted loss (R2) | `T36-motion-mask-loss.md` | — |
+| T37 | Coarse-stage gating (R10) | `T37-coarse-stage-gating.md` | — |
+| T38 | Synthetic sync pre-flight scene | `T38-synthetic-preflight.md` | — |
+| T39 | Per-camera timestamps in loader (R6) — PIVOTAL | `T39-per-camera-timestamps.md` | T32 or T33 |
+| T40 | Learnable offsets + trajectory loss (R7+R8) | `T40-learnable-offsets-trajectory-loss.md` | T39, T36 |
+| T41 | Fourier-rigid deformation head (R9) | `T41-fourier-rigid-head.md` | T39 |
+| T42 | Cross-scene validation & amplitude-ordering report | `T42-cross-scene-validation-report.md` | T40, T41 |
 
 Estimated calendar: Phase 0 = 1–3 days (mostly file archaeology + one script);
 Phase 1 = 1–2 days + 1 retrain; Phase 2 = 2–4 days + 2 retrains; Phase 3 =

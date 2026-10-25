@@ -36,3 +36,9 @@ The proposals below are organized by the three requested focus areas. Each file 
 3. **05** (Kabsch EM) — the principled cheap-MBS core; soft assignments are exactly what a noise-dominated regime needs.
 4. **02 / 03** — require more plumbing (rendering/projection or UI seeding) but exploit information unique to this setup (calibrated cameras, GT init cloud).
 5. **04** — strong classical baseline, useful as a sanity cross-check against 05.
+
+## Other proposal series
+
+- [Turbine wobble recovery (T32–T42)](turbine-wobble/00-index.md) — camera-sync
+  timing recovery, per-camera timestamps, motion-mask loss, and a Fourier-rigid
+  deformation head to recover the 7.11 Hz LEGO turbine wobble in 4DGS.
