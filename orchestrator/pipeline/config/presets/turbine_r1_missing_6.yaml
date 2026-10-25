@@ -12,3 +12,6 @@ train:
 hidden:
   kplanes_config:
     resolution: [64, 64, 64, 300]
+  regularizer_anneal_iter: 3000
+  time_smoothness_weight_final: 0.0001
+  l1_time_planes_final: 0.0

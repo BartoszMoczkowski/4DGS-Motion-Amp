@@ -58,6 +58,13 @@ class ModelHiddenParams(StrictModel):
     plane_tv_weight: float = 0.0001
     time_smoothness_weight: float = 0.01
     l1_time_planes: float = 0.0001
+    regularizer_anneal_iter: int = 0
+    regularizer_anneal_type: str = "step"
+    regularizer_anneal_end_iter: int = 0
+    time_smoothness_weight_final: Optional[float] = None
+    l1_time_planes_final: Optional[float] = None
+    plane_tv_weight_final: Optional[float] = None
+
     kplanes_config: KPlanesConfig = Field(default_factory=KPlanesConfig)
     multires: list[int] = Field(default_factory=lambda: [1, 2, 4, 8])
     no_dx: bool = False

@@ -137,3 +137,65 @@ def safe_state(silent):
     np.random.seed(0)
     torch.manual_seed(0)
     torch.cuda.set_device(torch.device("cuda:0"))
+
+
+def get_regularization_weights(iteration, hyper):
+    """Compute active regularization weights for the current fine-stage iteration.
+
+    Returns:
+        (time_smoothness_weight, l1_time_planes_weight, plane_tv_weight)
+
+    Schedule behavior (R1):
+        - If regularizer_anneal_iter <= 0: schedule is inactive; returns initial weights.
+        - If iteration < regularizer_anneal_iter: returns initial weights while geometry stabilizes.
+        - If iteration >= regularizer_anneal_iter:
+            - If regularizer_anneal_type == "linear" and regularizer_anneal_end_iter > regularizer_anneal_iter:
+                linearly anneals from initial to final weights until regularizer_anneal_end_iter.
+            - Otherwise ("step" / default):
+                immediately switches to the final weights.
+
+    Unset or negative (< 0) `_final` values preserve the initial weight for that channel.
+    """
+    def _get(key, default=None):
+        if isinstance(hyper, dict):
+            return hyper.get(key, default)
+        return getattr(hyper, key, default)
+
+    ts_init = float(_get("time_smoothness_weight", 0.0) or 0.0)
+    l1_init = float(_get("l1_time_planes", 0.0) or 0.0)
+    ptv_init = float(_get("plane_tv_weight", 0.0) or 0.0)
+
+    anneal_iter = _get("regularizer_anneal_iter", 0)
+    if anneal_iter is None:
+        anneal_iter = 0
+    anneal_iter = int(anneal_iter)
+
+    if anneal_iter <= 0 or iteration < anneal_iter:
+        return ts_init, l1_init, ptv_init
+
+    ts_final_val = _get("time_smoothness_weight_final", None)
+    l1_final_val = _get("l1_time_planes_final", None)
+    ptv_final_val = _get("plane_tv_weight_final", None)
+
+    ts_target = float(ts_final_val) if (ts_final_val is not None and float(ts_final_val) >= 0) else ts_init
+    l1_target = float(l1_final_val) if (l1_final_val is not None and float(l1_final_val) >= 0) else l1_init
+    ptv_target = float(ptv_final_val) if (ptv_final_val is not None and float(ptv_final_val) >= 0) else ptv_init
+
+    anneal_type = str(_get("regularizer_anneal_type", "step") or "step").lower()
+    end_iter = _get("regularizer_anneal_end_iter", 0)
+    if end_iter is None:
+        end_iter = 0
+    end_iter = int(end_iter)
+
+    if anneal_type == "linear" and end_iter > anneal_iter:
+        if iteration >= end_iter:
+            return ts_target, l1_target, ptv_target
+        alpha = (iteration - anneal_iter) / float(end_iter - anneal_iter)
+        ts_weight = (1.0 - alpha) * ts_init + alpha * ts_target
+        l1_weight = (1.0 - alpha) * l1_init + alpha * l1_target
+        ptv_weight = (1.0 - alpha) * ptv_init + alpha * ptv_target
+        return ts_weight, l1_weight, ptv_weight
+
+    # Default: "step" iteration-gated weight switch
+    return ts_target, l1_target, ptv_target
+

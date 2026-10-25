@@ -85,6 +85,12 @@ class ModelHiddenParams(ParamGroup):
         self.plane_tv_weight = 0.0001 # TV loss of spatial grid
         self.time_smoothness_weight = 0.01 # TV loss of temporal grid
         self.l1_time_planes = 0.0001  # TV loss of temporal grid
+        self.regularizer_anneal_iter = 0 # Fine-stage iteration to anneal regularizers (0 = disabled)
+        self.regularizer_anneal_type = "step" # "step" (default) or "linear"
+        self.regularizer_anneal_end_iter = 0 # End iteration for linear anneal
+        self.time_smoothness_weight_final = -1.0 # Target time_smoothness_weight (< 0 = keep initial)
+        self.l1_time_planes_final = -1.0 # Target l1_time_planes (< 0 = keep initial)
+        self.plane_tv_weight_final = -1.0 # Target plane_tv_weight (< 0 = keep initial)
         self.kplanes_config = {
                              'grid_dimensions': 2,
                              'input_coordinate_dim': 4,

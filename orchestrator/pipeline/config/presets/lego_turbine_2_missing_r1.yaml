@@ -1,0 +1,11 @@
+# Ladder step R1: Regularizer schedule preset for lego_turbine_2_missing.
+# Retunes temporal regularizers for small coherent periodic motion:
+# stock values while geometry stabilizes, then anneals after fine-stage
+# iteration 3000 to time_smoothness_weight = 1e-4, l1_time_planes = 0.
+extends: lego_turbine_2_missing
+name: lego_turbine_2_missing_r1
+
+hidden:
+  regularizer_anneal_iter: 3000
+  time_smoothness_weight_final: 0.0001
+  l1_time_planes_final: 0.0

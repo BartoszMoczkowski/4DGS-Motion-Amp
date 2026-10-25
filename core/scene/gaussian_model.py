@@ -574,4 +574,11 @@ class GaussianModel:
                 total += torch.abs(1 - grids[grid_id]).mean()
         return total
     def compute_regulation(self, time_smoothness_weight, l1_time_planes_weight, plane_tv_weight):
-        return plane_tv_weight * self._plane_regulation() + time_smoothness_weight * self._time_regulation() + l1_time_planes_weight * self._l1_regulation()
+        total = 0.0
+        if plane_tv_weight != 0:
+            total = total + plane_tv_weight * self._plane_regulation()
+        if time_smoothness_weight != 0:
+            total = total + time_smoothness_weight * self._time_regulation()
+        if l1_time_planes_weight != 0:
+            total = total + l1_time_planes_weight * self._l1_regulation()
+        return total

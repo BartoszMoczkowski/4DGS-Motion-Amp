@@ -49,7 +49,7 @@ from tqdm import tqdm
 from arguments import ModelHiddenParams, ModelParams, OptimizationParams, PipelineParams
 from gaussian_renderer import network_gui, render
 from scene import GaussianModel, Scene
-from utils.general_utils import safe_state
+from utils.general_utils import get_regularization_weights, safe_state
 from utils.image_utils import psnr
 from utils.loader_utils import FineSampler, get_stamp_list
 from utils.loss_utils import l1_loss, l2_loss, lpips_loss, ssim
@@ -297,14 +297,21 @@ def scene_reconstruction(
         # norm
 
         loss = Ll1
-        if stage == "fine" and hyper.time_smoothness_weight != 0:
-            # tv_loss = 0
-            tv_loss = gaussians.compute_regulation(
-                hyper.time_smoothness_weight,
-                hyper.l1_time_planes,
-                hyper.plane_tv_weight,
+        if stage == "fine":
+            time_smoothness_weight, l1_time_planes_weight, plane_tv_weight = (
+                get_regularization_weights(iteration, hyper)
             )
-            loss += tv_loss
+            if (
+                time_smoothness_weight != 0
+                or l1_time_planes_weight != 0
+                or plane_tv_weight != 0
+            ):
+                tv_loss = gaussians.compute_regulation(
+                    time_smoothness_weight,
+                    l1_time_planes_weight,
+                    plane_tv_weight,
+                )
+                loss += tv_loss
         if opt.lambda_dssim != 0:
             ssim_loss = ssim(image_tensor, gt_image_tensor)
             loss += opt.lambda_dssim * (1.0 - ssim_loss)

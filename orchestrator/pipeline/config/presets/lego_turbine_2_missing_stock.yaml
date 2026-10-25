@@ -1,0 +1,9 @@
+# Stock baseline preset for lego_turbine_2_missing without regularizer annealing.
+# Kept for single-factor ablation comparison against the R1 schedule ladder step.
+extends: lego_turbine_2_missing
+name: lego_turbine_2_missing_stock
+
+hidden:
+  regularizer_anneal_iter: 0
+  time_smoothness_weight_final: null
+  l1_time_planes_final: null
