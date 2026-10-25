@@ -1,0 +1,288 @@
+{
+  "scene": "turbine_r1_missing_6",
+  "fps": 20.004025315610498,
+  "frame_count": 261,
+  "duration_s": 13.04800009727478,
+  "reference_camera": "cam01",
+  "exposure_s": 0.01,
+  "mid_exposure_corrected": true,
+  "offsets_s": {
+    "cam01": 0.0,
+    "cam02": 0.009970225310896126,
+    "cam03": 0.021994962914709298,
+    "cam04": -0.0012829093341826573,
+    "cam05": -0.013995002152462042,
+    "cam06": 0.015989635747296928,
+    "cam07": 0.003999946415016079,
+    "cam08": -0.00961315963504289,
+    "cam09": -0.004282931995479091,
+    "cam10": 0.015000108323791771
+  },
+  "mean_offsets_s": {
+    "cam01": 0.0,
+    "cam02": 0.01510501638682866,
+    "cam03": 0.02199234450913937,
+    "cam04": -0.0007490545397060584,
+    "cam05": -0.013992361638737821,
+    "cam06": 0.015984727048325813,
+    "cam07": 0.003999948501586914,
+    "cam08": -0.009896628244626568,
+    "cam09": -0.0037490764340221655,
+    "cam10": 0.01499995326630457
+  },
+  "drift_s_per_s": {
+    "cam01": 0.0,
+    "cam02": 0.0007854918752222737,
+    "cam03": -4.005491695382561e-07,
+    "cam04": 8.166614715354685e-05,
+    "cam05": 4.0393115243024185e-07,
+    "cam06": -7.509055583186734e-07,
+    "cam07": 3.1919203973112623e-10,
+    "cam08": -4.336345654883243e-05,
+    "cam09": 8.166626448194573e-05,
+    "cam10": -2.3719834864983862e-08
+  },
+  "cameras": {
+    "cam01": {
+      "offset_s": 0.0,
+      "offset_ms": 0.0,
+      "mean_offset_s": 0.0,
+      "mean_offset_ms": 0.0,
+      "drift_s_per_s": 0.0,
+      "drift_ms_per_s": 0.0,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 0.0,
+        "std_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 0.0,
+        "range2_mean_ms": 0.0,
+        "diff_ms": 0.0
+      }
+    },
+    "cam02": {
+      "offset_s": 0.009970225310896126,
+      "offset_ms": 9.970225310896126,
+      "mean_offset_s": 0.01510501638682866,
+      "mean_offset_ms": 15.10501638682866,
+      "drift_s_per_s": 0.0007854918752222737,
+      "drift_ms_per_s": 0.7854918752222737,
+      "requires_affine": true,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 15.10501638682866,
+        "std_ms": 11.754393566537393,
+        "min_ms": -24.985790252685547,
+        "max_ms": 24.753093719482422
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 10.340611751262959,
+        "range2_mean_ms": 19.833051521359508,
+        "diff_ms": 9.49243977009655
+      }
+    },
+    "cam03": {
+      "offset_s": 0.021994962914709298,
+      "offset_ms": 21.994962914709298,
+      "mean_offset_s": 0.02199234450913937,
+      "mean_offset_ms": 21.99234450913937,
+      "drift_s_per_s": -4.005491695382561e-07,
+      "drift_ms_per_s": -0.0004005491695382561,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 21.99234450913937,
+        "std_ms": 0.004305863317513891,
+        "min_ms": 21.989822387695312,
+        "max_ms": 22.00031280517578
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 21.993514207693245,
+        "range2_mean_ms": 21.99118373958209,
+        "diff_ms": 0.002330468111154005
+      }
+    },
+    "cam04": {
+      "offset_s": -0.0012829093341826573,
+      "offset_ms": -1.2829093341826572,
+      "mean_offset_s": -0.0007490545397060584,
+      "mean_offset_ms": -0.7490545397060584,
+      "drift_s_per_s": 8.166614715354685e-05,
+      "drift_ms_per_s": 0.08166614715354685,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -0.7490545397060584,
+        "std_ms": 0.3576533298977906,
+        "min_ms": -1.0101795196533203,
+        "max_ms": 0.0
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -1.0064876996553862,
+        "range2_mean_ms": -0.4935865183822981,
+        "diff_ms": 0.5129011812730881
+      }
+    },
+    "cam05": {
+      "offset_s": -0.013995002152462042,
+      "offset_ms": -13.995002152462042,
+      "mean_offset_s": -0.013992361638737821,
+      "mean_offset_ms": -13.99236163873782,
+      "drift_s_per_s": 4.0393115243024185e-07,
+      "drift_ms_per_s": 0.00040393115243024183,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -13.99236163873782,
+        "std_ms": 0.004256438892204452,
+        "min_ms": -14.000177383422852,
+        "max_ms": -13.989925384521484
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -13.993523671076847,
+        "range2_mean_ms": -13.991208476874665,
+        "diff_ms": 0.0023151942021826244
+      }
+    },
+    "cam06": {
+      "offset_s": 0.015989635747296928,
+      "offset_ms": 15.989635747296928,
+      "mean_offset_s": 0.015984727048325813,
+      "mean_offset_ms": 15.984727048325812,
+      "drift_s_per_s": -7.509055583186734e-07,
+      "drift_ms_per_s": -0.0007509055583186734,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 15.984727048325812,
+        "std_ms": 0.008515292895600145,
+        "min_ms": 15.979766845703125,
+        "max_ms": 16.00027084350586
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 15.986904731163612,
+        "range2_mean_ms": 15.982565989021127,
+        "diff_ms": 0.004338742142484975
+      }
+    },
+    "cam07": {
+      "offset_s": 0.003999946415016079,
+      "offset_ms": 3.9999464150160784,
+      "mean_offset_s": 0.003999948501586914,
+      "mean_offset_ms": 3.999948501586914,
+      "drift_s_per_s": 3.1919203973112623e-10,
+      "drift_ms_per_s": 3.1919203973112626e-07,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 3.999948501586914,
+        "std_ms": 2.9515479115971226e-05,
+        "min_ms": 3.9997100830078125,
+        "max_ms": 4.000186920166016
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 3.999948501586914,
+        "range2_mean_ms": 3.999948501586914,
+        "diff_ms": 0.0
+      }
+    },
+    "cam08": {
+      "offset_s": -0.00961315963504289,
+      "offset_ms": -9.613159635042889,
+      "mean_offset_s": -0.009896628244626568,
+      "mean_offset_ms": -9.896628244626568,
+      "drift_s_per_s": -4.336345654883243e-05,
+      "drift_ms_per_s": -0.043363456548832426,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -9.896628244626568,
+        "std_ms": 1.5440208534448234,
+        "min_ms": -10.000228881835938,
+        "max_ms": 14.999866485595703
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -9.801268577575684,
+        "range2_mean_ms": -9.99125997528775,
+        "diff_ms": 0.18999139771206686
+      }
+    },
+    "cam09": {
+      "offset_s": -0.004282931995479091,
+      "offset_ms": -4.282931995479091,
+      "mean_offset_s": -0.0037490764340221655,
+      "mean_offset_ms": -3.7490764340221654,
+      "drift_s_per_s": 8.166626448194573e-05,
+      "drift_ms_per_s": 0.08166626448194574,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -3.7490764340221654,
+        "std_ms": 0.3576539965299484,
+        "min_ms": -4.010200500488281,
+        "max_ms": -3.000020980834961
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -4.006508680490347,
+        "range2_mean_ms": -3.4936093192064126,
+        "diff_ms": 0.5128993612839343
+      }
+    },
+    "cam10": {
+      "offset_s": 0.015000108323791771,
+      "offset_ms": 15.000108323791771,
+      "mean_offset_s": 0.01499995326630457,
+      "mean_offset_ms": 14.999953266304571,
+      "drift_s_per_s": -2.3719834864983862e-08,
+      "drift_ms_per_s": -2.371983486498386e-05,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 14.999953266304571,
+        "std_ms": 0.00011471373880284483,
+        "min_ms": 14.999866485595703,
+        "max_ms": 15.000104904174805
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 15.000037046579214,
+        "range2_mean_ms": 14.99987012557401,
+        "diff_ms": 0.00016692100520465658
+      }
+    }
+  },
+  "provenance": {
+    "method": "rtsp_sidecar_rtcp_reconstruction",
+    "remedy": "R3",
+    "task": "T32",
+    "phase": "Phase 0 (Timing Recovery)",
+    "generated_at": "2026-10-24T15:11:17.894230+00:00",
+    "source_recording_dir": "camera_sync/rtsp_capture/recordings/turbine_r1_missing_6",
+    "source_synced_dir": "camera_sync/rtsp_capture/synced/turbine_r1_missing_6",
+    "reference_camera": "cam01",
+    "time_base": "sensor_frame_start (RTP sampling timestamp mapped to NTP wall-clock via RTCP Sender Reports)",
+    "frame_rate": {
+      "nominal_fps": 20.0,
+      "measured_fps": 20.004025315610498,
+      "rtp_step_ticks": 4500,
+      "rtp_clock_hz": 90000
+    },
+    "exposure": {
+      "shutter_speed": "1/100",
+      "exposure_s": 0.01,
+      "mid_exposure_corrected": true,
+      "mid_exposure_note": "All cameras were configured with identical 1/100s (10 ms) shutter speed. The mid-exposure observation instant (frame_start + exposure/2 = +5 ms) is identical across all cameras and cancels identically in pairwise relative offsets."
+    },
+    "frame_count_reconciliation": {
+      "frames_on_disk": 261,
+      "instants_total_captured": 265,
+      "instants_kept_synced": 261,
+      "tolerance_ms": 24.994969367980957,
+      "explanation": "For scene 'turbine_r1_missing_6', 265 total frames were captured. 261 frames satisfied the sync tolerance (24.995 ms, half-frame window at 20.00 fps). Exactly 261 frames were extracted and structured into data/multipleview/turbine_r1_missing_6/. The historical reference to 'n_times: 160' in scripts/archived/run_lego_turbine_pipeline.py was strictly an evaluation query step count passed to trajectory extraction (torch.linspace(0, 1, 160)), NOT a video frame drop. The 261 frame count cited in early diagnoses corresponds to turbine_r1_missing_6 (which captured 265/kept 261 frames)."
+    },
+    "drift_policy": "Cameras with |drift_ms_per_s| >= 0.10 ms/s are flagged with requires_affine=True. For these cameras, downstream loader (T39) can evaluate the continuous affine timestamp: t_k(t) = t + offset_s + drift_s_per_s * t."
+  }
+}

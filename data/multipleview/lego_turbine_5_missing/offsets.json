@@ -1,0 +1,288 @@
+{
+  "scene": "lego_turbine_5_missing",
+  "fps": 20.003929910241613,
+  "frame_count": 163,
+  "duration_s": 8.099000215530396,
+  "reference_camera": "cam01",
+  "exposure_s": 0.01,
+  "mid_exposure_corrected": true,
+  "offsets_s": {
+    "cam01": 0.0,
+    "cam02": -0.02399889334041398,
+    "cam03": -0.006000041961669923,
+    "cam04": 0.0,
+    "cam05": 0.02176739649344491,
+    "cam06": -0.02199874819809707,
+    "cam07": 0.005001202210838484,
+    "cam08": -0.009000065618171673,
+    "cam09": -0.004999824571895294,
+    "cam10": 0.013998677532625506
+  },
+  "mean_offsets_s": {
+    "cam01": 0.0,
+    "cam02": -0.023993843172225485,
+    "cam03": -0.006000041961669922,
+    "cam04": 0.0,
+    "cam05": 0.022364982066710302,
+    "cam06": -0.0219938345482013,
+    "cam07": 0.00500611586073425,
+    "cam08": -0.009000062942504883,
+    "cam09": -0.0049999623210883574,
+    "cam10": 0.013993852708968647
+  },
+  "drift_s_per_s": {
+    "cam01": 0.0,
+    "cam02": 1.2470674701428829e-06,
+    "cam03": -2.4352689367839547e-19,
+    "cam04": 0.0,
+    "cam05": 0.0001475652891610452,
+    "cam06": 1.213356212303963e-06,
+    "cam07": 1.2133562123042285e-06,
+    "cam08": 6.607179974983642e-10,
+    "cam09": -3.4015211236133365e-08,
+    "cam10": -1.1914218313274098e-06
+  },
+  "cameras": {
+    "cam01": {
+      "offset_s": 0.0,
+      "offset_ms": 0.0,
+      "mean_offset_s": 0.0,
+      "mean_offset_ms": 0.0,
+      "drift_s_per_s": 0.0,
+      "drift_ms_per_s": 0.0,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 0.0,
+        "std_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 0.0,
+        "range2_mean_ms": 0.0,
+        "diff_ms": 0.0
+      }
+    },
+    "cam02": {
+      "offset_s": -0.02399889334041398,
+      "offset_ms": -23.99889334041398,
+      "mean_offset_s": -0.023993843172225485,
+      "mean_offset_ms": -23.993843172225485,
+      "drift_s_per_s": 1.2470674701428829e-06,
+      "drift_ms_per_s": 0.0012470674701428829,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -23.993843172225485,
+        "std_ms": 0.00487092332582236,
+        "min_ms": -24.000167846679688,
+        "max_ms": -23.98991584777832
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -23.99664454989963,
+        "range2_mean_ms": -23.991075957693706,
+        "diff_ms": 0.005568592205925427
+      }
+    },
+    "cam03": {
+      "offset_s": -0.006000041961669923,
+      "offset_ms": -6.000041961669923,
+      "mean_offset_s": -0.006000041961669922,
+      "mean_offset_ms": -6.000041961669922,
+      "drift_s_per_s": -2.4352689367839547e-19,
+      "drift_ms_per_s": -2.4352689367839544e-16,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -6.000041961669922,
+        "std_ms": 0.0,
+        "min_ms": -6.000041961669922,
+        "max_ms": -6.000041961669922
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -6.000041961669922,
+        "range2_mean_ms": -6.000041961669922,
+        "diff_ms": 0.0
+      }
+    },
+    "cam04": {
+      "offset_s": 0.0,
+      "offset_ms": 0.0,
+      "mean_offset_s": 0.0,
+      "mean_offset_ms": 0.0,
+      "drift_s_per_s": 0.0,
+      "drift_ms_per_s": 0.0,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 0.0,
+        "std_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 0.0,
+        "range2_mean_ms": 0.0,
+        "diff_ms": 0.0
+      }
+    },
+    "cam05": {
+      "offset_s": 0.02176739649344491,
+      "offset_ms": 21.76739649344491,
+      "mean_offset_s": 0.022364982066710302,
+      "mean_offset_ms": 22.3649820667103,
+      "drift_s_per_s": 0.0001475652891610452,
+      "drift_ms_per_s": 0.1475652891610452,
+      "requires_affine": true,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 22.3649820667103,
+        "std_ms": 0.35989836923448776,
+        "min_ms": 21.999835968017578,
+        "max_ms": 23.000001907348633
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 22.04663959550269,
+        "range2_mean_ms": 22.679442312659287,
+        "diff_ms": 0.6328027171565971
+      }
+    },
+    "cam06": {
+      "offset_s": -0.02199874819809707,
+      "offset_ms": -21.99874819809707,
+      "mean_offset_s": -0.0219938345482013,
+      "mean_offset_ms": -21.9938345482013,
+      "drift_s_per_s": 1.213356212303963e-06,
+      "drift_ms_per_s": 0.0012133562123039629,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -21.9938345482013,
+        "std_ms": 0.004831117378156605,
+        "min_ms": -22.00031280517578,
+        "max_ms": -21.989822387695312
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -21.996562863573615,
+        "range2_mean_ms": -21.991139504967666,
+        "diff_ms": 0.005423358605948891
+      }
+    },
+    "cam07": {
+      "offset_s": 0.005001202210838484,
+      "offset_ms": 5.001202210838485,
+      "mean_offset_s": 0.00500611586073425,
+      "mean_offset_ms": 5.0061158607342495,
+      "drift_s_per_s": 1.2133562123042285e-06,
+      "drift_ms_per_s": 0.0012133562123042285,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 5.0061158607342495,
+        "std_ms": 0.004831117378156605,
+        "min_ms": 4.999637603759766,
+        "max_ms": 5.010128021240234
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 5.003387545361931,
+        "range2_mean_ms": 5.0088109039678805,
+        "diff_ms": 0.00542335860594978
+      }
+    },
+    "cam08": {
+      "offset_s": -0.009000065618171673,
+      "offset_ms": -9.000065618171673,
+      "mean_offset_s": -0.009000062942504883,
+      "mean_offset_ms": -9.000062942504883,
+      "drift_s_per_s": 6.607179974983642e-10,
+      "drift_ms_per_s": 6.607179974983643e-07,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -9.000062942504883,
+        "std_ms": 2.6409567624173705e-05,
+        "min_ms": -9.000301361083984,
+        "max_ms": -8.999824523925781
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -9.000065885944132,
+        "range2_mean_ms": -9.000060034961235,
+        "diff_ms": 5.850982896404844e-06
+      }
+    },
+    "cam09": {
+      "offset_s": -0.004999824571895294,
+      "offset_ms": -4.999824571895294,
+      "mean_offset_s": -0.0049999623210883574,
+      "mean_offset_ms": -4.999962321088358,
+      "drift_s_per_s": -3.4015211236133365e-08,
+      "drift_ms_per_s": -3.401521123613337e-05,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": -4.999962321088358,
+        "std_ms": 0.00011457639839058941,
+        "min_ms": -5.000114440917969,
+        "max_ms": -4.999876022338867
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": -4.99988779609586,
+        "range2_mean_ms": -5.000035937239484,
+        "diff_ms": 0.00014814114362415864
+      }
+    },
+    "cam10": {
+      "offset_s": 0.013998677532625506,
+      "offset_ms": 13.998677532625505,
+      "mean_offset_s": 0.013993852708968647,
+      "mean_offset_ms": 13.993852708968648,
+      "drift_s_per_s": -1.1914218313274098e-06,
+      "drift_ms_per_s": -0.00119142183132741,
+      "requires_affine": false,
+      "exposure_s": 0.01,
+      "residual_stats": {
+        "mean_ms": 13.993852708968648,
+        "std_ms": 0.0048709233258223605,
+        "min_ms": 13.989925384521484,
+        "max_ms": 14.000177383422852
+      },
+      "split_reproducibility": {
+        "range1_mean_ms": 13.996527518755125,
+        "range2_mean_ms": 13.991210518813714,
+        "diff_ms": 0.0053169999414102165
+      }
+    }
+  },
+  "provenance": {
+    "method": "rtsp_sidecar_rtcp_reconstruction",
+    "remedy": "R3",
+    "task": "T32",
+    "phase": "Phase 0 (Timing Recovery)",
+    "generated_at": "2026-10-24T15:11:17.865382+00:00",
+    "source_recording_dir": "camera_sync/rtsp_capture/recordings/lego_turbine_5_missing",
+    "source_synced_dir": "camera_sync/rtsp_capture/synced/lego_turbine_5_missing",
+    "reference_camera": "cam01",
+    "time_base": "sensor_frame_start (RTP sampling timestamp mapped to NTP wall-clock via RTCP Sender Reports)",
+    "frame_rate": {
+      "nominal_fps": 20.0,
+      "measured_fps": 20.003929910241613,
+      "rtp_step_ticks": 4500,
+      "rtp_clock_hz": 90000
+    },
+    "exposure": {
+      "shutter_speed": "1/100",
+      "exposure_s": 0.01,
+      "mid_exposure_corrected": true,
+      "mid_exposure_note": "All cameras were configured with identical 1/100s (10 ms) shutter speed. The mid-exposure observation instant (frame_start + exposure/2 = +5 ms) is identical across all cameras and cancels identically in pairwise relative offsets."
+    },
+    "frame_count_reconciliation": {
+      "frames_on_disk": 163,
+      "instants_total_captured": 165,
+      "instants_kept_synced": 163,
+      "tolerance_ms": 24.995088577270508,
+      "explanation": "For scene 'lego_turbine_5_missing', 165 total frames were captured. 163 frames satisfied the sync tolerance (24.995 ms, half-frame window at 20.00 fps). Exactly 163 frames were extracted and structured into data/multipleview/lego_turbine_5_missing/. The historical reference to 'n_times: 160' in scripts/archived/run_lego_turbine_pipeline.py was strictly an evaluation query step count passed to trajectory extraction (torch.linspace(0, 1, 160)), NOT a video frame drop. The 261 frame count cited in early diagnoses corresponds to turbine_r1_missing_6 (which captured 265/kept 261 frames)."
+    },
+    "drift_policy": "Cameras with |drift_ms_per_s| >= 0.10 ms/s are flagged with requires_affine=True. For these cameras, downstream loader (T39) can evaluate the continuous affine timestamp: t_k(t) = t + offset_s + drift_s_per_s * t."
+  }
+}
