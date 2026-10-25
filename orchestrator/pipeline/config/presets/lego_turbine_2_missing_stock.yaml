@@ -10,4 +10,5 @@ hidden:
 
 optim:
   use_motion_mask: false
+  coarse_iterations: 3000
 

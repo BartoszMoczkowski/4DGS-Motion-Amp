@@ -22,7 +22,7 @@
 | T34 | Flash / common-event ambiguity resolution | 12 | T33 | todo |
 | T35 | Regularizer schedule presets (R1) | 12 | — | done |
 | T36 | Motion-mask weighted loss (R2) | 12 | — | done |
-| T37 | Coarse-stage gating (R10) | 12 | — | todo |
+| T37 | Coarse-stage gating (R10) | 12 | — | done |
 | T38 | Synthetic sync pre-flight scene | 12 | — | todo |
 | T39 | Per-camera timestamps in loader (R6) | 12 | T32 or T33 | todo |
 | T40 | Learnable offsets + trajectory reprojection loss (R7+R8) | 12 | T39, T36 | todo |

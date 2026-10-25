@@ -78,15 +78,62 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         rotations = pc._rotation
     deformation_point = pc._deformation_table
     if "coarse" in stage:
-        means3D_final, scales_final, rotations_final, opacity_final, shs_final = means3D, scales, rotations, opacity, shs
+        if getattr(pipe, "gated_coarse", False):
+            # Option B (R10): Gated coarse stage.
+            # ROI Gaussians query the deformation field from iteration 0 so the canonical
+            # pose anchors at a reference instant rather than the temporal mean.
+            roi_mask = None
+            if hasattr(pc, "_roi_mask") and pc._roi_mask is not None:
+                roi_mask = pc._roi_mask
+            elif getattr(pipe, "roi_bbox", None) is not None:
+                b = pipe.roi_bbox
+                roi_mask = (
+                    (means3D[:, 0] >= b[0])
+                    & (means3D[:, 0] <= b[3])
+                    & (means3D[:, 1] >= b[1])
+                    & (means3D[:, 1] <= b[4])
+                    & (means3D[:, 2] >= b[2])
+                    & (means3D[:, 2] <= b[5])
+                )
+            if roi_mask is not None:
+                means3D_final = means3D.clone()
+                scales_final = scales.clone()
+                rotations_final = rotations.clone()
+                opacity_final = opacity.clone()
+                shs_final = shs.clone()
+                if roi_mask.any():
+                    t_in = time[roi_mask] if time.shape[0] == means3D.shape[0] else time
+                    m_def, s_def, r_def, o_def, sh_def = pc._deformation(
+                        means3D[roi_mask],
+                        scales[roi_mask],
+                        rotations[roi_mask],
+                        opacity[roi_mask],
+                        shs[roi_mask],
+                        t_in,
+                    )
+                    means3D_final[roi_mask] = m_def
+                    scales_final[roi_mask] = s_def
+                    rotations_final[roi_mask] = r_def
+                    opacity_final[roi_mask] = o_def
+                    shs_final[roi_mask] = sh_def
+            else:
+                means3D_final, scales_final, rotations_final, opacity_final, shs_final = (
+                    pc._deformation(
+                        means3D, scales, rotations, opacity, shs, time
+                    )
+                )
+        else:
+            means3D_final, scales_final, rotations_final, opacity_final, shs_final = (
+                means3D,
+                scales,
+                rotations,
+                opacity,
+                shs,
+            )
     elif "fine" in stage:
-        # time0 = get_time()
-        # means3D_deform, scales_deform, rotations_deform, opacity_deform = pc._deformation(means3D[deformation_point], scales[deformation_point], 
-        #                                                                  rotations[deformation_point], opacity[deformation_point],
-        #                                                                  time[deformation_point])
-        means3D_final, scales_final, rotations_final, opacity_final, shs_final = pc._deformation(means3D, scales, 
-                                                                 rotations, opacity, shs,
-                                                                 time)
+        means3D_final, scales_final, rotations_final, opacity_final, shs_final = (
+            pc._deformation(means3D, scales, rotations, opacity, shs, time)
+        )
     else:
         raise NotImplementedError
 

@@ -70,6 +70,8 @@ class PipelineParams(ParamGroup):
         self.convert_SHs_python = False
         self.compute_cov3D_python = False
         self.debug = False
+        self.gated_coarse = False # Enable Option B coarse-stage ROI deformation gating (R10)
+        self.roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box for gated coarse
         super().__init__(parser, "Pipeline Parameters")
 class ModelHiddenParams(ParamGroup):
     def __init__(self, parser):
@@ -156,6 +158,8 @@ class OptimizationParams(ParamGroup):
         self.use_motion_mask = False # Enable motion-mask weighted L1 loss (R2)
         self.motion_mask_dir = "" # Optional custom directory containing motion masks
         self.motion_mask_max = 50.0 # Maximum loss weight multiplier for moving regions
+        self.gated_coarse = False # Enable Option B coarse-stage ROI deformation gating (R10)
+        self.roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box for gated coarse
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

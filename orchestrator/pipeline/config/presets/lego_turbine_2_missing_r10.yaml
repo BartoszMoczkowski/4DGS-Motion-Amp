@@ -1,0 +1,16 @@
+# Ladder step R10: Coarse-stage shortening/gating preset for lego_turbine_2_missing.
+# Shortens coarse static training from 3000 to 500 iterations to prevent baking the
+# motion-blurred temporal average into canonical space and densified Gaussians.
+# Combines with R1 (regularizer schedule) and R2 (motion-mask loss) for Phase 1.
+extends: lego_turbine_2_missing
+name: lego_turbine_2_missing_r10
+
+hidden:
+  regularizer_anneal_iter: 3000
+  time_smoothness_weight_final: 0.0001
+  l1_time_planes_final: 0.0
+
+optim:
+  use_motion_mask: true
+  motion_mask_max: 50.0
+  coarse_iterations: 500

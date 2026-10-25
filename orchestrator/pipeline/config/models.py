@@ -124,6 +124,8 @@ class OptimizationParams(StrictModel):
     use_motion_mask: bool = False
     motion_mask_dir: str = ""
     motion_mask_max: float = 50.0
+    gated_coarse: bool = False
+    roi_bbox: Optional[list[float]] = None
 
 
 class ModelParams(StrictModel):
@@ -155,6 +157,8 @@ class PipelineParams(StrictModel):
     convert_SHs_python: bool = False
     compute_cov3D_python: bool = False
     debug: bool = False
+    gated_coarse: bool = False
+    roi_bbox: Optional[list[float]] = None
 
 
 # --- train / render / seg_extract (thin wrappers around the shared param groups above) -----

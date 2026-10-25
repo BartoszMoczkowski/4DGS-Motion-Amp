@@ -549,23 +549,33 @@ def training(
     timer = Timer()
     scene = Scene(dataset, gaussians, load_coarse=None)
     timer.start()
-    scene_reconstruction(
-        dataset,
-        opt,
-        hyper,
-        pipe,
-        testing_iterations,
-        saving_iterations,
-        checkpoint_iterations,
-        checkpoint,
-        debug_from,
-        gaussians,
-        scene,
-        "coarse",
-        tb_writer,
-        opt.coarse_iterations,
-        timer,
-    )
+
+    # Propagate gated coarse settings to pipe if set on opt
+    if getattr(opt, "gated_coarse", False):
+        pipe.gated_coarse = True
+    if getattr(opt, "roi_bbox", None) is not None and getattr(pipe, "roi_bbox", None) is None:
+        pipe.roi_bbox = opt.roi_bbox
+
+    if opt.coarse_iterations > 0:
+        scene_reconstruction(
+            dataset,
+            opt,
+            hyper,
+            pipe,
+            testing_iterations,
+            saving_iterations,
+            checkpoint_iterations,
+            checkpoint,
+            debug_from,
+            gaussians,
+            scene,
+            "coarse",
+            tb_writer,
+            opt.coarse_iterations,
+            timer,
+        )
+    else:
+        print("coarse_iterations <= 0: skipping coarse stage entirely.")
     scene_reconstruction(
         dataset,
         opt,
