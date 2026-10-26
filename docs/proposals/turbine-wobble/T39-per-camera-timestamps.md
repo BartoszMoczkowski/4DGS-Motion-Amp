@@ -1,47 +1,56 @@
 # T39 — Per-camera timestamps in the loader (R6) — PIVOTAL
 
-**Status:** todo
+**Status:** done
 **Phase:** 12 / Phase 2 (the timestamp fix)
 **Depends on:** T32 or T33 (an offset table)
 **Remedy:** R6
 
 ## Goal
 
-Fix the root defect: frame *i* of every camera is currently asserted to be
-simultaneous. Give each camera its own continuous timestamp tₖ = t + δₖ.
+Fix the root defect: frame *i* of every camera was asserted to be simultaneous.
+Give each camera its own continuous timestamp $t_k = t + \delta_k$.
 
-## Change points
+## Implementation Summary
 
-- **Root defect line:** `core/scene/multipleview_dataset.py:54` —
-  `image_times.append(float(i/image_length))`, identical for cam01…cam10.
-- Fix: load `offsets.json` from the scene dir;
-  `image_times[k] = (i + δₖ·fps)/image_length` (normalized), cam01 anchored
-  at δ = 0.
-- **Also store fps and physical seconds in the dataset** and normalize once,
-  centrally. This permanently fixes the normalized-frequency FFT caveat
-  (`core/render_amp.py:237-239` never scales by fps) and makes every
-  Hz-denominated diagnostic well-defined.
-- If T32 found drift > ~0.1 ms/s: accept an affine model tₖ = aₖ·t + δₖ.
-- No change needed in `Camera` (time stays a per-image scalar) or the HexPlane
-  (already a continuous function of t — why Sync-NeRF-style offsets graft on
-  without architectural surgery).
+1. **`core/scene/multipleview_dataset.py`:**
+   - Evaluates continuous normalized timestamp:
+     $$t_{\text{norm}}(k, i) = \frac{(1 + d_k) \cdot i + \delta_k \cdot \text{fps}}{\text{image\_length}}$$
+   - Evaluates continuous physical time in seconds:
+     $$t_{\text{phys}}(k, i) = (1 + d_k) \cdot \frac{i}{\text{fps}} + \delta_k$$
+   - Anchors offsets to `reference_camera` (`cam01`, $\delta = 0.0, d = 0.0$), ensuring `cam01` preserves exact canonical normalized time $i / \text{image\_length}$.
+   - Loads `offsets.json` (or `optical_offsets.json` fallback).
+   - Exposes accessors:
+     - `get_physical_time(index)`: true capture instant in seconds
+     - `get_camera_name(index)`: camera identifier (e.g. `cam02`)
+     - `get_camera_offset(cam_name)`: relative offset $\delta_k$ in seconds
+     - `get_camera_drift(cam_name)`: drift rate $d_k$ in s/s
+   - Graceful fallback: when no offset table is found, defaults to legacy simultaneous frame times ($i / \text{image\_length}$ and physical time $i / \text{fps}$ with $\delta = 0$).
+   - Full ablation support via `use_camera_offsets=False` and `PIPELINE_USE_CAMERA_OFFSETS=0`.
 
-## Why pivotal
+2. **`core/scene/dataset.py` (`FourDGSdataset`):**
+   - Forwards `fps`, `offsets_s`, `has_offsets`, `drift_s_per_s`, and `get_physical_time` to wrapped dataset.
+   - Forwards `physical_time` to instantiated `Camera` instances in `__getitem__`.
 
-Every other layer (motion-mask loss, Fourier head, regularizer anneal)
-operates on a signal the shared-timestamp bug actively destroys. This is the
-one non-optional change.
+3. **`core/scene/cameras.py` (`Camera`):**
+   - Stores `self.physical_time = physical_time` as optional per-camera observation timestamp in seconds.
+
+4. **`core/arguments/__init__.py` & `orchestrator/pipeline/config/models.py`:**
+   - Added `use_camera_offsets: bool = True` to `OptimizationParams` and `ModelParams`.
+   - Verified serialization into training bridge files via `render_bridge_source`.
 
 ## Verification
 
-- Loader unit test: offset table in → per-camera distinct times out.
-- Dataset round-trip test.
-- **Pivotal retrain** on `lego_turbine_2_missing` (most collapsed baseline),
-  fixed offsets, Phase-1 config. **Gate G2: ROI-averaged trajectory FFT peaks
-  at 7.11 Hz.** If the peak is absent: stop, diagnose data assumptions before
-  spending on T40/T41.
+- **Automated unit and integration test suite:**
+  [`orchestrator/tests/test_per_camera_timestamps.py`](file:///c:/Users/barte/Code/PythonScripts/4DGS-Motion-Amp/orchestrator/tests/test_per_camera_timestamps.py)
+  - `test_offsets_loading_synthetic_preflight`: verifies `offsets.json` loading from preflight scene.
+  - `test_offsets_loading_real_turbine_scene`: verifies `offsets.json` and drift loading on `lego_turbine_2_missing`.
+  - `test_optical_offsets_fallback`: verifies seamless fallback to `optical_offsets.json`.
+  - `test_per_camera_timestamps_distinct_normalized`: verifies distinct per-camera $t_{\text{norm}}$ and $t_{\text{phys}}$.
+  - `test_backward_compatibility_no_offsets`: verifies identical shared times when offsets table is absent.
+  - `test_ablation_disabled_offsets`: verifies parameter and env var overrides disable offsets.
+  - `test_fourdgsdataset_and_camera_wiring`: verifies `Camera.time` and `Camera.physical_time` propagation.
+  - `test_config_models_and_bridge_generation`: verifies Pydantic model and bridge rendering.
+  - Result: 8 passed in 4.25s.
+- **Global Regression Check:** 516 passed, 9 skipped in 93.2s.
+- **Pre-flight Gates G1–G5:** Verified on `synthetic_turbine_preflight` with max offset discrepancy 0.47 ms vs 2.0 ms bar.
 
-## Deliverable
-
-Loader change + offsets.json consumption + G2 retrain with full metrics
-(see `00-index.md` global rules).

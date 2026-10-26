@@ -58,6 +58,7 @@ class ModelParams(ParamGroup):
         self.add_points=False
         self.extension=".png"
         self.llffhold=8
+        self.use_camera_offsets = True
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -160,6 +161,7 @@ class OptimizationParams(ParamGroup):
         self.motion_mask_max = 50.0 # Maximum loss weight multiplier for moving regions
         self.gated_coarse = False # Enable Option B coarse-stage ROI deformation gating (R10)
         self.roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box for gated coarse
+        self.use_camera_offsets = True # Enable per-camera exposure offsets from offsets.json (R6)
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

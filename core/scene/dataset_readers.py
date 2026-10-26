@@ -593,15 +593,15 @@ def readPanopticSportsinfos(datadir):
                            )
     return scene_info
 
-def readMultipleViewinfos(datadir,llffhold=8):
+def readMultipleViewinfos(datadir,llffhold=8,use_camera_offsets=True):
 
     cameras_extrinsic_file = os.path.join(datadir, "sparse_/images.bin")
     cameras_intrinsic_file = os.path.join(datadir, "sparse_/cameras.bin")
     cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
     cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
     from scene.multipleview_dataset import multipleview_dataset
-    train_cam_infos = multipleview_dataset(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, cam_folder=datadir,split="train")
-    test_cam_infos = multipleview_dataset(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, cam_folder=datadir,split="test")
+    train_cam_infos = multipleview_dataset(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, cam_folder=datadir,split="train",use_camera_offsets=use_camera_offsets)
+    test_cam_infos = multipleview_dataset(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, cam_folder=datadir,split="test",use_camera_offsets=use_camera_offsets)
 
     train_cam_infos_ = format_infos(train_cam_infos,"train")
     nerf_normalization = getNerfppNorm(train_cam_infos_)

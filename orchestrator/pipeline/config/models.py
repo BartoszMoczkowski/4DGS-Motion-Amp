@@ -126,6 +126,7 @@ class OptimizationParams(StrictModel):
     motion_mask_max: float = 50.0
     gated_coarse: bool = False
     roi_bbox: Optional[list[float]] = None
+    use_camera_offsets: bool = True
 
 
 class ModelParams(StrictModel):
@@ -149,6 +150,7 @@ class ModelParams(StrictModel):
     add_points: bool = False
     extension: str = ".png"
     llffhold: int = 8
+    use_camera_offsets: bool = True
 
 
 class PipelineParams(StrictModel):

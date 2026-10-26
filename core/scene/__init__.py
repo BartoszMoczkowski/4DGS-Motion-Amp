@@ -59,8 +59,10 @@ class Scene:
             scene_info = sceneLoadTypeCallbacks["PanopticSports"](args.source_path)
             dataset_type="PanopticSports"
         elif os.path.exists(os.path.join(args.source_path,"points3D_multipleview.ply")):
-            scene_info = sceneLoadTypeCallbacks["MultipleView"](args.source_path)
+            use_offsets = getattr(args, "use_camera_offsets", True)
+            scene_info = sceneLoadTypeCallbacks["MultipleView"](args.source_path, use_camera_offsets=use_offsets)
             dataset_type="MultipleView"
+
         else:
             assert False, "Could not recognize scene type!"
         self.maxtime = scene_info.maxtime

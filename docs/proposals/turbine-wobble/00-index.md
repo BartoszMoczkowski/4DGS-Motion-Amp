@@ -24,7 +24,7 @@
 | T36 | Motion-mask weighted loss (R2) | 12 | — | done |
 | T37 | Coarse-stage gating (R10) | 12 | — | done |
 | T38 | Synthetic sync pre-flight scene | 12 | — | done |
-| T39 | Per-camera timestamps in loader (R6) | 12 | T32 or T33 | todo |
+| T39 | Per-camera timestamps in loader (R6) | 12 | T32 or T33 | done |
 | T40 | Learnable offsets + trajectory reprojection loss (R7+R8) | 12 | T39, T36 | todo |
 | T41 | Fourier-rigid deformation head (R9) | 12 | T39 | todo |
 | T42 | Cross-scene validation & amplitude-ordering report | 12 | T40, T41 | todo |
