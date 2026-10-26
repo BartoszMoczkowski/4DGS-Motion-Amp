@@ -29,6 +29,7 @@ from arguments import ModelHiddenParams, ModelParams, OptimizationParams, Pipeli
 from gaussian_renderer import network_gui, render
 from scene import GaussianModel, Scene
 from scene.camera_offsets import CameraOffsets
+from scene.fourier_rigid import FourierRigidHead
 from utils.general_utils import get_regularization_weights, safe_state
 from utils.image_utils import psnr
 from utils.loader_utils import FineSampler, get_stamp_list
@@ -66,6 +67,8 @@ def scene_reconstruction(
     camera_offsets_module=None,
     offsets_optimizer=None,
     trajectory_loss_fn=None,
+    fourier_head=None,
+    fourier_optimizer=None,
 ):
     first_iter = 0
 
@@ -262,6 +265,7 @@ def scene_reconstruction(
                 stage=stage,
                 cam_type=scene.dataset_type,
                 custom_time=custom_time,
+                fourier_head=fourier_head,
             )
             render_pkg_list.append(render_pkg)
             image, viewspace_point_tensor, visibility_filter, radii = (
@@ -422,6 +426,13 @@ def scene_reconstruction(
                             json.dump(camera_offsets_module.get_effective_offsets(), f, indent=2)
                     except Exception as e:
                         print(f"Warning: failed to save learned offsets at iter {iteration}: {e}")
+                if fourier_head is not None:
+                    try:
+                        torch.save(fourier_head.state_dict(), os.path.join(scene.model_path, "fourier_head.pth"))
+                        with open(os.path.join(scene.model_path, "fourier_head_state.json"), "w", encoding="utf-8") as f:
+                            json.dump(fourier_head.get_summary(), f, indent=2)
+                    except Exception as e:
+                        print(f"Warning: failed to save fourier head at iter {iteration}: {e}")
             if dataset.render_process:
                 if (
                     (iteration < 1000 and iteration % 10 == 9)
@@ -544,6 +555,12 @@ def scene_reconstruction(
                     camera_offsets_module.clamp_and_anchor()
                 offsets_optimizer.zero_grad(set_to_none=True)
 
+            if fourier_optimizer is not None:
+                freeze_iter = getattr(opt, "fourier_head_freeze_iter", 500)
+                if iteration >= freeze_iter and iteration < opt.iterations:
+                    fourier_optimizer.step()
+                fourier_optimizer.zero_grad(set_to_none=True)
+
             if iteration in checkpoint_iterations:
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save(
@@ -559,6 +576,11 @@ def scene_reconstruction(
                         offsets_file = os.path.join(scene.model_path, "learned_offsets.json")
                         with open(offsets_file, "w", encoding="utf-8") as f:
                             json.dump(camera_offsets_module.get_effective_offsets(), f, indent=2)
+                    except Exception:
+                        pass
+                if fourier_head is not None:
+                    try:
+                        torch.save(fourier_head.state_dict(), os.path.join(scene.model_path, f"fourier_head_{stage}_{iteration}.pth"))
                     except Exception:
                         pass
 
@@ -659,6 +681,36 @@ def training(
         )
         print(f"[R8] Initialized TrajectoryReprojectionLoss with lambda={opt.lambda_trajectory}")
 
+    fourier_head = None
+    fourier_optimizer = None
+    if getattr(opt, "use_fourier_rigid_head", False):
+        roi_bbox = getattr(opt, "fourier_head_roi_bbox", None) or getattr(opt, "roi_bbox", None)
+        fourier_head = FourierRigidHead(
+            base_frequency_hz=getattr(opt, "fourier_head_frequency_hz", 7.112),
+            learn_frequency=getattr(opt, "fourier_head_learn_frequency", False),
+            num_harmonics=getattr(opt, "fourier_head_num_harmonics", 3),
+            fps=scene.train_camera.fps if hasattr(scene, "train_camera") else 20.0,
+            image_length=getattr(scene.train_camera.dataset, "image_length", 60) if hasattr(scene, "train_camera") else 60,
+            roi_bbox=roi_bbox,
+            pure_rigid=getattr(opt, "fourier_head_pure_rigid", False),
+        ).cuda()
+
+        tracks_path = os.path.join(dataset.source_path, "trajectory_tracks.json")
+        if not os.path.exists(tracks_path):
+            tracks_path = os.path.join(dataset.source_path, "optical_offsets.json")
+        if os.path.exists(tracks_path):
+            try:
+                fourier_head.init_from_optical_tracks(tracks_path)
+            except Exception as e:
+                print(f"Warning: could not init fourier head from {tracks_path}: {e}")
+
+        fourier_optimizer = torch.optim.Adam(
+            fourier_head.parameters(),
+            lr=getattr(opt, "fourier_head_lr", 0.001),
+        )
+        gaussians.fourier_head = fourier_head
+        print(f"[R9] Initialized FourierRigidHead at {fourier_head.effective_frequency_hz.item():.3f} Hz with {fourier_head.num_harmonics} harmonics, lr={getattr(opt, 'fourier_head_lr', 0.001)}")
+
     if opt.coarse_iterations > 0:
         scene_reconstruction(
             dataset,
@@ -679,6 +731,8 @@ def training(
             camera_offsets_module=camera_offsets_module,
             offsets_optimizer=offsets_optimizer,
             trajectory_loss_fn=trajectory_loss_fn,
+            fourier_head=fourier_head,
+            fourier_optimizer=fourier_optimizer,
         )
     else:
         print("coarse_iterations <= 0: skipping coarse stage entirely.")
@@ -701,6 +755,8 @@ def training(
         camera_offsets_module=camera_offsets_module,
         offsets_optimizer=offsets_optimizer,
         trajectory_loss_fn=trajectory_loss_fn,
+        fourier_head=fourier_head,
+        fourier_optimizer=fourier_optimizer,
     )
     if camera_offsets_module is not None:
         try:
@@ -710,6 +766,15 @@ def training(
             print(f"[R7] Saved final learned offsets to {offsets_file}")
         except Exception as e:
             print(f"Warning: failed to save final learned offsets: {e}")
+    if fourier_head is not None:
+        try:
+            torch.save(fourier_head.state_dict(), os.path.join(args.model_path, "fourier_head.pth"))
+            with open(os.path.join(args.model_path, "fourier_head_state.json"), "w", encoding="utf-8") as f:
+                json.dump(fourier_head.get_summary(), f, indent=2)
+            summary = fourier_head.get_summary()
+            print(f"[R9] Saved final FourierRigidHead: freq={summary['frequency_hz']:.3f} Hz, axis={summary['dominant_axis']}, amps={summary['amplitudes_m']}")
+        except Exception as e:
+            print(f"Warning: failed to save final fourier head: {e}")
     _flush_training_curves(args.model_path)
 
 

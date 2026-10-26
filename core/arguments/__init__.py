@@ -169,6 +169,14 @@ class OptimizationParams(ParamGroup):
         self.lambda_trajectory = 0.0 # Weight for 2D trajectory reprojection loss (R8)
         self.trajectory_track_file = "" # Path to trajectory tracks file (default: trajectory_tracks.json)
         self.trajectory_roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box for trajectory loss
+        self.use_fourier_rigid_head = False # Enable Fourier-rigid deformation head (R9)
+        self.fourier_head_lr = 0.001 # Learning rate for Fourier head parameters
+        self.fourier_head_freeze_iter = 500 # Freeze Fourier head for first N fine iterations
+        self.fourier_head_frequency_hz = 7.112 # Base vibration frequency in Hz
+        self.fourier_head_learn_frequency = False # Allow learning residual frequency offset
+        self.fourier_head_num_harmonics = 3 # Number of Fourier harmonics
+        self.fourier_head_pure_rigid = False # Strict pure rigid motion inside ROI (replaces HexPlane)
+        self.fourier_head_roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

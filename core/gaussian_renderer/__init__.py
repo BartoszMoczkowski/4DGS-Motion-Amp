@@ -9,7 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
-from typing import Optional
+from typing import Any, Optional
 import torch
 import math
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
@@ -26,6 +26,7 @@ def render(
     stage="fine",
     cam_type=None,
     custom_time: Optional[torch.Tensor] = None,
+    fourier_head: Optional[Any] = None,
 ):
     """
     Render the scene. 
@@ -156,7 +157,29 @@ def render(
     else:
         raise NotImplementedError
 
-
+    active_fourier_head = fourier_head or getattr(pc, "fourier_head", None)
+    if active_fourier_head is not None:
+        roi_mask = None
+        if hasattr(pc, "_roi_mask") and pc._roi_mask is not None:
+            roi_mask = pc._roi_mask
+        elif getattr(pipe, "roi_bbox", None) is not None:
+            b = pipe.roi_bbox
+            roi_mask = (
+                (means3D[:, 0] >= b[0])
+                & (means3D[:, 0] <= b[3])
+                & (means3D[:, 1] >= b[1])
+                & (means3D[:, 1] <= b[4])
+                & (means3D[:, 2] >= b[2])
+                & (means3D[:, 2] <= b[5])
+            )
+        means3D_final, rotations_final = active_fourier_head(
+            means3D_canon=means3D,
+            means3D_deformed=means3D_final,
+            rotations_canon=rotations,
+            rotations_deformed=rotations_final,
+            time=time,
+            roi_mask=roi_mask,
+        )
 
     # time2 = get_time()
     # print("asset value:",time2-time1)

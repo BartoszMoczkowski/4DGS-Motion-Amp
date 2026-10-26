@@ -134,6 +134,14 @@ class OptimizationParams(StrictModel):
     lambda_trajectory: float = 0.0
     trajectory_track_file: str = ""
     trajectory_roi_bbox: Optional[list[float]] = None
+    use_fourier_rigid_head: bool = False
+    fourier_head_lr: float = 0.001
+    fourier_head_freeze_iter: int = 500
+    fourier_head_frequency_hz: float = 7.112
+    fourier_head_learn_frequency: bool = False
+    fourier_head_num_harmonics: int = 3
+    fourier_head_pure_rigid: bool = False
+    fourier_head_roi_bbox: Optional[list[float]] = None
 
 
 class ModelParams(StrictModel):
