@@ -127,6 +127,13 @@ class OptimizationParams(StrictModel):
     gated_coarse: bool = False
     roi_bbox: Optional[list[float]] = None
     use_camera_offsets: bool = True
+    learnable_camera_offsets: bool = False
+    learnable_offsets_lr: float = 0.0001
+    learnable_offsets_freeze_iter: int = 10000
+    max_offset_clamp_s: float = 0.040
+    lambda_trajectory: float = 0.0
+    trajectory_track_file: str = ""
+    trajectory_roi_bbox: Optional[list[float]] = None
 
 
 class ModelParams(StrictModel):

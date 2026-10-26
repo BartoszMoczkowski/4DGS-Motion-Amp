@@ -28,12 +28,14 @@ from tqdm import tqdm
 from arguments import ModelHiddenParams, ModelParams, OptimizationParams, PipelineParams
 from gaussian_renderer import network_gui, render
 from scene import GaussianModel, Scene
+from scene.camera_offsets import CameraOffsets
 from utils.general_utils import get_regularization_weights, safe_state
 from utils.image_utils import psnr
 from utils.loader_utils import FineSampler, get_stamp_list
 from utils.loss_utils import l1_loss, l2_loss, lpips_loss, ssim
 from utils.scene_utils import render_training_image
 from utils.timer import Timer
+from utils.trajectory_loss import TrajectoryReprojectionLoss
 
 to8b = lambda x: (255 * np.clip(x.cpu().numpy(), 0, 1)).astype(np.uint8)
 
@@ -61,6 +63,9 @@ def scene_reconstruction(
     tb_writer,
     train_iter,
     timer,
+    camera_offsets_module=None,
+    offsets_optimizer=None,
+    trajectory_loss_fn=None,
 ):
     first_iter = 0
 
@@ -240,7 +245,15 @@ def scene_reconstruction(
         viewspace_point_tensor_list = []
         masks = []
         has_mask = False
+        render_pkg_list = []
         for viewpoint_cam in viewpoint_cams:
+            custom_time = None
+            if camera_offsets_module is not None:
+                cam_name = getattr(viewpoint_cam, "cam_name", None)
+                frame_idx = getattr(viewpoint_cam, "frame_idx", None)
+                if cam_name is not None and frame_idx is not None:
+                    custom_time = camera_offsets_module.get_normalized_time(cam_name, frame_idx)
+
             render_pkg = render(
                 viewpoint_cam,
                 gaussians,
@@ -248,7 +261,9 @@ def scene_reconstruction(
                 background,
                 stage=stage,
                 cam_type=scene.dataset_type,
+                custom_time=custom_time,
             )
+            render_pkg_list.append(render_pkg)
             image, viewspace_point_tensor, visibility_filter, radii = (
                 render_pkg["render"],
                 render_pkg["viewspace_points"],
@@ -326,6 +341,19 @@ def scene_reconstruction(
                     plane_tv_weight,
                 )
                 loss += tv_loss
+
+            if trajectory_loss_fn is not None and getattr(opt, "lambda_trajectory", 0.0) > 0.0:
+                traj_losses = []
+                for v_idx, viewpoint_cam in enumerate(viewpoint_cams):
+                    m_final = render_pkg_list[v_idx]["means3D_final"]
+                    t_loss = trajectory_loss_fn(
+                        viewpoint_cam,
+                        gaussians.get_xyz,
+                        m_final,
+                    )
+                    traj_losses.append(t_loss)
+                if traj_losses:
+                    loss += getattr(opt, "lambda_trajectory", 0.0) * (sum(traj_losses) / len(traj_losses))
         if opt.lambda_dssim != 0:
             ssim_loss = ssim(image_tensor, gt_image_tensor)
             loss += opt.lambda_dssim * (1.0 - ssim_loss)
@@ -387,6 +415,13 @@ def scene_reconstruction(
             if iteration in saving_iterations:
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration, stage)
+                if camera_offsets_module is not None:
+                    try:
+                        offsets_file = os.path.join(scene.model_path, "learned_offsets.json")
+                        with open(offsets_file, "w", encoding="utf-8") as f:
+                            json.dump(camera_offsets_module.get_effective_offsets(), f, indent=2)
+                    except Exception as e:
+                        print(f"Warning: failed to save learned offsets at iter {iteration}: {e}")
             if dataset.render_process:
                 if (
                     (iteration < 1000 and iteration % 10 == 9)
@@ -502,6 +537,13 @@ def scene_reconstruction(
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none=True)
 
+            if offsets_optimizer is not None:
+                freeze_iter = getattr(opt, "learnable_offsets_freeze_iter", 10000)
+                if iteration >= freeze_iter and iteration < opt.iterations:
+                    offsets_optimizer.step()
+                    camera_offsets_module.clamp_and_anchor()
+                offsets_optimizer.zero_grad(set_to_none=True)
+
             if iteration in checkpoint_iterations:
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save(
@@ -512,6 +554,13 @@ def scene_reconstruction(
                     + str(iteration)
                     + ".pth",
                 )
+                if camera_offsets_module is not None:
+                    try:
+                        offsets_file = os.path.join(scene.model_path, "learned_offsets.json")
+                        with open(offsets_file, "w", encoding="utf-8") as f:
+                            json.dump(camera_offsets_module.get_effective_offsets(), f, indent=2)
+                    except Exception:
+                        pass
 
 
 _TRAINING_CURVES = []
@@ -556,6 +605,60 @@ def training(
     if getattr(opt, "roi_bbox", None) is not None and getattr(pipe, "roi_bbox", None) is None:
         pipe.roi_bbox = opt.roi_bbox
 
+    camera_offsets_module = None
+    offsets_optimizer = None
+    if getattr(opt, "learnable_camera_offsets", False):
+        cam_names = []
+        init_offsets = {}
+        drift = {}
+        fps = 20.0
+        img_len = 60
+        if hasattr(scene, "train_camera") and scene.train_camera is not None:
+            cam_names = scene.train_camera.get_camera_names()
+            init_offsets = scene.train_camera.offsets_s
+            drift = scene.train_camera.drift_s_per_s
+            fps = scene.train_camera.fps
+            img_len = getattr(scene.train_camera.dataset, "image_length", 60)
+        if not cam_names and hasattr(dataset, "source_path"):
+            offsets_path = os.path.join(dataset.source_path, "offsets.json")
+            if os.path.exists(offsets_path):
+                try:
+                    with open(offsets_path, "r", encoding="utf-8") as f:
+                        off_data = json.load(f)
+                    init_offsets = off_data.get("offsets_s", {})
+                    cam_names = list(init_offsets.keys())
+                    fps = float(off_data.get("fps", 20.0))
+                except Exception:
+                    pass
+        if not cam_names:
+            cam_names = [f"cam{i:02d}" for i in range(1, 11)]
+
+        camera_offsets_module = CameraOffsets(
+            cam_names=cam_names,
+            init_offsets_s=init_offsets,
+            reference_camera="cam01",
+            max_clamp_s=getattr(opt, "max_offset_clamp_s", 0.040),
+            fps=fps,
+            image_length=img_len,
+            drift_s_per_s=drift,
+        ).cuda()
+        offsets_optimizer = torch.optim.Adam(
+            camera_offsets_module.parameters(),
+            lr=getattr(opt, "learnable_offsets_lr", 0.0001),
+        )
+        print(f"[R7] Initialized CameraOffsets for {len(cam_names)} cameras, lr={getattr(opt, 'learnable_offsets_lr', 0.0001)}")
+
+    trajectory_loss_fn = None
+    if getattr(opt, "lambda_trajectory", 0.0) > 0.0:
+        roi = getattr(opt, "trajectory_roi_bbox", None) or getattr(opt, "roi_bbox", None)
+        track_file = getattr(opt, "trajectory_track_file", "") or None
+        trajectory_loss_fn = TrajectoryReprojectionLoss(
+            scene_path=dataset.source_path,
+            track_file=track_file,
+            roi_bbox=roi,
+        )
+        print(f"[R8] Initialized TrajectoryReprojectionLoss with lambda={opt.lambda_trajectory}")
+
     if opt.coarse_iterations > 0:
         scene_reconstruction(
             dataset,
@@ -573,6 +676,9 @@ def training(
             tb_writer,
             opt.coarse_iterations,
             timer,
+            camera_offsets_module=camera_offsets_module,
+            offsets_optimizer=offsets_optimizer,
+            trajectory_loss_fn=trajectory_loss_fn,
         )
     else:
         print("coarse_iterations <= 0: skipping coarse stage entirely.")
@@ -592,7 +698,18 @@ def training(
         tb_writer,
         opt.iterations,
         timer,
+        camera_offsets_module=camera_offsets_module,
+        offsets_optimizer=offsets_optimizer,
+        trajectory_loss_fn=trajectory_loss_fn,
     )
+    if camera_offsets_module is not None:
+        try:
+            offsets_file = os.path.join(args.model_path, "learned_offsets.json")
+            with open(offsets_file, "w", encoding="utf-8") as f:
+                json.dump(camera_offsets_module.get_effective_offsets(), f, indent=2)
+            print(f"[R7] Saved final learned offsets to {offsets_file}")
+        except Exception as e:
+            print(f"Warning: failed to save final learned offsets: {e}")
     _flush_training_curves(args.model_path)
 
 
@@ -824,7 +941,6 @@ if __name__ == "__main__":
     parser.add_argument("--configs", type=str, default="")
 
     args = parser.parse_args(sys.argv[1:])
-    args.save_iterations.append(args.iterations)
     if args.configs:
         import mmcv
 
@@ -832,6 +948,7 @@ if __name__ == "__main__":
 
         config = mmengine.Config.fromfile(args.configs)
         args = merge_hparams(args, config)
+    args.save_iterations.append(args.iterations)
     print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)

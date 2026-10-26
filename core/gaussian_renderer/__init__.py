@@ -9,13 +9,24 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+from typing import Optional
 import torch
 import math
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from time import time as get_time
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, stage="fine", cam_type=None):
+def render(
+    viewpoint_camera,
+    pc : GaussianModel,
+    pipe,
+    bg_color : torch.Tensor,
+    scaling_modifier = 1.0,
+    override_color = None,
+    stage="fine",
+    cam_type=None,
+    custom_time: Optional[torch.Tensor] = None,
+):
     """
     Render the scene. 
     
@@ -49,10 +60,18 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             prefiltered=False,
             debug=pipe.debug
         )
-        time = torch.tensor(viewpoint_camera.time).to(means3D.device).repeat(means3D.shape[0],1)
+        time_val = custom_time if custom_time is not None else viewpoint_camera.time
+        if isinstance(time_val, torch.Tensor):
+            time = time_val.to(means3D.device).view(1, 1).repeat(means3D.shape[0], 1)
+        else:
+            time = torch.tensor(time_val, dtype=torch.float32, device=means3D.device).view(1, 1).repeat(means3D.shape[0], 1)
     else:
         raster_settings = viewpoint_camera['camera']
-        time=torch.tensor(viewpoint_camera['time']).to(means3D.device).repeat(means3D.shape[0],1)
+        time_val = custom_time if custom_time is not None else viewpoint_camera['time']
+        if isinstance(time_val, torch.Tensor):
+            time = time_val.to(means3D.device).view(1, 1).repeat(means3D.shape[0], 1)
+        else:
+            time = torch.tensor(time_val, dtype=torch.float32, device=means3D.device).view(1, 1).repeat(means3D.shape[0], 1)
         
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -183,5 +202,6 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
             "radii": radii,
-            "depth":depth}
+            "depth": depth,
+            "means3D_final": means3D_final}
 

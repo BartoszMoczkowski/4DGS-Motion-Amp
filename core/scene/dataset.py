@@ -41,9 +41,12 @@ class FourDGSdataset(Dataset):
     
                 mask = caminfo.mask
             physical_time = getattr(self.dataset, "get_physical_time", lambda idx: None)(index)
+            cam_name = getattr(self.dataset, "get_camera_name", lambda idx: None)(index)
+            frame_idx = getattr(self.dataset, "get_frame_idx", lambda idx: 0)(index)
             return Camera(colmap_id=index,R=R,T=T,FoVx=FovX,FoVy=FovY,image=image,gt_alpha_mask=None,
                               image_name=f"{index}",uid=index,data_device=torch.device("cuda"),time=time,
-                              mask=mask, physical_time=physical_time)
+                              mask=mask, physical_time=physical_time,
+                              cam_name=cam_name, frame_idx=frame_idx)
         else:
             return self.dataset[index]
 
@@ -75,6 +78,19 @@ class FourDGSdataset(Dataset):
             return getter(index)
         return None
 
+    def get_frame_idx(self, index):
+        getter = getattr(self.dataset, "get_frame_idx", None)
+        if getter is not None:
+            return getter(index)
+        return 0
+
+    def get_camera_names(self):
+        getter = getattr(self.dataset, "get_camera_names", None)
+        if getter is not None:
+            return getter()
+        return []
+
     def __len__(self):
         return len(self.dataset)
+
 

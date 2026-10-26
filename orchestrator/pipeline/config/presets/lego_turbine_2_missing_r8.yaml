@@ -1,0 +1,9 @@
+# Ladder step R8: Learnable offsets + 2D trajectory reprojection loss for lego_turbine_2_missing.
+# Combines R7 guarded learnable offsets with 2D displacement supervision against measured
+# sub-pixel optical tracks (trajectory_tracks.json).
+extends: lego_turbine_2_missing_r7
+name: lego_turbine_2_missing_r8
+
+optim:
+  lambda_trajectory: 1.0
+  trajectory_track_file: trajectory_tracks.json

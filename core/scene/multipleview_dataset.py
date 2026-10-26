@@ -160,6 +160,7 @@ class multipleview_dataset(Dataset):
         image_times = []
         image_cam_names = []
         image_physical_times = []
+        image_frame_indices = []
 
         for idx, key in enumerate(cam_extrinsics):
             extr = cam_extrinsics[key]
@@ -191,8 +192,11 @@ class multipleview_dataset(Dataset):
 
                 image_physical_times.append(float(t_phys))
                 image_times.append(float(t_norm))
+                image_frame_indices.append(i)
 
         self.image_physical_times = image_physical_times
+        self.image_frame_indices = image_frame_indices
+        self.cam_names = list(dict.fromkeys(image_cam_names))
         return image_paths, image_poses, image_times, image_cam_names
 
     def get_physical_time(self, index):
@@ -205,11 +209,22 @@ class multipleview_dataset(Dataset):
             return self.image_cam_names[index]
         return None
 
+    def get_frame_idx(self, index):
+        if hasattr(self, "image_frame_indices") and index < len(self.image_frame_indices):
+            return self.image_frame_indices[index]
+        return 0
+
+    def get_camera_names(self):
+        if hasattr(self, "cam_names"):
+            return list(self.cam_names)
+        return []
+
     def get_camera_offset(self, cam_name):
         return self.offsets_s.get(cam_name, 0.0)
 
     def get_camera_drift(self, cam_name):
         return self.drift_s_per_s.get(cam_name, 0.0)
+
 
     
     def get_video_cam_infos(self,datadir):
