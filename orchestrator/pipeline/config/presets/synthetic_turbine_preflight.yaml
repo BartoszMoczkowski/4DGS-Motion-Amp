@@ -1,0 +1,20 @@
+extends: real_capture
+name: synthetic_turbine_preflight
+
+model:
+  source_path: "data/multipleview/synthetic_turbine_preflight"
+  model_path: "output/multipleview/synthetic_turbine_preflight"
+
+train:
+  port: 6025
+  expname: "multipleview/synthetic_turbine_preflight"
+
+hidden:
+  regularizer_anneal_iter: 3000
+  time_smoothness_weight_final: 0.0001
+  l1_time_planes_final: 0.0
+
+optim:
+  use_motion_mask: true
+  motion_mask_max: 50.0
+  coarse_iterations: 500
