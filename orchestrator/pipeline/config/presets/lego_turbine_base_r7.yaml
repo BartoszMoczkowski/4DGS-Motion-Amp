@@ -1,0 +1,20 @@
+# Ladder step R7: Learnable camera timing offset refinement for lego_turbine_base.
+# Refines per-camera exposure offsets jointly with 4DGS model, guarded by cam01 anchor,
+# +/-40ms hard clamp, and frozen until iteration 10,000.
+extends: lego_turbine_base
+name: lego_turbine_base_r7
+
+hidden:
+  regularizer_anneal_iter: 3000
+  time_smoothness_weight_final: 0.0001
+  l1_time_planes_final: 0.0
+
+optim:
+  use_motion_mask: true
+  motion_mask_max: 50.0
+  coarse_iterations: 500
+  use_camera_offsets: true
+  learnable_camera_offsets: true
+  learnable_offsets_lr: 0.0001
+  learnable_offsets_freeze_iter: 10000
+  max_offset_clamp_s: 0.040

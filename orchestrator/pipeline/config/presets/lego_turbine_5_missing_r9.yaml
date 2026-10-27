@@ -1,0 +1,15 @@
+# Ladder step R9: Fourier-rigid deformation head preset for lego_turbine_5_missing.
+# Models periodic turbine wobble as low-dimensional (~20 param) rigid body motion (R(t), T(t))
+# inside the turbine ROI, anchored at 7.112 Hz with 3 harmonics.
+# Combines with R7 (learnable offsets) and R8 (trajectory reprojection loss).
+extends: lego_turbine_5_missing_r8
+name: lego_turbine_5_missing_r9
+
+optim:
+  use_fourier_rigid_head: true
+  fourier_head_lr: 0.001
+  fourier_head_freeze_iter: 500
+  fourier_head_frequency_hz: 7.112
+  fourier_head_learn_frequency: false
+  fourier_head_num_harmonics: 3
+  fourier_head_pure_rigid: false

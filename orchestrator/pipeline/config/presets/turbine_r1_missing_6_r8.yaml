@@ -1,0 +1,9 @@
+# Ladder step R8: Learnable offsets + 2D trajectory reprojection loss for turbine_r1_missing_6.
+# Combines R7 guarded learnable offsets with 2D displacement supervision against measured
+# sub-pixel optical tracks (trajectory_tracks.json).
+extends: turbine_r1_missing_6_r7
+name: turbine_r1_missing_6_r8
+
+optim:
+  lambda_trajectory: 1.0
+  trajectory_track_file: trajectory_tracks.json
