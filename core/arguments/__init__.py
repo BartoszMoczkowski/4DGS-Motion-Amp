@@ -19,23 +19,34 @@ class GroupParams:
 class ParamGroup:
     def __init__(self, parser: ArgumentParser, name : str, fill_none = False):
         group = parser.add_argument_group(name)
+        existing_options = set()
+        for action in parser._actions:
+            existing_options.update(action.option_strings)
         for key, value in vars(self).items():
             shorthand = False
             if key.startswith("_"):
                 shorthand = True
                 key = key[1:]
+            opt_flag = "--" + key
+            if opt_flag in existing_options:
+                continue
             t = type(value)
             value = value if not fill_none else None 
             if shorthand:
+                short_flag = "-" + key[0:1]
+                short_flags = (short_flag,) if short_flag not in existing_options else ()
                 if t == bool:
-                    group.add_argument("--" + key, ("-" + key[0:1]), default=value, action="store_true")
+                    group.add_argument(opt_flag, *short_flags, default=value, action="store_true")
                 else:
-                    group.add_argument("--" + key, ("-" + key[0:1]), default=value, type=t)
+                    group.add_argument(opt_flag, *short_flags, default=value, type=t)
+                existing_options.add(opt_flag)
+                existing_options.update(short_flags)
             else:
                 if t == bool:
-                    group.add_argument("--" + key, default=value, action="store_true")
+                    group.add_argument(opt_flag, default=value, action="store_true")
                 else:
-                    group.add_argument("--" + key, default=value, type=t)
+                    group.add_argument(opt_flag, default=value, type=t)
+                existing_options.add(opt_flag)
 
     def extract(self, args):
         group = GroupParams()
