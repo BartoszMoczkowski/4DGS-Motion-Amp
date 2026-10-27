@@ -108,7 +108,7 @@ The evaluation harness generated three canonical verification figures under `doc
 
 ---
 
-## 6. Reproducible Preset Ladder
+## 6. Reproducible Preset Ladder & Retraining Execution
 
 Every experimental configuration is formalized as a version-controlled YAML preset under `orchestrator/pipeline/config/presets/`:
 
@@ -132,6 +132,26 @@ base.yaml
                     └── turbine_r1_missing_6_r8.yaml
                           └── turbine_r1_missing_6_r9.yaml
 ```
+
+### Automated Retraining Driver (`scripts/retrain_turbine_wobble_series.py`)
+The retraining pipeline is automated via `scripts/retrain_turbine_wobble_series.py` and `amp train <preset>`:
+- **Scene Seeding:** Auto-seeds `scene` dataset and `offsets` external artifacts into the orchestrator manifest.
+- **Offsets Hash Recording:** Computes the SHA-256 hash of each scene's `offsets.json` and records it directly in the run manifest metadata (`manifest.metadata.offsets_json_hash`) and artifact registry (`manifest.artifacts.offsets.content_hash`):
+  - `lego_turbine_base`: `304ab0e6041bba04ce5f4919df1b8fb4396dc5427cfd4f7eaec59ff06916ee20`
+  - `lego_turbine_2_missing`: `f5f3ddfc823df37172b47ab42cb16058243e422fde7b74cb2079c4c66e0b8d25`
+  - `lego_turbine_5_missing`: `f7e7e5f74ea91f2280e0aeda8202b651f7d32aa5c7fb2c0b5717c7a51bfad73d`
+  - `turbine_r1_missing_6`: `f179372ad49eb80f7f76edde6f9ced96e915ff19403ca68d6afcd394ac0bcbef`
+- **Driver Invocations:**
+  ```bash
+  # Dry-run preview of the full 4-scene retraining ladder:
+  uv run python scripts/retrain_turbine_wobble_series.py --dry-run --all
+
+  # Retrain single scene:
+  uv run amp train lego_turbine_2_missing_r9
+
+  # Retrain all 4 scenes sequentially in Docker on RTX 3090:
+  uv run python scripts/retrain_turbine_wobble_series.py --all
+  ```
 
 ---
 

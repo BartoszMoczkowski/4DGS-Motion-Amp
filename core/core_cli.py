@@ -151,32 +151,56 @@ def train(
     except (FileNotFoundError, ValueError) as e:
         raise _bad(str(e)) from e
 
-    external_artifacts = None
-    if scene is not None:
-        from pipeline.artifacts import Artifact, validate_external_artifact_path
+    from pipeline.artifacts import Artifact, validate_external_artifact_path
 
+    external_artifacts = {}
+    model_src = resolved.get("model", {}).get("source_path", "")
+    target_scene_dir = Path(scene.resolve()) if scene is not None else (Path(model_src).resolve() if model_src else None)
+
+    if target_scene_dir and target_scene_dir.exists():
         try:
-            scene_path = validate_external_artifact_path(str(scene.resolve()), "dataset")
-        except ValueError as e:
-            raise _bad(f"--scene: {e}") from e
-        external_artifacts = {
-            "scene": Artifact(
+            valid_scene_path = validate_external_artifact_path(str(target_scene_dir), "dataset")
+            external_artifacts["scene"] = Artifact(
                 name="scene",
                 kind="dataset",
-                path=str(scene_path),
+                path=str(valid_scene_path),
                 producing_stage="external",
             )
-        }
+        except ValueError as e:
+            if scene is not None:
+                raise _bad(f"--scene: {e}") from e
+
+    import hashlib
+    metadata = {}
+    if target_scene_dir and target_scene_dir.exists():
+        offsets_file = target_scene_dir / "offsets.json"
+        if offsets_file.exists():
+            h = hashlib.sha256(offsets_file.read_bytes()).hexdigest()
+            metadata["offsets_json_hash"] = h
+            metadata["offsets_json_path"] = str(offsets_file.resolve())
+            external_artifacts["offsets"] = Artifact(
+                name="offsets",
+                kind="json",
+                path=str(offsets_file.resolve()),
+                producing_stage="external",
+                content_hash=f"sha256:{h}",
+            )
 
     if dry_run:
         _echo_dry_run("train.default", api._stage_config_for("train.default", resolved))
+        if "offsets_json_hash" in metadata:
+            typer.echo(f"[dry-run] offsets.json hash: {metadata['offsets_json_hash']}")
         return
+
+    if not external_artifacts:
+        external_artifacts = None
 
     try:
         run_id = api.run_pipeline(
             preset,
             only=["train.default"],
             external_artifacts=external_artifacts,
+            metadata=metadata if metadata else None,
             force=force,
         )
     except api.StageFailedError as e:
