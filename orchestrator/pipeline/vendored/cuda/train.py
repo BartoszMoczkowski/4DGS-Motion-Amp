@@ -49,7 +49,7 @@ from tqdm import tqdm
 from arguments import ModelHiddenParams, ModelParams, OptimizationParams, PipelineParams
 from gaussian_renderer import network_gui, render
 from scene import GaussianModel, Scene
-from scene.camera_offsets import CameraOffsets
+from scene.camera_offsets import CameraOffsets, resolve_camera_time
 from scene.fourier_rigid import FourierRigidHead
 from utils.general_utils import get_regularization_weights, safe_state
 from utils.image_utils import psnr
@@ -271,12 +271,11 @@ def scene_reconstruction(
         has_mask = False
         render_pkg_list = []
         for viewpoint_cam in viewpoint_cams:
-            custom_time = None
-            if camera_offsets_module is not None:
-                cam_name = getattr(viewpoint_cam, "cam_name", None)
-                frame_idx = getattr(viewpoint_cam, "frame_idx", None)
-                if cam_name is not None and frame_idx is not None:
-                    custom_time = camera_offsets_module.get_normalized_time(cam_name, frame_idx)
+            custom_time = resolve_camera_time(viewpoint_cam, camera_offsets_module)
+            if custom_time is not None:
+                freeze_iter = getattr(opt, "learnable_offsets_freeze_iter", 10000)
+                if stage != "fine" or iteration < freeze_iter:
+                    custom_time = custom_time.detach()
 
             render_pkg = render(
                 viewpoint_cam,
@@ -372,6 +371,15 @@ def scene_reconstruction(
                 )
                 loss += tv_loss
 
+            if camera_offsets_module is not None:
+                freeze_iter = getattr(opt, "learnable_offsets_freeze_iter", 10000)
+                if iteration >= freeze_iter and getattr(opt, "lambda_offset_prior", 0.01) > 0.0:
+                    offset_prior_loss = camera_offsets_module.compute_prior_loss(
+                        sigma_s=getattr(opt, "offset_prior_sigma_s", 0.005),
+                        weight=getattr(opt, "lambda_offset_prior", 0.01),
+                    )
+                    loss = loss + offset_prior_loss
+
             if trajectory_loss_fn is not None and getattr(opt, "lambda_trajectory", 0.0) > 0.0:
                 traj_losses = []
                 for v_idx, viewpoint_cam in enumerate(viewpoint_cams):
@@ -446,6 +454,7 @@ def scene_reconstruction(
                 [pipe, background],
                 stage,
                 scene.dataset_type,
+                camera_offsets_module=camera_offsets_module,
             )
             if iteration in saving_iterations:
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
@@ -454,7 +463,7 @@ def scene_reconstruction(
                     try:
                         offsets_file = os.path.join(scene.model_path, "learned_offsets.json")
                         with open(offsets_file, "w", encoding="utf-8") as f:
-                            json.dump(camera_offsets_module.get_effective_offsets(), f, indent=2)
+                            json.dump(camera_offsets_module.get_telemetry_dict(), f, indent=2)
                     except Exception as e:
                         print(f"Warning: failed to save learned offsets at iter {iteration}: {e}")
                 if fourier_head is not None:
@@ -678,34 +687,39 @@ def training(
         drift = {}
         fps = 20.0
         img_len = 60
+        ref_cam = "cam01"
+        offsets_sha256 = None
         if hasattr(scene, "train_camera") and scene.train_camera is not None:
             cam_names = scene.train_camera.get_camera_names()
             init_offsets = scene.train_camera.offsets_s
             drift = scene.train_camera.drift_s_per_s
             fps = scene.train_camera.fps
             img_len = getattr(scene.train_camera.dataset, "image_length", 60)
+            ref_cam = getattr(scene.train_camera.dataset, "reference_camera", "cam01")
+            offsets_sha256 = getattr(scene.train_camera, "offsets_file_sha256", None)
         if not cam_names and hasattr(dataset, "source_path"):
             offsets_path = os.path.join(dataset.source_path, "offsets.json")
             if os.path.exists(offsets_path):
-                try:
-                    with open(offsets_path, "r", encoding="utf-8") as f:
-                        off_data = json.load(f)
-                    init_offsets = off_data.get("offsets_s", {})
-                    cam_names = list(init_offsets.keys())
-                    fps = float(off_data.get("fps", 20.0))
-                except Exception:
-                    pass
+                with open(offsets_path, "r", encoding="utf-8") as f:
+                    off_data = json.load(f)
+                init_offsets = off_data.get("offsets_s", {})
+                cam_names = list(init_offsets.keys())
+                fps = float(off_data.get("fps", 20.0))
+                ref_cam = str(off_data.get("reference_camera", "cam01"))
         if not cam_names:
             cam_names = [f"cam{i:02d}" for i in range(1, 11)]
 
         camera_offsets_module = CameraOffsets(
             cam_names=cam_names,
             init_offsets_s=init_offsets,
-            reference_camera="cam01",
+            reference_camera=ref_cam,
             max_clamp_s=getattr(opt, "max_offset_clamp_s", 0.040),
             fps=fps,
             image_length=img_len,
             drift_s_per_s=drift,
+            offset_prior_sigma_s=getattr(opt, "offset_prior_sigma_s", 0.005),
+            lambda_offset_prior=getattr(opt, "lambda_offset_prior", 0.01),
+            offsets_file_sha256=offsets_sha256,
         ).cuda()
         offsets_optimizer = torch.optim.Adam(
             camera_offsets_module.parameters(),
@@ -806,8 +820,8 @@ def training(
         try:
             offsets_file = os.path.join(args.model_path, "learned_offsets.json")
             with open(offsets_file, "w", encoding="utf-8") as f:
-                json.dump(camera_offsets_module.get_effective_offsets(), f, indent=2)
-            print(f"[R7] Saved final learned offsets to {offsets_file}")
+                json.dump(camera_offsets_module.get_telemetry_dict(), f, indent=2)
+            print(f"[W1] Saved final learned offsets telemetry to {offsets_file}")
         except Exception as e:
             print(f"Warning: failed to save final learned offsets: {e}")
     if fourier_head is not None:
@@ -859,6 +873,7 @@ def training_report(
     renderArgs,
     stage,
     dataset_type,
+    camera_offsets_module=None,
 ):
     global _TRAINING_CURVES
     record_step = (iteration % 20 == 0) or (iteration in testing_iterations)
@@ -907,12 +922,16 @@ def training_report(
                 l1_test = 0.0
                 psnr_test = 0.0
                 for idx, viewpoint in enumerate(config["cameras"]):
+                    eval_custom_time = resolve_camera_time(viewpoint, camera_offsets_module)
+                    if eval_custom_time is not None:
+                        eval_custom_time = eval_custom_time.detach()
                     image = torch.clamp(
                         renderFunc(
                             viewpoint,
                             scene.gaussians,
                             stage=stage,
                             cam_type=dataset_type,
+                            custom_time=eval_custom_time,
                             *renderArgs,
                         )["render"],
                         0.0,
@@ -1002,6 +1021,17 @@ def training_report(
         torch.cuda.empty_cache()
 
     if entry is not None:
+        if camera_offsets_module is not None and iteration in testing_iterations:
+            try:
+                off_tel = camera_offsets_module.get_telemetry_dict()
+                entry["camera_offsets"] = off_tel
+                print(
+                    f"[W1] Offsets telemetry at iter {iteration}: "
+                    f"prior_loss={off_tel['prior_loss']:.6f}, "
+                    f"delta_offsets_s={off_tel['delta_offsets_s']}"
+                )
+            except Exception:
+                pass
         if scene and hasattr(scene, "gaussians"):
             try:
                 entry["points"] = int(scene.gaussians.get_xyz.shape[0])

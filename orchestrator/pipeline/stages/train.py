@@ -164,15 +164,45 @@ class TrainStage(Stage):
                 f"save_iterations list; see pipeline/vendored/cuda/train.py's module docstring."
             )
 
+        model_meta: dict[str, Any] = {
+            "port": cfg.get("port", 6009),
+            "expname": cfg.get("expname") or ctx.run_id,
+        }
+        offsets_json = scene.path / "offsets.json" if hasattr(scene.path, "__truediv__") else None
+        if offsets_json is None:
+            from pathlib import Path as _Path
+            offsets_json = _Path(scene.path) / "offsets.json"
+        if offsets_json.is_file():
+            import hashlib as _hashlib
+            model_meta["offsets_file_sha256"] = _hashlib.sha256(offsets_json.read_bytes()).hexdigest()
+
+        learned_offsets_file = model_host / "learned_offsets.json"
+        if learned_offsets_file.is_file():
+            import json as _json
+            try:
+                model_meta["learned_offsets"] = _json.loads(
+                    learned_offsets_file.read_text(encoding="utf-8")
+                )
+            except Exception:
+                pass
+
         artifacts = {
             "model": Artifact(
                 name="model",
                 kind="model",
                 path=str(model_host),
                 producing_stage=ctx.stage_name,
-                metadata={"port": cfg.get("port", 6009), "expname": cfg.get("expname") or ctx.run_id},
+                metadata=model_meta,
             )
         }
+        if learned_offsets_file.is_file():
+            artifacts["learned_offsets"] = Artifact(
+                name="learned_offsets",
+                kind="json",
+                path=str(learned_offsets_file),
+                producing_stage=ctx.stage_name,
+                metadata={"is_learned_offsets": True},
+            )
         curves_file = model_host / "training_curves.json"
         if curves_file.is_file():
             artifacts["training_curves"] = Artifact(

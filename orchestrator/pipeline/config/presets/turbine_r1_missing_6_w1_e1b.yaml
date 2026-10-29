@@ -1,0 +1,19 @@
+# W1 (E1b) — Guarded learnable per-camera offsets on native-4DGS baseline
+# Extends turbine_r1_missing_6_w1_e1a, differing ONLY in learnable_camera_offsets: true.
+# cam01 is anchored by construction; non-anchor cameras are regularized toward the sidecar
+# initialization with a quadratic prior (sigma = 5 ms, lambda = 0.01) after freeze_iter = 3000.
+extends: turbine_r1_missing_6_w1_e1a
+name: turbine_r1_missing_6_w1_e1b
+
+model:
+  source_path: "data/multipleview/turbine_r1_missing_6"
+  model_path: "output/multipleview/turbine_r1_missing_6_w1_e1b"
+  learnable_camera_offsets: true
+
+train:
+  port: 6023
+  expname: "multipleview/turbine_r1_missing_6_w1_e1b"
+
+optim:
+  learnable_camera_offsets: true
+

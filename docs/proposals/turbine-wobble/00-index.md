@@ -13,7 +13,7 @@
 | ID | Task ID | Title & Spec | Depends on | Experiment | Gate before proceeding | Status |
 |---|---|---|---|---|---|---|
 | **W0** | T48 | [Audit and freeze the native-4DGS baseline](W0-native-baseline-audit.md) | — | Baseline | Disabled config is numerically identical to native HexPlane; dry-run matches across both `train.py` entry points; no ROI/head files auto-loaded when disabled | **done** |
-| **W1** | T49 | [Harden fixed/learnable per-camera timing](W1-camera-timing-hardening.md) | W0 | **E1a**, **E1b** | Loader/optimizer tests pass; train/eval/render timestamps match identically; fixed-vs-learnable presets differ only in offset optimization | **todo** |
+| **W1** | T49 | [Harden fixed/learnable per-camera timing](W1-camera-timing-hardening.md) | W0 | **E1a**, **E1b** | Loader/optimizer tests pass; train/eval/render timestamps match identically; fixed-vs-learnable presets differ only in offset optimization | **done** |
 | **W2** | T50 | [Multi-view frequency-domain & trajectory motion evaluation](W2-multiview-motion-evaluation.md) | W1 | Evaluates **E1a/E1b+** | Recovers synthetic complex $Z = A e^{i\phi}$; rejects wrong phase/amplitude even at target frequency; rejects low-$R^2$ optical tracks loudly | **todo** |
 | **W3** | T51 | [Continuous normalized soft loss weighting](W3-soft-loss-weighting.md) | W1, W2 | **E2** | Static sequence gives weights $\approx 1.0$; smooth normalized maps ($\mathbb{E}[w]=1$, floor $\ge 1$, cap $10\text{–}20$); no hard masks | **todo** |
 | **W4** | T52 | [Fixed-$K$ soft learned motion components](W4-soft-motion-components.md) | W3 | **E3** | Zero-init is exact W3 no-op; densification/prune/checkpoint tests pass; synthetic 1- and 2-mover pilots beat W3 baseline | **todo** |

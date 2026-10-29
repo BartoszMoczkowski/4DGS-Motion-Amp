@@ -70,6 +70,9 @@ class ModelParams(ParamGroup):
         self.extension=".png"
         self.llffhold=8
         self.use_camera_offsets = True
+        self.strict_camera_offsets = False
+        self.offsets_file = ""
+        self.learnable_camera_offsets = False
         self.use_roi_voxels = False
         self.use_fourier_rigid_head = False
         super().__init__(parser, "Loading Parameters", sentinel)
@@ -176,10 +179,14 @@ class OptimizationParams(ParamGroup):
         self.roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box for gated coarse
         self.use_roi_voxels = False # Load <scene>/roi_voxels.npz voxel ROI (T41; densification-safe, overrides bbox)
         self.use_camera_offsets = True # Enable per-camera exposure offsets from offsets.json (R6)
-        self.learnable_camera_offsets = False # Jointly learn residual exposure offsets (R7)
+        self.strict_camera_offsets = False # Require valid offsets.json with full camera coverage and no optical_offsets fallback (W1)
+        self.offsets_file = "" # Optional explicit timing JSON path relative to source_path (W1)
+        self.learnable_camera_offsets = False # Jointly learn residual exposure offsets (R7/W1)
         self.learnable_offsets_lr = 0.0001 # Learning rate for residual offsets optimizer
         self.learnable_offsets_freeze_iter = 10000 # Freeze offsets until this fine iteration
-        self.max_offset_clamp_s = 0.040 # Maximum absolute exposure offset clamp in seconds (+/-40ms)
+        self.max_offset_clamp_s = 0.040 # Secondary safety bound on absolute exposure offset in seconds (+/-40ms)
+        self.offset_prior_sigma_s = 0.005 # Standard deviation in seconds for quadratic sidecar offset prior (W1)
+        self.lambda_offset_prior = 0.01 # Weight for quadratic sidecar offset prior (W1)
         self.lambda_trajectory = 0.0 # Weight for 2D trajectory reprojection loss (R8)
         self.trajectory_track_file = "" # Path to trajectory tracks file (default: trajectory_tracks.json)
         self.trajectory_roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box for trajectory loss

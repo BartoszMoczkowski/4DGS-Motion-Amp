@@ -60,7 +60,19 @@ class Scene:
             dataset_type="PanopticSports"
         elif os.path.exists(os.path.join(args.source_path,"points3D_multipleview.ply")):
             use_offsets = getattr(args, "use_camera_offsets", True)
-            scene_info = sceneLoadTypeCallbacks["MultipleView"](args.source_path, use_camera_offsets=use_offsets)
+            offsets_file = getattr(args, "offsets_file", None) or None
+            strict_offsets = getattr(args, "strict_camera_offsets", False)
+            try:
+                scene_info = sceneLoadTypeCallbacks["MultipleView"](
+                    args.source_path,
+                    use_camera_offsets=use_offsets,
+                    offsets_file=offsets_file,
+                    strict_camera_offsets=strict_offsets,
+                )
+            except TypeError:
+                scene_info = sceneLoadTypeCallbacks["MultipleView"](
+                    args.source_path, use_camera_offsets=use_offsets
+                )
             dataset_type="MultipleView"
 
         else:
@@ -92,6 +104,24 @@ class Scene:
                                                     "point_cloud",
                                                     "iteration_" + str(self.loaded_iter),
                                                    ))
+            if getattr(args, "learnable_camera_offsets", False):
+                learned_off_file = os.path.join(self.model_path, "learned_offsets.json")
+                if os.path.exists(learned_off_file):
+                    try:
+                        with open(learned_off_file, "r", encoding="utf-8") as f:
+                            off_payload = json.load(f)
+                        off_map = (
+                            off_payload.get("current_offsets_s", off_payload)
+                            if isinstance(off_payload, dict)
+                            else {}
+                        )
+                        if hasattr(self, "train_camera") and hasattr(self.train_camera, "apply_offsets_dict"):
+                            self.train_camera.apply_offsets_dict(off_map)
+                        if hasattr(self, "test_camera") and hasattr(self.test_camera, "apply_offsets_dict"):
+                            self.test_camera.apply_offsets_dict(off_map)
+                        print(f"[W1] Loaded learned camera offsets from {learned_off_file}")
+                    except Exception as e:
+                        print(f"Warning: could not load learned camera offsets from {learned_off_file}: {e}")
             if getattr(args, "use_roi_voxels", False):
                 roi_npz = os.path.join(args.source_path, "roi_voxels.npz")
                 if os.path.exists(roi_npz):

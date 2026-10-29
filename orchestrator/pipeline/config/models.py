@@ -128,10 +128,14 @@ class OptimizationParams(StrictModel):
     roi_bbox: Optional[list[float]] = None
     use_roi_voxels: bool = False
     use_camera_offsets: bool = True
+    strict_camera_offsets: bool = False
+    offsets_file: str = ""
     learnable_camera_offsets: bool = False
     learnable_offsets_lr: float = 0.0001
     learnable_offsets_freeze_iter: int = 10000
     max_offset_clamp_s: float = 0.040
+    offset_prior_sigma_s: float = 0.005
+    lambda_offset_prior: float = 0.01
     lambda_trajectory: float = 0.0
     trajectory_track_file: str = ""
     trajectory_roi_bbox: Optional[list[float]] = None
@@ -168,6 +172,9 @@ class ModelParams(StrictModel):
     extension: str = ".png"
     llffhold: int = 8
     use_camera_offsets: bool = True
+    strict_camera_offsets: bool = False
+    offsets_file: str = ""
+    learnable_camera_offsets: bool = False
     use_roi_voxels: bool = False
     use_fourier_rigid_head: bool = False
 
@@ -661,7 +668,14 @@ class PipelineConfig(StrictModel):
         pipe_set = self.pipeline_params.model_fields_set
         hidden_set = self.hidden.model_fields_set
 
-        for shared_model_key in ("use_camera_offsets", "use_roi_voxels", "use_fourier_rigid_head"):
+        for shared_model_key in (
+            "use_camera_offsets",
+            "strict_camera_offsets",
+            "offsets_file",
+            "learnable_camera_offsets",
+            "use_roi_voxels",
+            "use_fourier_rigid_head",
+        ):
             if shared_model_key in opt_set and shared_model_key not in model_set:
                 setattr(self.model, shared_model_key, getattr(self.optim, shared_model_key))
             elif shared_model_key in model_set and shared_model_key not in opt_set:

@@ -1,0 +1,29 @@
+# W1 (E1a) — Fixed RTP/RTCP sidecar timestamps on native-4DGS baseline
+# Extends turbine_r1_missing_6_w0_baseline with strict sidecar timing validation
+# (offsets.json required, full camera coverage validated, no optical_offsets fallback).
+extends: turbine_r1_missing_6_w0_baseline
+name: turbine_r1_missing_6_w1_e1a
+
+model:
+  source_path: "data/multipleview/turbine_r1_missing_6"
+  model_path: "output/multipleview/turbine_r1_missing_6_w1_e1a"
+  use_camera_offsets: true
+  strict_camera_offsets: true
+  offsets_file: "offsets.json"
+  learnable_camera_offsets: false
+
+train:
+  port: 6023
+  expname: "multipleview/turbine_r1_missing_6_w1_e1a"
+
+optim:
+  use_camera_offsets: true
+  strict_camera_offsets: true
+  offsets_file: "offsets.json"
+  learnable_camera_offsets: false
+  learnable_offsets_lr: 0.0001
+  learnable_offsets_freeze_iter: 3000
+  offset_prior_sigma_s: 0.005
+  lambda_offset_prior: 0.01
+  max_offset_clamp_s: 0.040
+
