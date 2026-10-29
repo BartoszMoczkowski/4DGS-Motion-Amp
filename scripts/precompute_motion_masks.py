@@ -76,11 +76,11 @@ def generate_soft_roi_mask(
 def compute_camera_bandpass_variance(
     frame_paths: list[Path],
     fps: float,
-    f_low: float = 6.0,
-    f_high: float = 9.0,
+    f_low: float = 3.5,
+    f_high: float = 7.5,
     chunk_rows: int = 300,
 ) -> np.ndarray:
-    """Compute per-pixel temporal variance of 6-9 Hz band-passed frame differences."""
+    """Compute per-pixel temporal variance of band-passed frame differences with drift suppression."""
     N = len(frame_paths)
     if N < 4:
         raise ValueError(f"Need at least 4 frames to compute temporal bandpass, got {N}")
@@ -109,12 +109,19 @@ def compute_camera_bandpass_variance(
             raise RuntimeError(f"Failed to read image at {p}")
         frames[i] = im
 
+    # Robust per-frame median luminance normalization to reject global auto-exposure drift
+    medians = [float(np.median(frames[i])) for i in range(N)]
+    mean_med = float(np.mean(medians))
+    med_offsets = torch.tensor([m - mean_med for m in medians], dtype=torch.float32).view(N, 1, 1)
+
     variance_map = torch.zeros((h, w), dtype=torch.float32)
 
     # Process in vertical chunks to avoid high memory allocation
     for r_start in range(0, h, chunk_rows):
         r_end = min(r_start + chunk_rows, h)
         chunk = torch.from_numpy(frames[:, r_start:r_end, :]).float()
+        # Suppress global frame luminance fluctuations
+        chunk = chunk - med_offsets
         diff = torch.diff(chunk, dim=0)  # [N-1, chunk_rows, w]
         fft = torch.fft.rfft(diff, dim=0)
         # Parseval relation: sum of power in positive frequency bins
@@ -130,7 +137,7 @@ def postprocess_motion_mask(
     noise_percentile: float = 75.0,
     dilation_kernel: int = 31,
     dilation_iters: int = 2,
-    smooth_sigma: float = 10.0,
+    smooth_sigma: float = 15.0,
 ) -> np.ndarray:
     """Post-process variance map: rig gating, thresholding, dilation, smoothing."""
     h, w = vmap.shape
@@ -146,10 +153,15 @@ def postprocess_motion_mask(
     thresh = float(np.percentile(pos_vals, noise_percentile))
     signal = np.maximum(vmap_gated - thresh, 0.0)
 
-    if signal.max() <= 1e-6:
+    pos_signal = signal[signal > 0]
+    if len(pos_signal) == 0 or pos_signal.max() <= 1e-6:
         return np.zeros((h, w), dtype=np.float32)
 
-    signal_norm = (signal / signal.max()).astype(np.float32)
+    # Robust quantile normalization (99th percentile) instead of single-pixel max
+    p99 = float(np.percentile(pos_signal, 99.0))
+    if p99 <= 1e-6:
+        return np.zeros((h, w), dtype=np.float32)
+    signal_norm = np.clip(signal / p99, 0.0, 1.0).astype(np.float32)
 
     # Morphological dilation to solidly cover moving boundaries and wobble envelope
     if dilation_kernel > 1 and dilation_iters > 0:
@@ -178,11 +190,11 @@ def process_scene_camera(
     cam_idx: int,
     fps: float,
     mode: str = "bandpass",
-    f_low: float = 6.0,
-    f_high: float = 9.0,
+    f_low: float = 3.5,
+    f_high: float = 7.5,
     dilation_kernel: int = 31,
     dilation_iters: int = 2,
-    smooth_sigma: float = 10.0,
+    smooth_sigma: float = 15.0,
     noise_percentile: float = 75.0,
     chunk_rows: int = 300,
 ) -> tuple[np.ndarray, dict[str, Any]]:
@@ -249,12 +261,12 @@ def process_scene_camera(
 def precompute_scene_motion_masks(
     scene_dir: Path,
     mode: str = "bandpass",
-    f_low: float = 6.0,
-    f_high: float = 9.0,
+    f_low: float = 3.5,
+    f_high: float = 7.5,
     fps: float | None = None,
     dilation_kernel: int = 31,
     dilation_iters: int = 2,
-    smooth_sigma: float = 10.0,
+    smooth_sigma: float = 15.0,
     noise_percentile: float = 75.0,
     chunk_rows: int = 300,
     out_dir: Path | None = None,
@@ -334,12 +346,43 @@ def precompute_scene_motion_masks(
             heatmap_path = target_out / f"{cam_name}_heatmap.png"
             cv2.imwrite(str(heatmap_path), heatmap)
 
+        # Save visual overlay inspection artifact (blended over first frame)
+        frame_files = sorted(list(cam_d.glob("*.jpg")) + list(cam_d.glob("*.png")))
+        if frame_files:
+            f0 = cv2.imread(str(frame_files[0]), cv2.IMREAD_GRAYSCALE)
+            if f0 is not None:
+                color_mask = cv2.applyColorMap(vis_u8, cv2.COLORMAP_JET)
+                base_bgr = cv2.cvtColor(f0, cv2.COLOR_GRAY2BGR)
+                overlay = cv2.addWeighted(base_bgr, 0.6, color_mask, 0.4, 0)
+                overlay_path = target_out / f"{cam_name}_overlay.png"
+                cv2.imwrite(str(overlay_path), overlay)
+
+        import hashlib
+        stats["sha256"] = hashlib.sha256(npy_path.read_bytes()).hexdigest()
+        stats["min"] = float(mask.min())
+        stats["max"] = float(mask.max())
+        stats["p50"] = float(np.percentile(mask, 50.0))
+        stats["p95"] = float(np.percentile(mask, 95.0))
+        stats["p99"] = float(np.percentile(mask, 99.0))
+
         manifest["cameras"][cam_name] = stats
         print(f"  {cam_name}: active={stats['fraction_active']*100:.1f}%, mean={stats['mask_mean']:.3f}, runtime={stats['runtime_s']}s -> {npy_path.name}")
 
+    import hashlib
+    h_all = hashlib.sha256()
+    for cname in sorted(manifest["cameras"].keys()):
+        h_all.update(cname.encode("utf-8"))
+        npy_file = target_out / f"{cname}.npy"
+        if npy_file.is_file():
+            h_all.update(npy_file.read_bytes())
+    manifest["weight_maps_hash"] = f"sha256:{h_all.hexdigest()}"
+
+    # Save both weight_maps_meta.json (W3 spec) and manifest.json (legacy)
+    weight_meta_path = target_out / "weight_maps_meta.json"
+    weight_meta_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     manifest_path = target_out / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    print(f"  Saved manifest -> {manifest_path}")
+    print(f"  Saved weight_maps_meta -> {weight_meta_path}")
     return manifest
 
 
@@ -374,14 +417,14 @@ def main() -> int:
     parser.add_argument(
         "--f-low",
         type=float,
-        default=6.0,
-        help="Low cutoff frequency for wobble band-pass in Hz (default: 6.0)",
+        default=3.5,
+        help="Low cutoff frequency for wobble band-pass in Hz (default: 3.5, covering 5.69 Hz fundamental)",
     )
     parser.add_argument(
         "--f-high",
         type=float,
-        default=9.0,
-        help="High cutoff frequency for wobble band-pass in Hz (default: 9.0)",
+        default=7.5,
+        help="High cutoff frequency for wobble band-pass in Hz (default: 7.5)",
     )
     parser.add_argument(
         "--fps",
@@ -404,7 +447,7 @@ def main() -> int:
     parser.add_argument(
         "--smooth-sigma",
         type=float,
-        default=10.0,
+        default=15.0,
         help="Gaussian blur sigma for boundary smoothing (default: 10.0)",
     )
     parser.add_argument(

@@ -17,6 +17,34 @@ import lpips
 def lpips_loss(img1, img2, lpips_model):
     loss = lpips_model(img1,img2)
     return loss.mean()
+def normalize_loss_weights(
+    weights: torch.Tensor,
+    mask_max: float = 15.0,
+    floor: float = 1.0,
+    normalize_mean: bool = True,
+) -> torch.Tensor:
+    """Prepares continuous, floor-bounded, mean-normalized soft loss weights (W3 / T51).
+
+    1. If weights are normalized in [0, 1], maps to [floor, mask_max]:
+       w = floor + (mask_max - floor) * weights
+    2. Enforces floor >= floor (default 1.0).
+    3. Normalizes by spatial mean so E[w] = 1.0, preserving the unweighted L1 loss scale.
+    4. Detaches from autograd graph (loss weights do not receive gradients).
+    """
+    w = weights.detach().float()
+    if w.max() <= 1.01:
+        w = floor + (mask_max - floor) * w
+    w = torch.clamp(w, min=floor)
+    if normalize_mean:
+        if w.dim() >= 3:
+            # Spatial dimensions are the last two (-2, -1)
+            mean_val = w.mean(dim=(-2, -1), keepdim=True)
+            w = w / torch.clamp(mean_val, min=1e-8)
+        else:
+            w = w / torch.clamp(w.mean(), min=1e-8)
+    return w.detach()
+
+
 def l1_loss(network_output, gt, mask=None):
     diff = torch.abs(network_output - gt)
     if mask is not None:

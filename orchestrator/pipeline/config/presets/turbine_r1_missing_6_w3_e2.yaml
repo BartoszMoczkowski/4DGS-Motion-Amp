@@ -1,0 +1,18 @@
+# W3 (E2) — Continuous normalized soft loss weighting on E1 timing baseline
+# Extends turbine_r1_missing_6_w1_e1a with continuous, floor-bounded, unit-mean soft loss weights.
+# Gating: no hard masks, no ROI voxel grid, pure HexPlane deformation everywhere.
+extends: turbine_r1_missing_6_w1_e1a
+name: turbine_r1_missing_6_w3_e2
+
+model:
+  model_path: "output/multipleview/turbine_r1_missing_6_w3_e2"
+
+train:
+  port: 6025
+  expname: "multipleview/turbine_r1_missing_6_w3_e2"
+
+optim:
+  use_motion_mask: true
+  normalize_motion_mask: true
+  motion_mask_max: 15.0
+

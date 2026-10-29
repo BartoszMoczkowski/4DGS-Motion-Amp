@@ -175,6 +175,25 @@ class TrainStage(Stage):
         if offsets_json.is_file():
             model_meta["offsets_file_sha256"] = hashlib.sha256(offsets_json.read_bytes()).hexdigest()
 
+        motion_masks_dir = Path(scene.path) / "motion_masks"
+        if motion_masks_dir.is_dir():
+            mask_meta_file = motion_masks_dir / "weight_maps_meta.json"
+            if mask_meta_file.is_file():
+                try:
+                    meta_data = json.loads(mask_meta_file.read_text(encoding="utf-8"))
+                    model_meta["weight_maps_hash"] = meta_data.get("weight_maps_hash")
+                    model_meta["weight_maps_meta_sha256"] = hashlib.sha256(mask_meta_file.read_bytes()).hexdigest()
+                except Exception:
+                    pass
+            if "weight_maps_hash" not in model_meta:
+                npy_files = sorted(list(motion_masks_dir.glob("*.npy")))
+                if npy_files:
+                    h = hashlib.sha256()
+                    for f in npy_files:
+                        h.update(f.name.encode("utf-8"))
+                        h.update(f.read_bytes())
+                    model_meta["weight_maps_hash"] = f"sha256:{h.hexdigest()}"
+
         learned_offsets_file = model_host / "learned_offsets.json"
         if learned_offsets_file.is_file():
             try:

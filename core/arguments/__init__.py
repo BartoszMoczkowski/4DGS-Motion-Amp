@@ -172,9 +172,10 @@ class OptimizationParams(ParamGroup):
         self.opacity_threshold_fine_after = 0.005
         self.batch_size=1
         self.add_point=False
-        self.use_motion_mask = False # Enable motion-mask weighted L1 loss (R2)
+        self.use_motion_mask = False # Enable motion-mask weighted L1 loss (R2/W3)
         self.motion_mask_dir = "" # Optional custom directory containing motion masks
         self.motion_mask_max = 50.0 # Maximum loss weight multiplier for moving regions
+        self.normalize_motion_mask = True # Unit mean normalization so E[w] = 1.0 (W3)
         self.gated_coarse = False # Enable Option B coarse-stage ROI deformation gating (R10)
         self.roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box for gated coarse
         self.use_roi_voxels = False # Load <scene>/roi_voxels.npz voxel ROI (T41; densification-safe, overrides bbox)

@@ -300,8 +300,16 @@ def scene_reconstruction(
                         align_corners=False,
                     ).squeeze(0)
                 mask_max = float(getattr(opt, "motion_mask_max", 50.0) or 50.0)
-                if cam_mask.max() <= 1.01:
-                    cam_mask = 1.0 + (mask_max - 1.0) * cam_mask
+                from utils.loss_utils import normalize_loss_weights
+                normalize_mean = bool(getattr(opt, "normalize_motion_mask", True))
+                cam_mask = normalize_loss_weights(
+                    cam_mask,
+                    mask_max=mask_max,
+                    floor=1.0,
+                    normalize_mean=normalize_mean,
+                )
+
+
                 masks.append(cam_mask.unsqueeze(0))
             else:
                 masks.append(None)

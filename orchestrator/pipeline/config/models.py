@@ -124,6 +124,7 @@ class OptimizationParams(StrictModel):
     use_motion_mask: bool = False
     motion_mask_dir: str = ""
     motion_mask_max: float = 50.0
+    normalize_motion_mask: bool = True
     gated_coarse: bool = False
     roi_bbox: Optional[list[float]] = None
     use_roi_voxels: bool = False
