@@ -33,7 +33,11 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MULTIPLEVIEW_DIR = REPO_ROOT / "data" / "multipleview"
 
-DEFAULT_NOMINAL_WOBBLE_HZ = 7.112  # Nominal 427 RPM shaft speed
+MIN_R2_THRESHOLD = 0.50
+MIN_AMPLITUDE_PX = 0.05
+MAX_ALLOWED_MEAN_DISC_MS = 15.0
+MAX_ALLOWED_INDIVIDUAL_DISC_MS = 20.0
+MIN_VALID_CAMERAS = 8
 
 
 @dataclass
@@ -50,6 +54,8 @@ class CameraOpticalFit:
     r2_score: float = 0.0
     principal_axis_angle_deg: float = 0.0
     harmonics: dict[str, float] = field(default_factory=dict)  # {"f1": ..., "f2": ..., "f3": ..., "thd": ...}
+    status: str = "VALID"
+    rejection_reason: str | None = None
 
 
 def load_sidecar_offsets(scene_name: str) -> dict[str, float] | None:
@@ -338,6 +344,23 @@ def process_scene_optical_offsets(
             disc_ms = float((resolved_delta_s - sidecar_s) * 1000.0)
             discrepancies_ms.append(abs(disc_ms))
 
+        # Quality gating per camera (W2 / T50 hardening)
+        if r2 < MIN_R2_THRESHOLD:
+            c_status = "REJECTED_LOW_R2"
+            c_reason = f"R2 score {r2:.3f} < {MIN_R2_THRESHOLD:.2f}"
+        elif amp < MIN_AMPLITUDE_PX:
+            c_status = "REJECTED_LOW_AMP"
+            c_reason = f"Amplitude {amp:.3f} px < {MIN_AMPLITUDE_PX:.2f} px"
+        elif n_pts < 5:
+            c_status = "REJECTED_LOW_POINTS"
+            c_reason = f"Tracked points {n_pts} < 5"
+        elif disc_ms is not None and abs(disc_ms) > MAX_ALLOWED_INDIVIDUAL_DISC_MS:
+            c_status = "REJECTED_DISCREPANCY"
+            c_reason = f"Discrepancy {abs(disc_ms):.1f} ms > {MAX_ALLOWED_INDIVIDUAL_DISC_MS:.1f} ms"
+        else:
+            c_status = "VALID"
+            c_reason = None
+
         cam_fit = CameraOpticalFit(
             camera_id=cid,
             n_frames=n_frames,
@@ -351,24 +374,70 @@ def process_scene_optical_offsets(
             r2_score=r2,
             principal_axis_angle_deg=angle_deg,
             harmonics=harmonics,
+            status=c_status,
+            rejection_reason=c_reason,
         )
         camera_results[cid] = asdict(cam_fit)
 
     mean_disc_ms = float(np.mean(discrepancies_ms)) if discrepancies_ms else None
     max_disc_ms = float(np.max(discrepancies_ms)) if discrepancies_ms else None
 
+    # Overall validation gating across rig
+    rejection_reasons = []
+    valid_cams = [cid for cid, res in camera_results.items() if res.get("status") == "VALID"]
+    rejected_cams = [cid for cid, res in camera_results.items() if res.get("status") != "VALID"]
+
+    if rejected_cams:
+        rejection_reasons.append(
+            f"{len(rejected_cams)}/{len(camera_results)} cameras failed quality gate: {rejected_cams}"
+        )
+    if len(valid_cams) < MIN_VALID_CAMERAS:
+        rejection_reasons.append(
+            f"Insufficient valid cameras: {len(valid_cams)} < required {MIN_VALID_CAMERAS}"
+        )
+    if mean_disc_ms is not None and mean_disc_ms > MAX_ALLOWED_MEAN_DISC_MS:
+        rejection_reasons.append(
+            f"Mean sidecar discrepancy {mean_disc_ms:.2f} ms > {MAX_ALLOWED_MEAN_DISC_MS:.1f} ms"
+        )
+    if max_disc_ms is not None and max_disc_ms > MAX_ALLOWED_INDIVIDUAL_DISC_MS:
+        rejection_reasons.append(
+            f"Max sidecar discrepancy {max_disc_ms:.2f} ms > {MAX_ALLOWED_INDIVIDUAL_DISC_MS:.1f} ms"
+        )
+
+    if rejection_reasons:
+        if any(res.get("status") == "REJECTED_LOW_R2" for res in camera_results.values()):
+            val_status = "rejected_low_r2"
+        elif any(res.get("status") == "REJECTED_LOW_AMP" for res in camera_results.values()):
+            val_status = "rejected_low_amplitude"
+        elif mean_disc_ms is not None and (
+            mean_disc_ms > MAX_ALLOWED_MEAN_DISC_MS
+            or (max_disc_ms is not None and max_disc_ms > MAX_ALLOWED_INDIVIDUAL_DISC_MS)
+        ):
+            val_status = "rejected_discrepancy"
+        else:
+            val_status = "rejected_quality_gate"
+    else:
+        val_status = "validated" if mean_disc_ms is not None else "completed_no_sidecar"
+
     # Print summary table
-    print(f"\n{'Camera':<8} | {'Amp (px)':<9} | {'Phase (rad)':<12} | {'Optical (ms)':<13} | {'Sidecar (ms)':<13} | {'Disc (ms)':<10} | {'THD':<7}")
-    print("-" * 85)
+    print(f"\n{'Camera':<8} | {'Amp (px)':<9} | {'Phase (rad)':<12} | {'Optical (ms)':<13} | {'Sidecar (ms)':<13} | {'Disc (ms)':<10} | {'R2':<6} | {'Status':<16}")
+    print("-" * 105)
     for cid, res in camera_results.items():
         opt_ms = res["resolved_offset_s"] * 1000.0
         sc_ms_str = f"{res['sidecar_offset_s'] * 1000.0:13.2f}" if res["sidecar_offset_s"] is not None else "        N/A"
         disc_str = f"{res['discrepancy_ms']:10.2f}" if res["discrepancy_ms"] is not None else "       N/A"
-        thd_str = f"{res['harmonics']['thd']:7.3f}"
-        print(f"{cid:<8} | {res['amplitude_px']:9.3f} | {res['phase_rad']:12.4f} | {opt_ms:13.2f} | {sc_ms_str} | {disc_str} | {thd_str}")
+        r2_str = f"{res['r2_score']:6.3f}"
+        stat_str = res.get("status", "VALID")
+        print(f"{cid:<8} | {res['amplitude_px']:9.3f} | {res['phase_rad']:12.4f} | {opt_ms:13.2f} | {sc_ms_str} | {disc_str} | {r2_str} | {stat_str:<16}")
 
-    if mean_disc_ms is not None:
-        print(f"\n[MUTUAL VALIDATION] Mean discrepancy vs sidecars: {mean_disc_ms:.2f} ms (Max: {max_disc_ms:.2f} ms)")
+    if rejection_reasons:
+        print("\n" + "!" * 85)
+        print(f"[OPTICAL VALIDATION REJECTED] Status: {val_status}")
+        for r in rejection_reasons:
+            print(f"  - {r}")
+        print("!" * 85)
+    else:
+        print(f"\n[OPTICAL VALIDATION PASSED] Status: {val_status} (Mean disc: {mean_disc_ms:.2f} ms)")
 
     output_payload = {
         "scene": scene_name,
@@ -382,7 +451,9 @@ def process_scene_optical_offsets(
         "validation_summary": {
             "mean_discrepancy_ms": mean_disc_ms,
             "max_discrepancy_ms": max_disc_ms,
-            "status": "validated" if mean_disc_ms is not None and mean_disc_ms <= 25.0 else "completed",
+            "n_valid_cameras": len(valid_cams),
+            "status": val_status,
+            "rejection_reasons": rejection_reasons,
         },
         "cameras": camera_results,
     }
