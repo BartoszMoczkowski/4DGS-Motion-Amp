@@ -1,0 +1,56 @@
+# W1 GPU smoke test — guarded learnable offsets (E1b path) on the T38 synthetic preflight scene.
+# Synthetic scene: 10 cams x 60 frames, offsets.json holds the *injected ground-truth* offsets,
+# full camera coverage, no drift. Short schedule that still crosses every W1 code path:
+#   coarse (offsets detached) -> fine frozen (< freeze_iter, detached) -> fine unfrozen
+#   (prior loss + offset optimizer) -> training_report eval before/after unfreeze -> save
+#   (learned_offsets.json telemetry) -> manifest metadata.
+# All W0 hard gates / masks / heads / trajectory loss are off (native HexPlane everywhere).
+# Not a quality experiment: do not interpret PSNR or recovered offsets from this run.
+extends: synthetic_turbine_preflight
+name: synthetic_turbine_preflight_w1_smoke
+
+model:
+  source_path: "data/multipleview/synthetic_turbine_preflight"
+  model_path: "output/multipleview/synthetic_turbine_preflight_w1_smoke"
+  use_camera_offsets: true
+  strict_camera_offsets: true
+  offsets_file: "offsets.json"
+  learnable_camera_offsets: true
+  use_roi_voxels: false
+  use_fourier_rigid_head: false
+
+train:
+  port: 6025
+  expname: "multipleview/synthetic_turbine_preflight_w1_smoke"
+  test_iterations: [400, 1500]
+  save_iterations: [1500]
+
+pipeline_params:
+  gated_coarse: false
+  roi_bbox: null
+
+optim:
+  coarse_iterations: 200
+  iterations: 1500
+  use_camera_offsets: true
+  strict_camera_offsets: true
+  offsets_file: "offsets.json"
+  learnable_camera_offsets: true
+  learnable_offsets_lr: 0.0001
+  learnable_offsets_freeze_iter: 600
+  offset_prior_sigma_s: 0.005
+  lambda_offset_prior: 0.01
+  max_offset_clamp_s: 0.040
+  gated_coarse: false
+  roi_bbox: null
+  use_roi_voxels: false
+  use_motion_mask: false
+  motion_mask_dir: ""
+  lambda_trajectory: 0.0
+  trajectory_track_file: ""
+  trajectory_roi_bbox: null
+  use_fourier_rigid_head: false
+  fourier_head_pure_rigid: false
+  fourier_head_static_background: false
+  fourier_head_roi_bbox: null
+

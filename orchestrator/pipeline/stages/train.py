@@ -12,6 +12,9 @@ repo-root ``train.py`` — only the ported, in-project copy.
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from typing import Any
 
 from ..artifacts import Artifact
@@ -168,19 +171,14 @@ class TrainStage(Stage):
             "port": cfg.get("port", 6009),
             "expname": cfg.get("expname") or ctx.run_id,
         }
-        offsets_json = scene.path / "offsets.json" if hasattr(scene.path, "__truediv__") else None
-        if offsets_json is None:
-            from pathlib import Path as _Path
-            offsets_json = _Path(scene.path) / "offsets.json"
+        offsets_json = Path(scene.path) / "offsets.json"
         if offsets_json.is_file():
-            import hashlib as _hashlib
-            model_meta["offsets_file_sha256"] = _hashlib.sha256(offsets_json.read_bytes()).hexdigest()
+            model_meta["offsets_file_sha256"] = hashlib.sha256(offsets_json.read_bytes()).hexdigest()
 
         learned_offsets_file = model_host / "learned_offsets.json"
         if learned_offsets_file.is_file():
-            import json as _json
             try:
-                model_meta["learned_offsets"] = _json.loads(
+                model_meta["learned_offsets"] = json.loads(
                     learned_offsets_file.read_text(encoding="utf-8")
                 )
             except Exception:

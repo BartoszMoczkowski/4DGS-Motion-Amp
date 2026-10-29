@@ -154,12 +154,13 @@ def train(
     from pipeline.artifacts import Artifact, validate_external_artifact_path
 
     external_artifacts = {}
-    model_src = resolved.get("model", {}).get("source_path", "")
-    target_scene_dir = Path(scene.resolve()) if scene is not None else (Path(model_src).resolve() if model_src else None)
+    metadata = {}
+    target_scene_dir: Optional[Path] = None
 
-    if target_scene_dir and target_scene_dir.exists():
+    if scene is not None:
         try:
-            valid_scene_path = validate_external_artifact_path(str(target_scene_dir), "dataset")
+            valid_scene_path = validate_external_artifact_path(str(scene.resolve()), "dataset")
+            target_scene_dir = Path(valid_scene_path)
             external_artifacts["scene"] = Artifact(
                 name="scene",
                 kind="dataset",
@@ -167,11 +168,25 @@ def train(
                 producing_stage="external",
             )
         except ValueError as e:
-            if scene is not None:
-                raise _bad(f"--scene: {e}") from e
+            raise _bad(f"--scene: {e}") from e
+    else:
+        model_src = resolved.get("model", {}).get("source_path", "")
+        if model_src:
+            candidate = Path(model_src).resolve()
+            if candidate.exists():
+                try:
+                    valid_scene_path = validate_external_artifact_path(str(candidate), "dataset")
+                    target_scene_dir = Path(valid_scene_path)
+                    external_artifacts["scene"] = Artifact(
+                        name="scene",
+                        kind="dataset",
+                        path=str(valid_scene_path),
+                        producing_stage="external",
+                    )
+                except ValueError:
+                    pass
 
     import hashlib
-    metadata = {}
     if target_scene_dir and target_scene_dir.exists():
         offsets_file = target_scene_dir / "offsets.json"
         if offsets_file.exists():

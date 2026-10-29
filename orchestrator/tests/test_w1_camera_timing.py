@@ -1,4 +1,4 @@
- """Tests for Work Package W1 (Task T49: Harden Fixed & Guarded Learnable Per-Camera Timing).
+"""Tests for Work Package W1 (Task T49: Harden Fixed & Guarded Learnable Per-Camera Timing).
 
 Verifies:
 1. Synthetic loader & strict timing validation:
@@ -534,3 +534,63 @@ def test_w1_e1a_vs_e1b_single_factor_diff(e1a_name: str, e1b_name: str):
         mod_a.pop(k, None)
         mod_b.pop(k, None)
     assert mod_a == mod_b, f"model differs in non-learnable-offset keys: {mod_a} vs {mod_b}"
+
+
+def test_train_stage_manifest_records_offsets_sha_and_telemetry(tmp_path: Path, monkeypatch):
+    """Verify TrainStage.run records offsets_file_sha256 and learned_offsets in artifact metadata."""
+    from pipeline.stages.train import TrainStage
+    from pipeline.stages.base import StageContext
+
+    run_dir = tmp_path / "run"
+    scene_dir = tmp_path / "scene"
+    run_dir.mkdir(parents=True)
+    scene_dir.mkdir(parents=True)
+
+    offsets_bytes = b'{"fps": 20.0, "offsets_s": {"cam01": 0.0}}'
+    (scene_dir / "offsets.json").write_bytes(offsets_bytes)
+    expected_sha = hashlib.sha256(offsets_bytes).hexdigest()
+
+    model_host = run_dir / "train_out"
+    pt_dir = model_host / "point_cloud" / "iteration_100"
+    pt_dir.mkdir(parents=True)
+    (pt_dir / "point_cloud.ply").touch()
+
+    telemetry = {
+        "reference_camera": "cam01",
+        "current_offsets_s": {"cam01": 0.0, "cam02": 0.015},
+        "prior_loss": 0.0001,
+    }
+    (model_host / "learned_offsets.json").write_text(json.dumps(telemetry), encoding="utf-8")
+
+    class MockPaths:
+        def to_container(self, path, env="cuda"):
+            return str(path)
+
+    class MockLogger:
+        def info(self, *a, **k): pass
+        def warning(self, *a, **k): pass
+
+    # Stub out cuda execution
+    monkeypatch.setattr("pipeline.stages.train.write_stage_bridge", lambda ctx: "/bridge.py")
+    monkeypatch.setattr("pipeline.stages.train.run_cuda_script", lambda ctx, script, args, log_name: None)
+
+    ctx = StageContext(
+        stage_name="train.default",
+        run_id="test_smoke_run",
+        run_dir=run_dir,
+        config={"port": 6099, "expname": "test_smoke_run"},
+        inputs={"scene": type("A", (), {"path": str(scene_dir)})()},
+        paths=MockPaths(),
+        logger=MockLogger(),
+    )
+
+    stage = TrainStage()
+    artifacts = stage.run(ctx)
+
+    assert "model" in artifacts
+    assert "learned_offsets" in artifacts
+    model_art = artifacts["model"]
+    assert model_art.metadata.get("offsets_file_sha256") == expected_sha
+    assert model_art.metadata.get("learned_offsets") == telemetry
+    assert artifacts["learned_offsets"].metadata.get("is_learned_offsets") is True
+
