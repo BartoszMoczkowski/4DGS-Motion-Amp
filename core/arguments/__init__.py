@@ -70,6 +70,8 @@ class ModelParams(ParamGroup):
         self.extension=".png"
         self.llffhold=8
         self.use_camera_offsets = True
+        self.use_roi_voxels = False
+        self.use_fourier_rigid_head = False
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

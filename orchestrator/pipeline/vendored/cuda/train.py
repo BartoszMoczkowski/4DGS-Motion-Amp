@@ -307,7 +307,7 @@ def scene_reconstruction(
             viewspace_point_tensor_list.append(viewspace_point_tensor)
 
             cam_mask = getattr(viewpoint_cam, "mask", None)
-            if cam_mask is not None:
+            if getattr(opt, "use_motion_mask", False) and cam_mask is not None:
                 has_mask = True
                 if not isinstance(cam_mask, torch.Tensor):
                     cam_mask = torch.as_tensor(cam_mask, dtype=torch.float32)

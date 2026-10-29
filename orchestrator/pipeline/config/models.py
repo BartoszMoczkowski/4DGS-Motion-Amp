@@ -168,6 +168,8 @@ class ModelParams(StrictModel):
     extension: str = ".png"
     llffhold: int = 8
     use_camera_offsets: bool = True
+    use_roi_voxels: bool = False
+    use_fourier_rigid_head: bool = False
 
 
 class PipelineParams(StrictModel):
@@ -648,3 +650,32 @@ class PipelineConfig(StrictModel):
     roi: RoiConfig = Field(default_factory=RoiConfig)
 
     amp: AmpConfig = Field(default_factory=AmpConfig)
+
+    @model_validator(mode="after")
+    def _sync_shared_param_group_flags(self) -> "PipelineConfig":
+        """Keep shared flags synchronized across ModelParams, PipelineParams, ModelHiddenParams,
+        and OptimizationParams when a preset sets a shared field in only one section.
+        """
+        opt_set = self.optim.model_fields_set
+        model_set = self.model.model_fields_set
+        pipe_set = self.pipeline_params.model_fields_set
+        hidden_set = self.hidden.model_fields_set
+
+        for shared_model_key in ("use_camera_offsets", "use_roi_voxels", "use_fourier_rigid_head"):
+            if shared_model_key in opt_set and shared_model_key not in model_set:
+                setattr(self.model, shared_model_key, getattr(self.optim, shared_model_key))
+            elif shared_model_key in model_set and shared_model_key not in opt_set:
+                setattr(self.optim, shared_model_key, getattr(self.model, shared_model_key))
+
+        for shared_pipe_key in ("gated_coarse", "roi_bbox"):
+            if shared_pipe_key in opt_set and shared_pipe_key not in pipe_set:
+                setattr(self.pipeline_params, shared_pipe_key, getattr(self.optim, shared_pipe_key))
+            elif shared_pipe_key in pipe_set and shared_pipe_key not in opt_set:
+                setattr(self.optim, shared_pipe_key, getattr(self.pipeline_params, shared_pipe_key))
+
+        if "render_process" in model_set and "render_process" not in hidden_set:
+            self.hidden.render_process = self.model.render_process
+        elif "render_process" in hidden_set and "render_process" not in model_set:
+            self.model.render_process = self.hidden.render_process
+
+        return self

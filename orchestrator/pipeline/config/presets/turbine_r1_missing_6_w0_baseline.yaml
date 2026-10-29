@@ -1,0 +1,48 @@
+# W0 Native-4DGS Baseline Preset for turbine_r1_missing_6
+# Extends turbine_r1_missing_6 with all hard spatial motion gates, soft masks,
+# trajectory losses, and rigid/Fourier heads conclusively disabled.
+# Preserves fixed per-camera timestamp offsets (camera_offsets.json) and the
+# agreed coarse/regularizer schedule (coarse_iterations: 500, anneal: 3000,
+# time_smoothness_weight_final: 0.0001, l1_time_planes_final: 0.0).
+extends: turbine_r1_missing_6
+name: turbine_r1_missing_6_w0_baseline
+
+model:
+  source_path: "data/multipleview/turbine_r1_missing_6"
+  model_path: "output/multipleview/turbine_r1_missing_6_w0_baseline"
+  use_camera_offsets: true
+  use_roi_voxels: false
+  use_fourier_rigid_head: false
+
+train:
+  port: 6023
+  expname: "multipleview/turbine_r1_missing_6_w0_baseline"
+
+hidden:
+  kplanes_config:
+    resolution: [64, 64, 64, 300]
+  regularizer_anneal_iter: 3000
+  time_smoothness_weight_final: 0.0001
+  l1_time_planes_final: 0.0
+
+pipeline_params:
+  gated_coarse: false
+  roi_bbox: null
+
+optim:
+  coarse_iterations: 500
+  use_camera_offsets: true
+  learnable_camera_offsets: false
+  gated_coarse: false
+  roi_bbox: null
+  use_roi_voxels: false
+  use_motion_mask: false
+  motion_mask_dir: ""
+  lambda_trajectory: 0.0
+  trajectory_track_file: ""
+  trajectory_roi_bbox: null
+  use_fourier_rigid_head: false
+  fourier_head_pure_rigid: false
+  fourier_head_static_background: false
+  fourier_head_roi_bbox: null
+
