@@ -172,6 +172,7 @@ class OptimizationParams(ParamGroup):
         self.motion_mask_max = 50.0 # Maximum loss weight multiplier for moving regions
         self.gated_coarse = False # Enable Option B coarse-stage ROI deformation gating (R10)
         self.roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box for gated coarse
+        self.use_roi_voxels = False # Load <scene>/roi_voxels.npz voxel ROI (T41; densification-safe, overrides bbox)
         self.use_camera_offsets = True # Enable per-camera exposure offsets from offsets.json (R6)
         self.learnable_camera_offsets = False # Jointly learn residual exposure offsets (R7)
         self.learnable_offsets_lr = 0.0001 # Learning rate for residual offsets optimizer
@@ -187,6 +188,7 @@ class OptimizationParams(ParamGroup):
         self.fourier_head_learn_frequency = False # Allow learning residual frequency offset
         self.fourier_head_num_harmonics = 3 # Number of Fourier harmonics
         self.fourier_head_pure_rigid = False # Strict pure rigid motion inside ROI (replaces HexPlane)
+        self.fourier_head_static_background = False # Freeze non-ROI Gaussians at canonical pose (r14)
         self.fourier_head_roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box
         super().__init__(parser, "Optimization Parameters")
 

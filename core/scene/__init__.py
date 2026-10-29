@@ -92,6 +92,38 @@ class Scene:
                                                     "point_cloud",
                                                     "iteration_" + str(self.loaded_iter),
                                                    ))
+            roi_npz = os.path.join(args.source_path, "roi_voxels.npz")
+            if os.path.exists(roi_npz):
+                try:
+                    from scene.roi_grid import load_roi_grid
+                    self.gaussians._roi_grid = load_roi_grid(roi_npz, device="cuda")
+                    print(f"[ROI] Loaded voxel ROI from {roi_npz}")
+                except Exception as e:
+                    print(f"Warning: could not load ROI grid from {roi_npz}: {e}")
+            fh_pth = os.path.join(self.model_path, "fourier_head.pth")
+            fh_state = os.path.join(self.model_path, "fourier_head_state.json")
+            if os.path.exists(fh_pth) and os.path.exists(fh_state):
+                try:
+                    import torch
+                    from scene.fourier_rigid import FourierRigidHead
+                    with open(fh_state, "r", encoding="utf-8") as f:
+                        state = json.load(f)
+                    fps = self.train_camera.fps if hasattr(self, "train_camera") else 20.0
+                    img_len = getattr(self.train_camera.dataset, "image_length", 60) if hasattr(self, "train_camera") else 60
+                    fh = FourierRigidHead(
+                        base_frequency_hz=state["frequency_hz"],
+                        num_harmonics=state["num_harmonics"],
+                        fps=fps,
+                        image_length=img_len,
+                        pure_rigid=state.get("pure_rigid", False),
+                        static_background=state.get("static_background", state.get("pure_rigid", False)),
+                    ).cuda()
+                    fh.load_state_dict(torch.load(fh_pth, map_location="cuda"), strict=False)
+                    fh.eval()
+                    self.gaussians.fourier_head = fh
+                    print(f"[R9] Loaded FourierRigidHead ({state['frequency_hz']:.3f} Hz, pure_rigid={fh.pure_rigid}, static_bg={fh.static_background})")
+                except Exception as e:
+                    print(f"Warning: could not load FourierRigidHead from {fh_pth}: {e}")
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent, self.maxtime)
 

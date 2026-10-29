@@ -126,6 +126,7 @@ class OptimizationParams(StrictModel):
     motion_mask_max: float = 50.0
     gated_coarse: bool = False
     roi_bbox: Optional[list[float]] = None
+    use_roi_voxels: bool = False
     use_camera_offsets: bool = True
     learnable_camera_offsets: bool = False
     learnable_offsets_lr: float = 0.0001
@@ -141,6 +142,7 @@ class OptimizationParams(StrictModel):
     fourier_head_learn_frequency: bool = False
     fourier_head_num_harmonics: int = 3
     fourier_head_pure_rigid: bool = False
+    fourier_head_static_background: bool = False
     fourier_head_roi_bbox: Optional[list[float]] = None
 
 

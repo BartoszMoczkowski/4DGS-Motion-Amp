@@ -331,10 +331,15 @@ def scene_reconstruction(
 
         loss = Ll1
         if stage == "fine":
+            bypass_hexplane = (
+                fourier_head is not None
+                and getattr(fourier_head, "pure_rigid", False)
+                and getattr(fourier_head, "static_background", False)
+            )
             time_smoothness_weight, l1_time_planes_weight, plane_tv_weight = (
                 get_regularization_weights(iteration, hyper)
             )
-            if (
+            if not bypass_hexplane and (
                 time_smoothness_weight != 0
                 or l1_time_planes_weight != 0
                 or plane_tv_weight != 0
@@ -350,10 +355,15 @@ def scene_reconstruction(
                 traj_losses = []
                 for v_idx, viewpoint_cam in enumerate(viewpoint_cams):
                     m_final = render_pkg_list[v_idx]["means3D_final"]
+                    roi_mask_t = None
+                    if getattr(gaussians, "_roi_grid", None) is not None:
+                        from scene.roi_grid import voxel_roi_mask
+                        roi_mask_t = voxel_roi_mask(gaussians.get_xyz, gaussians._roi_grid)
                     t_loss = trajectory_loss_fn(
                         viewpoint_cam,
                         gaussians.get_xyz,
                         m_final,
+                        roi_mask=roi_mask_t,
                     )
                     traj_losses.append(t_loss)
                 if traj_losses:
@@ -627,6 +637,18 @@ def training(
     if getattr(opt, "roi_bbox", None) is not None and getattr(pipe, "roi_bbox", None) is None:
         pipe.roi_bbox = opt.roi_bbox
 
+    # Voxel ROI (T41): authoritative, densification-safe ROI for gated coarse /
+    # Fourier head / trajectory loss. Positional lookup, survives densification.
+    if getattr(opt, "use_roi_voxels", False):
+        roi_npz = os.path.join(dataset.source_path, "roi_voxels.npz")
+        if os.path.exists(roi_npz):
+            from scene.roi_grid import load_roi_grid
+            gaussians._roi_grid = load_roi_grid(roi_npz, device="cuda")
+            print(f"[ROI] Loaded voxel ROI from {roi_npz}: "
+                  f"{int(gaussians._roi_grid['grid'].sum())} occupied voxels")
+        else:
+            print(f"[ROI] WARNING: use_roi_voxels set but {roi_npz} missing — ROI gating disabled")
+
     camera_offsets_module = None
     offsets_optimizer = None
     if getattr(opt, "learnable_camera_offsets", False):
@@ -693,6 +715,7 @@ def training(
             image_length=getattr(scene.train_camera.dataset, "image_length", 60) if hasattr(scene, "train_camera") else 60,
             roi_bbox=roi_bbox,
             pure_rigid=getattr(opt, "fourier_head_pure_rigid", False),
+            static_background=getattr(opt, "fourier_head_static_background", False),
         ).cuda()
 
         tracks_path = os.path.join(dataset.source_path, "trajectory_tracks.json")

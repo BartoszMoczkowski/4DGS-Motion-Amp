@@ -1,0 +1,20 @@
+# T38/r13 synthetic pre-flight (mechanism probe): r12 + fat voxel ROI.
+# r11/r12 showed scene-wide HexPlane bleed of the rotor oscillation. Hypothesis:
+# the 2-voxel-dilated ROI covers only the original 583 dynamic surface points;
+# densified rotor-interior Gaussians fall OUTSIDE the ROI, still render rotor
+# pixels, and force the (spatially smooth) HexPlane to learn the oscillation,
+# which then bleeds scene-wide. pure_rigid alone (r12) cannot fix this because
+# the uncovered interior points are not replaced by the head.
+# r13 keeps pure_rigid: true but dilates the ROI by 16 voxels (8 cm shell):
+# 173,175 occupied voxels, still 100% dynamic / 0% static on the source cloud.
+# Pass criterion: background (non-ROI) mean amp@5.691 Hz << 1 mm and no visible
+# background shimmer in renders.
+extends: synthetic_turbine_preflight_r12
+name: synthetic_turbine_preflight_r13
+
+model:
+  source_path: "data/multipleview/synthetic_turbine_preflight_r11"
+  model_path: "output/multipleview/synthetic_turbine_preflight_r13"
+
+train:
+  expname: "multipleview/synthetic_turbine_preflight_r13"

@@ -1,0 +1,34 @@
+# Corrective step r11 (report §6 step 4, docs/turbine_wobble_r9_attempt_report.md):
+# r9 mechanisms, fixed. Phase-1 stack (r10: shortened coarse + annealed regularizers +
+# motion-mask loss) plus the Fourier-rigid head, with the three r9 defects corrected:
+#   1. ROI gating is now real: use_roi_voxels loads data/multipleview/lego_turbine_2_missing/
+#      roi_voxels.npz (17.6% selectivity, densification-safe) instead of the null bbox that
+#      made the r9 head a no-op.
+#   2. Frequency anchor corrected: 5.691 Hz (true wobble at fps=20.004), not 7.112 Hz
+#      (the 7.11 Hz figure came from the wrong 25 fps assumption).
+#   3. Learnable camera offsets OFF (r7 showed drift <=7.1 ms with no spectral benefit);
+#      fixed sidecar offsets from offsets.json stay on.
+# Trajectory reprojection loss stays off (lambda_trajectory: 0) — its r8 null-ROI form
+# supervised the scene-wide mean displacement, a direct cause of whole-scene wobble.
+extends: lego_turbine_2_missing_r10
+name: lego_turbine_2_missing_r11
+
+optim:
+  use_camera_offsets: true
+  learnable_camera_offsets: false
+  lambda_trajectory: 0.0
+  use_fourier_rigid_head: true
+  fourier_head_lr: 0.001
+  fourier_head_freeze_iter: 500
+  fourier_head_frequency_hz: 5.691
+  fourier_head_learn_frequency: false
+  fourier_head_num_harmonics: 3
+  # pure_rigid + static_background added after the T38/r11–r14 synthetic
+  # preflight (2026-10-27): additive mode (pure_rigid=false) lets the ungated
+  # HexPlane learn the oscillation and bleed it scene-wide; pure_rigid alone
+  # still leaks through densified rotor-interior points outside the ROI.
+  # static_background freezes non-ROI Gaussians at the canonical pose, closing
+  # every HexPlane path. Preflight r14 passed all gates with this combo.
+  fourier_head_pure_rigid: true
+  fourier_head_static_background: true
+  use_roi_voxels: true

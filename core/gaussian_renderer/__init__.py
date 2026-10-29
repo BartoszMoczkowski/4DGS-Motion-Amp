@@ -16,6 +16,34 @@ from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianR
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from time import time as get_time
+
+
+def _resolve_roi_mask(pc, pipe, means3D):
+    """ROI fallback chain (T41): per-point mask → voxel grid → bbox → None.
+
+    The voxel grid (pc._roi_grid, see scene/roi_grid.py) is the authoritative
+    form: positional and therefore densification-safe.
+    """
+    roi_mask = getattr(pc, "_roi_mask", None)
+    if roi_mask is not None:
+        return roi_mask
+    roi_grid = getattr(pc, "_roi_grid", None)
+    if roi_grid is not None:
+        from scene.roi_grid import voxel_roi_mask
+        return voxel_roi_mask(means3D, roi_grid)
+    b = getattr(pipe, "roi_bbox", None)
+    if b is not None:
+        return (
+            (means3D[:, 0] >= b[0])
+            & (means3D[:, 0] <= b[3])
+            & (means3D[:, 1] >= b[1])
+            & (means3D[:, 1] <= b[4])
+            & (means3D[:, 2] >= b[2])
+            & (means3D[:, 2] <= b[5])
+        )
+    return None
+
+
 def render(
     viewpoint_camera,
     pc : GaussianModel,
@@ -96,25 +124,27 @@ def render(
     else:
         scales = pc._scaling
         rotations = pc._rotation
+    active_fourier_head = fourier_head or getattr(pc, "fourier_head", None)
+    bypass_hexplane = (
+        active_fourier_head is not None
+        and getattr(active_fourier_head, "pure_rigid", False)
+        and getattr(active_fourier_head, "static_background", False)
+    )
     deformation_point = pc._deformation_table
-    if "coarse" in stage:
+    if bypass_hexplane:
+        means3D_final, scales_final, rotations_final, opacity_final, shs_final = (
+            means3D,
+            scales,
+            rotations,
+            opacity,
+            shs,
+        )
+    elif "coarse" in stage:
         if getattr(pipe, "gated_coarse", False):
             # Option B (R10): Gated coarse stage.
             # ROI Gaussians query the deformation field from iteration 0 so the canonical
             # pose anchors at a reference instant rather than the temporal mean.
-            roi_mask = None
-            if hasattr(pc, "_roi_mask") and pc._roi_mask is not None:
-                roi_mask = pc._roi_mask
-            elif getattr(pipe, "roi_bbox", None) is not None:
-                b = pipe.roi_bbox
-                roi_mask = (
-                    (means3D[:, 0] >= b[0])
-                    & (means3D[:, 0] <= b[3])
-                    & (means3D[:, 1] >= b[1])
-                    & (means3D[:, 1] <= b[4])
-                    & (means3D[:, 2] >= b[2])
-                    & (means3D[:, 2] <= b[5])
-                )
+            roi_mask = _resolve_roi_mask(pc, pipe, means3D)
             if roi_mask is not None:
                 means3D_final = means3D.clone()
                 scales_final = scales.clone()
@@ -157,21 +187,8 @@ def render(
     else:
         raise NotImplementedError
 
-    active_fourier_head = fourier_head or getattr(pc, "fourier_head", None)
     if active_fourier_head is not None:
-        roi_mask = None
-        if hasattr(pc, "_roi_mask") and pc._roi_mask is not None:
-            roi_mask = pc._roi_mask
-        elif getattr(pipe, "roi_bbox", None) is not None:
-            b = pipe.roi_bbox
-            roi_mask = (
-                (means3D[:, 0] >= b[0])
-                & (means3D[:, 0] <= b[3])
-                & (means3D[:, 1] >= b[1])
-                & (means3D[:, 1] <= b[4])
-                & (means3D[:, 2] >= b[2])
-                & (means3D[:, 2] <= b[5])
-            )
+        roi_mask = _resolve_roi_mask(pc, pipe, means3D)
         means3D_final, rotations_final = active_fourier_head(
             means3D_canon=means3D,
             means3D_deformed=means3D_final,

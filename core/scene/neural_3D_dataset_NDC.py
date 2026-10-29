@@ -109,7 +109,6 @@ def render_path_spiral(c2w, up, rads, focal, zdelta, zrate, N_rots=2, N=120):
     return render_poses
 
 
-
 def process_video(video_data_save, video_path, img_wh, downsample, transform):
     """
     Load video_path data to video_data_save tensor.
@@ -182,6 +181,7 @@ def process_videos(videos, skip_index, img_wh, downsample, transform, num_worker
                 current_index += 1
     return all_imgs
 
+
 def get_spiral(c2ws_all, near_fars, rads_scale=1.0, N_views=120):
     """
     Generate a set of poses using NeRF's spiral camera trajectory as validation poses.
@@ -208,21 +208,27 @@ def get_spiral(c2ws_all, near_fars, rads_scale=1.0, N_views=120):
 
 
 def get_orbit(poses, N_views=300, n_rots=1):
-    """Smooth circular orbit around the scene, at fixed radius/height, always looking at the
-    scene center. `get_spiral`'s NeRF spiral heuristic (avg pose direction + near/far-derived
-    focus depth + percentile translation as spiral radius) assumes a forward-facing capture
-    with a narrow baseline (LLFF/DyNeRF-style camera arrays). It is a poor fit for an
-    object-centric 360-degree multi-camera rig (e.g. omniverse_pipeline's ring/dome of static
-    cameras): the cameras' view directions point inward from all around the subject, so their
-    *average* pose/orientation is close to degenerate, which is what makes the spiral video
-    path swing around erratically ("spinning rapidly") instead of tracing a calm orbit.
+    """Smooth 360-degree circular orbit around the scene object starting at ``cam01`` (``poses[0]``).
 
-    poses: (N_cams, 3, 5) in the loader's remapped [right, up, back, center | hwf] layout
+    poses: (N_cams, 3, 4+) in the loader's remapped [right, up, back, center | ...] layout
     (see multipleview_dataset.get_video_cam_infos / dataset_readers' `[c1,-c0,c2,c3]` remap).
     """
     centers = poses[:, :, 3]                         # (N_cams, 3)
+    rights = poses[:, :, 0]                          # (N_cams, 3) - camera right directions
+    ups = poses[:, :, 1]                             # (N_cams, 3) - camera up directions
     fwd = -poses[:, :, 2]                            # (N_cams, 3) - camera forward directions
-    up = normalize(poses[:, :, 1].sum(0))             # consistent with get_spiral's `up`
+
+    # Estimate the world vertical ("up") axis. For synthetic rigs whose cameras have zero roll
+    # around the true vertical (even if all cameras sit on one hemisphere pitched down, as in
+    # cubes_k2_both), the nullspace of camera right vectors recovers the exact world vertical.
+    avg_up = normalize(ups.sum(0))
+    eigvals, eigvecs = np.linalg.eigh((rights.T @ rights) / max(len(rights), 1))
+    if eigvals[0] < 1e-4:
+        up = normalize(eigvecs[:, 0])
+        if np.dot(up, avg_up) < 0:
+            up = -up
+    else:
+        up = avg_up
 
     # Solve for the focus target point closest to all camera optical axes (least-squares ray intersection)
     A = np.zeros((3, 3))
@@ -234,39 +240,44 @@ def get_orbit(poses, N_views=300, n_rots=1):
         b += proj @ C
 
     if np.linalg.cond(A) < 1e5:
-        target = np.linalg.solve(A, b)
+        target_ls = np.linalg.solve(A, b)
     else:
-        target = centers.mean(0)
+        target_ls = centers.mean(0)
 
-    # Calculate distance and height relative to the focus target (brought ~1m closer)
-    rel = centers - target
-    heights = rel @ up
-    dists = np.linalg.norm(rel, axis=1)
-    radius_3d = max(float(dists.mean()) - 1.0, 0.5)
-    elevations = np.arcsin(np.clip(heights / (dists + 1e-12), -1.0, 1.0))
-
-    # For an elevated dome/ring capture (min elevation > 0), orbit at the lowest ring's elevation
-    # so the camera stays low and level with the subject instead of floating high above.
-    min_elev = float(np.min(elevations))
-    if min_elev > 0:
-        orbit_elev = min(min_elev, np.deg2rad(15.0))
+    # Project the multi-view target depth onto cam01's optical axis so frame 0 at cam01's
+    # position looks directly along cam01's viewing direction without an orientation jump.
+    c0 = centers[0]
+    fwd0 = normalize(fwd[0])
+    depth0 = float(np.dot(target_ls - c0, fwd0))
+    if depth0 > 1e-3:
+        target = c0 + depth0 * fwd0
     else:
-        orbit_elev = max(min_elev, 0.0)
+        target = target_ls
 
-    orbit_height = radius_3d * np.sin(orbit_elev)
-    orbit_radius = radius_3d * np.cos(orbit_elev)
-
-    # Orthonormal basis for the orbit plane (perpendicular to `up`).
-    world_ref = np.array([0.0, 0.0, 1.0]) if abs(up[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
-    e1 = normalize(np.cross(up, world_ref))
+    # Decompose cam01's offset from target into vertical height and horizontal orbit radius
+    # so that theta = 0 (frame 0) starts at cam01's exact position c0.
+    rel0 = c0 - target
+    orbit_height = float(np.dot(rel0, up))
+    radial0 = rel0 - orbit_height * up
+    orbit_radius = float(np.linalg.norm(radial0))
+    if orbit_radius < 1e-6:
+        world_ref = np.array([0.0, 0.0, 1.0]) if abs(up[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+        e1 = normalize(np.cross(up, world_ref))
+        orbit_radius = max(float(np.linalg.norm(rel0)), 0.5)
+    else:
+        e1 = radial0 / orbit_radius
     e2 = normalize(np.cross(up, e1))
 
     render_poses = []
     for i in range(N_views):
         theta = 2.0 * np.pi * n_rots * i / N_views
         pos = target + up * orbit_height + orbit_radius * (np.cos(theta) * e1 + np.sin(theta) * e2)
-        z = normalize(pos - target)                  # "back" axis looking at target
-        render_poses.append(viewmatrix(z, up, pos))
+        vec2 = normalize(pos - target)               # "back" axis looking at target
+        vec0 = normalize(np.cross(up, vec2))         # right-handed camera "right" axis
+        vec1 = normalize(np.cross(vec2, vec0))       # camera "up" axis
+        m = np.eye(4)
+        m[:3] = np.stack([vec0, vec1, vec2, pos], 1)
+        render_poses.append(m)
     return np.stack(render_poses)
 
 
@@ -437,4 +448,3 @@ class Neural3D_NDC_Dataset(Dataset):
         return img, self.image_poses[index], self.image_times[index]
     def load_pose(self,index):
         return self.image_poses[index]
-

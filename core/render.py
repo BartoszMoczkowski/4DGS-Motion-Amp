@@ -33,9 +33,11 @@ def multithread_write(image_list, path):
 
     def write_image(image, count, path):
         try:
-            torchvision.utils.save_image(
-                image, os.path.join(path, "{0:05d}".format(count) + ".png")
-            )
+            out_path = os.path.join(path, "{0:05d}".format(count) + ".png")
+            if isinstance(image, np.ndarray):
+                cv2.imwrite(out_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+            else:
+                torchvision.utils.save_image(image, out_path)
             return count, True
         except:
             return count, False
@@ -62,7 +64,6 @@ def render_set(
     makedirs(gts_path, exist_ok=True)
     render_images = []
     gt_list = []
-    render_list = []
     print("point nums:", gaussians._xyz.shape[0])
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         if idx == 0:
@@ -72,20 +73,19 @@ def render_set(
             "render"
         ]
         render_images.append(to8b(rendering).transpose(1, 2, 0))
-        render_list.append(rendering)
         if name in ["train", "test"]:
             if cam_type != "PanopticSports":
                 gt = view.original_image[0:3, :, :]
             else:
                 gt = view["image"].cuda()
-            gt_list.append(gt)
+            gt_list.append(gt.cpu())
 
     time2 = time()
     print("FPS:", (len(views) - 1) / (time2 - time1))
 
     multithread_write(gt_list, gts_path)
 
-    multithread_write(render_list, render_path)
+    multithread_write(render_images, render_path)
 
     imageio.mimwrite(
         os.path.join(model_path, name, "ours_{}".format(iteration), "video_rgb.mp4"),

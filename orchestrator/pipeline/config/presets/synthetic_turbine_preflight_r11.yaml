@@ -1,0 +1,30 @@
+# T38/r11 synthetic pre-flight: train the corrected r11 stack end-to-end on the
+# 5.691 Hz synthetic wobble scene (data/multipleview/synthetic_turbine_preflight_r11)
+# before the real r11 retrain. Mirrors lego_turbine_2_missing_r11 exactly:
+# Phase-1 stack + fixed sidecar offsets + ROI-gated Fourier head at 5.691 Hz,
+# learnable offsets OFF, lambda_trajectory = 0.
+# Gates (report §6 step 3): trained model recovers injected 5.691 Hz motion;
+# scene-wide (background) mean displacement ≈ 0; offsets error ≤ 2 ms is
+# satisfied by construction (fixed sidecar = injected values).
+extends: synthetic_turbine_preflight
+name: synthetic_turbine_preflight_r11
+
+model:
+  source_path: "data/multipleview/synthetic_turbine_preflight_r11"
+  model_path: "output/multipleview/synthetic_turbine_preflight_r11"
+
+train:
+  expname: "multipleview/synthetic_turbine_preflight_r11"
+
+optim:
+  use_camera_offsets: true
+  learnable_camera_offsets: false
+  lambda_trajectory: 0.0
+  use_fourier_rigid_head: true
+  fourier_head_lr: 0.001
+  fourier_head_freeze_iter: 500
+  fourier_head_frequency_hz: 5.691
+  fourier_head_learn_frequency: false
+  fourier_head_num_harmonics: 3
+  fourier_head_pure_rigid: false
+  use_roi_voxels: true

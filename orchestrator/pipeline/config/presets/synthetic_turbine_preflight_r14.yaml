@@ -1,0 +1,24 @@
+# T38/r14 synthetic pre-flight: r12 + fourier_head_static_background: true.
+# r11–r13 showed the HexPlane always picks up the rotor oscillation and bleeds
+# it scene-wide (additive sharing in r11; uncovered densified interior in r12;
+# r13's fat ROI reduced but impractically — 80% of the scene). r14 closes every
+# HexPlane path at once: with pure_rigid + static_background the head owns the
+# ROI outright and everything outside renders at the canonical pose
+# (fourier_rigid.py forward, static_background branch), so the background is
+# static BY CONSTRUCTION and the HexPlane receives no image gradient anywhere.
+# Uses the standard 2-voxel-dilation ROI (restored after the r13 probe).
+# Expected: G2 background amp@5.691 Hz ≈ 0 at deformation level; head amps
+# converge to the injected 3.6 mm; watch PSNR — static-background is a hard
+# prior and any ROI miscoverage now shows up as reconstruction error.
+extends: synthetic_turbine_preflight_r12
+name: synthetic_turbine_preflight_r14
+
+model:
+  source_path: "data/multipleview/synthetic_turbine_preflight_r11"
+  model_path: "output/multipleview/synthetic_turbine_preflight_r14"
+
+train:
+  expname: "multipleview/synthetic_turbine_preflight_r14"
+
+optim:
+  fourier_head_static_background: true

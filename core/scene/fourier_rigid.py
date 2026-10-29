@@ -67,6 +67,7 @@ class FourierRigidHead(nn.Module):
         image_length: int = 60,
         roi_bbox: Optional[List[float]] = None,
         pure_rigid: bool = False,
+        static_background: bool = False,
         init_dominant_axis: Optional[List[float]] = None,
         init_amplitude_m: float = 0.001,
         init_pivot: Optional[List[float]] = None,
@@ -79,6 +80,12 @@ class FourierRigidHead(nn.Module):
         self.image_length = int(image_length) if image_length > 0 else 1
         self.roi_bbox = list(roi_bbox) if roi_bbox is not None else None
         self.pure_rigid = bool(pure_rigid)
+        # r14: when True, points OUTSIDE the ROI render at their canonical pose
+        # (HexPlane output discarded), so the background is static by construction.
+        # The HexPlane then receives no image gradient anywhere (inside ROI it is
+        # replaced by the head, outside it is bypassed) and cannot bleed the ROI
+        # oscillation scene-wide. Requires pure_rigid=True to make sense.
+        self.static_background = bool(static_background)
 
         # 1. Frequency Parameter (fixed or learnable with strict clamping)
         if self.learn_frequency:
@@ -285,6 +292,10 @@ class FourierRigidHead(nn.Module):
             # Strictly replace deformation inside ROI with Fourier-rigid motion
             means3D_out[roi_mask] = pts_rigid
             rotations_out[roi_mask] = batch_quaternion_multiply(q_rot_expanded, rotations_canon[roi_mask])
+            if self.static_background:
+                # r14: freeze everything outside the ROI at the canonical pose
+                means3D_out[~roi_mask] = means3D_canon[~roi_mask]
+                rotations_out[~roi_mask] = rotations_canon[~roi_mask]
         else:
             # Additive hybrid: HexPlane base deformation + Fourier-rigid motion
             means3D_out[roi_mask] = means3D_deformed[roi_mask] + disp_rigid
@@ -351,6 +362,7 @@ class FourierRigidHead(nn.Module):
                 "transverse_phases_deg": [float(math.degrees(x)) for x in self.transverse_phases.cpu().numpy()],
                 "rotation_amplitudes_deg": [float(math.degrees(x)) for x in self.rot_amplitudes.cpu().numpy()],
                 "pure_rigid": self.pure_rigid,
+                "static_background": self.static_background,
             }
 
     def init_from_optical_tracks(self, track_file_or_data: Union[str, Path, Dict[str, Any]]):

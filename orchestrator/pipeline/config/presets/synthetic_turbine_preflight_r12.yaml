@@ -1,0 +1,22 @@
+# T38/r12 synthetic pre-flight: r11 + fourier_head_pure_rigid: true.
+# The r11 preflight (run synthetic_turbine_preflight_r11-b8a7e7b9) passed the
+# frequency/amplitude gates but FAILED background quiescence: in additive-hybrid
+# mode (pure_rigid=false) the ungated HexPlane also learns the rotor oscillation
+# and bleeds it scene-wide (visible shimmer on floor/walls in renders).
+# With pure_rigid=true the HexPlane output inside the ROI is REPLACED by the
+# Fourier-rigid head (fourier_rigid.py:284-287), so the HexPlane receives no
+# gradient from rotor pixels at all — the bleed path is cut by construction.
+# Checkable prediction: head translation amplitudes must converge to the full
+# injected 3.6 mm (they no longer share the motion with the HexPlane).
+extends: synthetic_turbine_preflight_r11
+name: synthetic_turbine_preflight_r12
+
+model:
+  source_path: "data/multipleview/synthetic_turbine_preflight_r11"
+  model_path: "output/multipleview/synthetic_turbine_preflight_r12"
+
+train:
+  expname: "multipleview/synthetic_turbine_preflight_r12"
+
+optim:
+  fourier_head_pure_rigid: true
