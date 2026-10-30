@@ -354,6 +354,43 @@ def test_static_scene_guardrail():
     assert mc.num_components == 1
 
 
+def test_rejection_due_to_incoherent_motion():
+    """Verify that a split improving PSNR but lacking motion coherence is rejected and rolled back."""
+    N = 20
+    pc = MockGaussianModel(num_points=N)
+    pc._motion_component_logits = nn.Parameter(torch.ones((N, 1)) * 3.0)
+    mc = MotionComponents(num_components=1)
+    pc.motion_components = mc
+
+    controller = ComponentSplitMergeController(
+        enabled=True,
+        eval_window=50,
+        min_metric_improvement=0.1,
+        min_motion_coherence=0.6,
+        cooldown_iters=1000,
+        min_component_support=1.0,
+    )
+
+    hex_res = torch.randn((N, 3))
+    proposed = controller.propose_split(pc, mc, 0, iteration=1000, baseline_metric=25.0, hex_residuals=hex_res)
+    assert proposed is True
+    assert mc.num_components == 2
+
+    # Metric improves substantially (+2.0 dB), but motion coherence is low (0.35 < 0.60)
+    decided, decision = controller.evaluate_and_decide(
+        current_iter=1050,
+        current_metric=27.0,
+        pc=pc,
+        mc=mc,
+        motion_coherence=0.35,
+    )
+    assert decided is True
+    assert decision == "rejected"
+    assert mc.num_components == 1, "Must roll back to 1 component upon motion incoherence"
+    assert controller.ledger[0]["status"] == "rejected"
+    assert controller.ledger[0]["reason"] == "incoherent_motion"
+
+
 def test_rejection_cooldown():
     """A rejected split enters cooldown and is not re-proposed during the cooldown window."""
     N = 20

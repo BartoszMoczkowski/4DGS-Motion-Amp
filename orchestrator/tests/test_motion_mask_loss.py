@@ -67,7 +67,7 @@ def test_static_synthetic_loss_reduces_to_stock():
 
 
 def test_masked_loss_weight_scaling():
-    """Verify that moving region error is weighted by max_weight while static is weighted by 1.0."""
+    """Verify that normalized masked loss preserves overall scale while weighting moving regions by max_weight."""
     B, C, H, W = 1, 3, 32, 32
     pred = torch.zeros(B, C, H, W)
     gt = torch.ones(B, C, H, W)  # uniform error of 1.0 everywhere
@@ -76,9 +76,20 @@ def test_masked_loss_weight_scaling():
     weight_map = torch.ones(B, 1, H, W)
     weight_map[:, :, :, 16:] = 50.0
 
-    loss = l1_loss(pred, gt, mask=weight_map)
-    # Expected mean: 0.5 * 1.0 + 0.5 * 50.0 = 25.5
-    assert torch.isclose(loss, torch.tensor(25.5), atol=1e-5)
+    # 1. Scale preservation on uniform error: sum(w * 1) / sum(w) = 1.0 (no artificial 25.5x inflation)
+    loss_uniform = l1_loss(pred, gt, mask=weight_map)
+    assert torch.isclose(loss_uniform, torch.tensor(1.0), atol=1e-5)
+
+    # 2. Moving vs static region loss weighting: moving error yields 50x higher loss than static error
+    pred_static_err = gt.clone()
+    pred_static_err[:, :, :, :16] = 0.0  # error 1.0 on static half (weight 1.0)
+    loss_static_err = l1_loss(pred_static_err, gt, mask=weight_map)
+
+    pred_moving_err = gt.clone()
+    pred_moving_err[:, :, :, 16:] = 0.0  # error 1.0 on moving half (weight 50.0)
+    loss_moving_err = l1_loss(pred_moving_err, gt, mask=weight_map)
+
+    assert torch.isclose(loss_moving_err / loss_static_err, torch.tensor(50.0), atol=1e-4)
 
 
 def test_masked_loss_gradient_scaling():

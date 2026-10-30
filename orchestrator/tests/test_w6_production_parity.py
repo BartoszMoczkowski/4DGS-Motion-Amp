@@ -407,5 +407,30 @@ def test_core_and_vendored_render_parity():
     # Both must define BoundedAsyncWriter and use streaming imageio writer
     assert "class BoundedAsyncWriter:" in core_text
     assert "class BoundedAsyncWriter:" in vendored_text
-    assert "imageio.get_writer(video_path, fps=30)" in core_text
-    assert "imageio.get_writer(video_path, fps=30)" in vendored_text
+    assert "imageio.get_writer(video_path, fps=resolved_fps)" in core_text
+    assert "imageio.get_writer(video_path, fps=resolved_fps)" in vendored_text
+    assert "resolve_render_fps(views, default_fps=20.004, override_fps=fps)" in core_text
+    assert "resolve_render_fps(views, default_fps=20.004, override_fps=fps)" in vendored_text
+
+
+def test_resolve_render_fps():
+    """Verify that render fps dynamically resolves physical timestamps without hardcoding 30 fps."""
+    class MockView:
+        def __init__(self, physical_time):
+            self.physical_time = physical_time
+
+    # 1. Physical 20.004 fps sequence (dt = 1/20.004 ~ 0.04999)
+    views_physical = [MockView(i * (1.0 / 20.004)) for i in range(10)]
+
+    from core.render import resolve_render_fps
+    fps_measured = resolve_render_fps(views_physical)
+    assert abs(fps_measured - 20.004) < 1e-2
+
+    # 2. Views without physical_time default to 20.004
+    views_plain = [MockView(None) for _ in range(5)]
+    fps_default = resolve_render_fps(views_plain)
+    assert fps_default == 20.004
+
+    # 3. Explicit override
+    fps_override = resolve_render_fps(views_physical, override_fps=60.0)
+    assert fps_override == 60.0

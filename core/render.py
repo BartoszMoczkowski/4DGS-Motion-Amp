@@ -14,7 +14,7 @@ import threading
 from argparse import ArgumentParser
 from os import makedirs
 from time import time
-from typing import Any
+from typing import Any, Optional
 
 import cv2
 import imageio
@@ -84,8 +84,29 @@ def multithread_write(image_list, path):
 to8b = lambda x: (255 * np.clip(x.cpu().numpy(), 0, 1)).astype(np.uint8)
 
 
+def resolve_render_fps(views, default_fps: float = 20.004, override_fps: Optional[float] = None) -> float:
+    """Resolve rendering frame rate dynamically from views or configuration.
+
+    Prevents hardcoded 30 fps assumption on physical 20.004 fps capture sequences.
+    """
+    if override_fps is not None and override_fps > 0:
+        return float(override_fps)
+    if views and len(views) > 1:
+        times = []
+        for v in views[:20]:
+            pt = getattr(v, "physical_time", None)
+            if pt is not None:
+                times.append(float(pt))
+        if len(times) > 1:
+            diffs = [t2 - t1 for t1, t2 in zip(times[:-1], times[1:]) if (t2 - t1) > 1e-6]
+            if diffs:
+                mean_dt = float(np.mean(diffs))
+                return float(round(1.0 / mean_dt, 3))
+    return float(default_fps)
+
+
 def render_set(
-    model_path, name, iteration, views, gaussians, pipeline, background, cam_type
+    model_path, name, iteration, views, gaussians, pipeline, background, cam_type, fps=None
 ):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
@@ -98,7 +119,8 @@ def render_set(
     num_views = len(views)
     video_writer = None
     if num_views > 0:
-        video_writer = imageio.get_writer(video_path, fps=30)
+        resolved_fps = resolve_render_fps(views, default_fps=20.004, override_fps=fps)
+        video_writer = imageio.get_writer(video_path, fps=resolved_fps)
     async_writer = BoundedAsyncWriter(max_workers=4, max_queued=4)
 
     time1 = time()
@@ -139,6 +161,7 @@ def render_sets(
     skip_train: bool,
     skip_test: bool,
     skip_video: bool,
+    fps: Optional[float] = None,
 ):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree, hyperparam)
@@ -157,6 +180,7 @@ def render_sets(
                 pipeline,
                 background,
                 cam_type,
+                fps=fps,
             )
 
         if not skip_test:
@@ -169,6 +193,7 @@ def render_sets(
                 pipeline,
                 background,
                 cam_type,
+                fps=fps,
             )
         if not skip_video:
             render_set(
@@ -180,6 +205,7 @@ def render_sets(
                 pipeline,
                 background,
                 cam_type,
+                fps=fps,
             )
 
 
@@ -195,6 +221,7 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--skip_video", action="store_true")
     parser.add_argument("--configs", type=str)
+    parser.add_argument("--fps", default=None, type=float, help="Render frame rate (default: physical fps or 20.004)")
     args = get_combined_args(parser)
     print("Rendering ", args.model_path)
     if args.configs:
@@ -215,4 +242,5 @@ if __name__ == "__main__":
         args.skip_train,
         args.skip_test,
         args.skip_video,
+        fps=getattr(args, "fps", None) or getattr(hyperparam, "fps", None),
     )

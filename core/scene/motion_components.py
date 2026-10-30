@@ -322,24 +322,29 @@ class MotionComponents(nn.Module):
         return float((iteration - self.ramp_start_iter) / max(self.ramp_end_iter - self.ramp_start_iter, 1))
 
     def get_responsibilities(self, pc: Any) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Compute soft responsibilities q [N, K] and null responsibility q0 [N, 1] on simplex."""
+        """Compute soft responsibilities q [N, K] and unassigned / null responsibility q0 [N, 1] on simplex.
+        
+        Note: q0 represents 'unassigned responsibility' (i.e. not explained by any shared rigid component).
+        A Gaussian with q0 = 1.0 is NOT static: it continues to move freely through the persistent
+        native HexPlane residual field h_i(t).
+        """
         logits = getattr(pc, "_motion_component_logits", None)
         num_pts = pc.get_xyz.shape[0]
         device = pc.get_xyz.device
 
         if logits is None or logits.shape[-1] != self.num_components:
-            # Default to null component: q0 = 1, q_k = 0
+            # Default to unassigned: q0 = 1, q_k = 0
             q0 = torch.ones((num_pts, 1), device=device, dtype=torch.float32)
             q = torch.zeros((num_pts, self.num_components), device=device, dtype=torch.float32)
             return q, q0
 
-        # Unconstrained logits z with fixed null logit z0 = 0
+        # Unconstrained logits z with fixed null / unassigned logit z0 = 0
         z0 = torch.zeros((num_pts, 1), device=logits.device, dtype=logits.dtype)
         z_full = torch.cat([z0, logits], dim=-1)
         q_full = F.softmax(z_full, dim=-1)
 
-        q0 = q_full[:, :1]
-        q = q_full[:, 1:]
+        q0 = q_full[:, :1]  # unassigned / null component responsibility
+        q = q_full[:, 1:]   # shared component responsibilities
         return q, q0
 
     def apply_deformation(
@@ -405,7 +410,8 @@ class MotionComponents(nn.Module):
     ) -> torch.Tensor:
         """Detached responsibility-weighted HexPlane residual penalty.
         
-        L_res = lambda_res(t) * sum_{i=1}^N (1 - stopgrad(q_i0)) ||h_i(t)||_2^2
+        Normalizes by sum(1 - stopgrad(q_i0)) so the penalty remains invariant to point count:
+        L_res = lambda_res(t) * [ sum_{i=1}^N (1 - stopgrad(q_i0)) ||h_i(t)||_2^2 ] / [ sum_{i=1}^N (1 - stopgrad(q_i0)) + eps ]
         """
         if not self.is_active or self.num_components == 0:
             return torch.tensor(0.0, device=hex_residual.device)
@@ -422,7 +428,8 @@ class MotionComponents(nn.Module):
         weighted_res = weight * res_norm_sq
 
         lambda_cur = self.lambda_res_max * alpha
-        return lambda_cur * weighted_res.mean()
+        weight_mass = weight.sum().clamp(min=1e-6)
+        return lambda_cur * (weighted_res.sum() / weight_mass)
 
     def update_responsibilities_ema(
         self,

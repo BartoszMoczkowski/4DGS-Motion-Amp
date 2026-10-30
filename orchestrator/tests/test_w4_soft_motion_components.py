@@ -183,28 +183,31 @@ def test_null_responsibilities_exact_identity():
 
     mc = MotionComponents(
         num_components=2,
-        ramp_start_iter=0,
-        ramp_end_iter=100,
+        ramp_start_iter=100,
+        ramp_end_iter=500,
     )
     model.motion_components = mc
     # Logits set to very large negative numbers -> q_k -> 0
     model._motion_component_logits = nn.Parameter(torch.full((30, 2), -50.0))
 
-    out_m, out_s, out_r, out_o, out_sh = dispatch_deformation(
-        pc=model,
-        means3D=model._xyz,
-        scales=model._scaling,
-        rotations=model._rotation,
-        opacity=model._opacity,
-        shs=model.get_features,
-        time=time,
-        stage="fine",
-        motion_components=mc,
-        iteration=200,  # alpha = 1.0
-    )
+    # Test across all training stages: pre-ramp (iter 0, 50), mid-ramp (iter 300), post-ramp (iter 1000, 5000)
+    for iter_val in [0, 50, 100, 300, 500, 1000, 5000]:
+        out_m, out_s, out_r, out_o, out_sh = dispatch_deformation(
+            pc=model,
+            means3D=model._xyz,
+            scales=model._scaling,
+            rotations=model._rotation,
+            opacity=model._opacity,
+            shs=model.get_features,
+            time=time,
+            stage="fine",
+            motion_components=mc,
+            iteration=iter_val,
+        )
 
-    torch.testing.assert_close(out_m, hex_m, rtol=1e-5, atol=1e-6)
-    torch.testing.assert_close(out_r, hex_r, rtol=1e-5, atol=1e-6)
+        torch.testing.assert_close(out_m, hex_m, rtol=1e-5, atol=1e-6)
+        torch.testing.assert_close(out_r, hex_r, rtol=1e-5, atol=1e-6)
+        torch.testing.assert_close(out_s, hex_s, rtol=1e-5, atol=1e-6)
 
 
 # ==============================================================================
@@ -231,8 +234,8 @@ def test_finite_gradients_and_stopgrad():
     """Gradients through component parameters and responsibility logits are finite without NaNs."""
     mc = MotionComponents(
         num_components=1,
-        ramp_start_iter=0,
-        ramp_end_iter=100,
+        ramp_start_iter=100,
+        ramp_end_iter=500,
         lambda_res_max=1.0,
     )
     model = MockGaussianModel(num_points=20)

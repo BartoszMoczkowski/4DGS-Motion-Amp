@@ -59,36 +59,37 @@ from pipeline.config import validate_config
 def test_normalize_loss_weights_static_identity():
     """All-zero evidence (static scene) must produce identically 1.0 weights everywhere."""
     evidence = torch.zeros((1, 1, 64, 64), dtype=torch.float32)
-    w = normalize_loss_weights(evidence, mask_max=15.0, floor=1.0, normalize_mean=True)
+    w = normalize_loss_weights(evidence, mask_max=15.0, floor=1.0)
 
     assert torch.allclose(w, torch.ones_like(w)), "Static weights must equal 1.0 everywhere"
     assert abs(float(w.mean()) - 1.0) < 1e-6
     assert not w.requires_grad, "Loss weights must be detached"
 
 
-def test_normalize_loss_weights_unit_mean_and_bounds():
-    """Evidence with localized activity produces floor >= 1/mean, cap <= w_max/mean, and mean == 1.0."""
+def test_normalize_loss_weights_bounds_and_contrast():
+    """Evidence with localized activity produces floor == 1.0, cap <= w_max, and mover/static ratio == w_max."""
     evidence = torch.zeros((1, 1, 100, 100), dtype=torch.float32)
     # 5x5 patch with full motion evidence
     evidence[:, :, 40:45, 40:45] = 1.0
 
     mask_max = 15.0
-    w = normalize_loss_weights(evidence, mask_max=mask_max, floor=1.0, normalize_mean=True)
+    w = normalize_loss_weights(evidence, mask_max=mask_max, floor=1.0)
 
-    # Unit mean check: E[w] == 1.0
-    mean_val = float(w.mean())
-    assert abs(mean_val - 1.0) < 1e-6, f"Expected unit mean 1.0, got {mean_val}"
-
-    # Ratio of mover weight to static weight must equal mask_max exactly
-    w_mover = float(w[:, :, 42, 42])
+    # Floor check: static region is strictly 1.0
     w_static = float(w[:, :, 10, 10])
-    ratio = w_mover / w_static
-    assert abs(ratio - mask_max) < 1e-4, f"Expected ratio {mask_max}, got {ratio}"
-    assert w_static > 0.0, "Floor must be strictly positive"
+    assert abs(w_static - 1.0) < 1e-6, f"Static floor must be 1.0, got {w_static}"
+
+    # Cap check: mover region is mask_max
+    w_mover = float(w[:, :, 42, 42])
+    assert abs(w_mover - mask_max) < 1e-6, f"Mover cap must be {mask_max}, got {w_mover}"
+
+    # Bounds: w in [1.0, mask_max] everywhere
+    assert float(w.min()) >= 1.0 - 1e-6
+    assert float(w.max()) <= mask_max + 1e-6
 
 
-def test_l1_loss_scale_preservation():
-    """Weighted L1 loss with mean-normalized weights preserves unweighted loss scale for uniform error."""
+def test_l1_loss_scale_preservation_and_sum_normalization():
+    """Weighted L1 loss normalized by sum(w_p) preserves unweighted loss scale for uniform error and emphasizes motion."""
     torch.manual_seed(42)
     pred = torch.rand((2, 3, 32, 32))
     gt = pred + 0.15  # Uniform error everywhere
@@ -97,13 +98,26 @@ def test_l1_loss_scale_preservation():
     loss_unweighted = l1_loss(pred, gt)
     assert abs(float(loss_unweighted) - 0.15) < 1e-6
 
-    # Random non-uniform evidence map
+    # Random non-uniform evidence map with weights in [1.0, 15.0]
     evidence = torch.rand((2, 1, 32, 32))
-    w = normalize_loss_weights(evidence, mask_max=15.0, floor=1.0, normalize_mean=True)
+    w = normalize_loss_weights(evidence, mask_max=15.0, floor=1.0)
+    assert float(w.min()) >= 1.0
+    assert float(w.mean()) > 1.0  # Mean exceeds 1.0 naturally for non-uniform maps
 
-    # Weighted L1 loss
+    # Weighted L1 loss normalized by sum(w_p): L = sum(w * l) / sum(w)
     loss_weighted = l1_loss(pred, gt, mask=w)
-    assert abs(float(loss_weighted) - 0.15) < 1e-5, f"Expected scale preservation, got {loss_weighted}"
+    assert abs(float(loss_weighted) - 0.15) < 1e-5, f"Expected exact scale preservation 0.15, got {loss_weighted}"
+
+    # Non-uniform error: error 0.0 in static region, 1.0 in motion region
+    motion_patch = torch.zeros((2, 3, 32, 32))
+    motion_patch[:, :, 10:20, 10:20] = 1.0
+    w_localized = torch.ones((2, 1, 32, 32))
+    w_localized[:, :, 10:20, 10:20] = 10.0  # 10x emphasis
+
+    l_unweighted_patch = l1_loss(motion_patch, torch.zeros_like(motion_patch))
+    l_weighted_patch = l1_loss(motion_patch, torch.zeros_like(motion_patch), mask=w_localized)
+    # Weighted loss must emphasize the motion patch significantly more than unweighted mean
+    assert l_weighted_patch > l_unweighted_patch
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +207,9 @@ def test_synthetic_localized_mover_coverage(tmp_path: Path):
 
     # Converted loss weight
     w_tensor = normalize_loss_weights(torch.from_numpy(mask), mask_max=15.0)
-    assert abs(float(w_tensor.mean()) - 1.0) < 1e-6
+    assert float(w_tensor.min()) >= 1.0 - 1e-6
+    assert float(w_tensor.max()) <= 15.0 + 1e-4
+    assert float(w_tensor.mean()) > 1.0  # Non-uniform map has mean > 1.0
     assert float(w_tensor[60, 80]) > float(w_tensor[10, 10]) * 10.0
 
 

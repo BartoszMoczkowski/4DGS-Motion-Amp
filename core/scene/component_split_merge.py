@@ -212,6 +212,7 @@ class ComponentSplitMergeController:
         min_component_support: float = 10.0,
         eval_window: int = 300,
         min_metric_improvement: float = 0.05,
+        min_motion_coherence: float = 0.50,
         cooldown_iters: int = 2000,
     ):
         self.enabled = bool(enabled)
@@ -221,6 +222,7 @@ class ComponentSplitMergeController:
         self.min_component_support = float(min_component_support)
         self.eval_window = int(eval_window)
         self.min_metric_improvement = float(min_metric_improvement)
+        self.min_motion_coherence = float(min_motion_coherence)
         self.cooldown_iters = int(cooldown_iters)
 
         self.active_hypothesis: Optional[SplitMergeHypothesis] = None
@@ -435,8 +437,12 @@ class ComponentSplitMergeController:
         mc: MotionComponents,
         opt: Optional[torch.optim.Optimizer] = None,
         mc_opt: Optional[torch.optim.Optimizer] = None,
+        motion_coherence: Optional[float] = None,
     ) -> Tuple[bool, str]:
-        """Evaluate active hypothesis against held-out evidence.
+        """Evaluate active hypothesis against held-out evidence and motion coherence.
+        
+        Requires both metric improvement >= min_metric_improvement and
+        motion_coherence >= min_motion_coherence (if motion_coherence is provided).
         
         Returns (is_decided, decision_string).
         """
@@ -446,12 +452,15 @@ class ComponentSplitMergeController:
         if current_iter < self.active_hypothesis.proposal_iter + self.active_hypothesis.eval_window:
             return False, "evaluating"
 
-        # Evaluation window has elapsed: compare held-out evidence
+        # Evaluation window has elapsed: compare held-out evidence and motion coherence
         improvement = current_metric - self.active_hypothesis.baseline_metric
         hyp = self.active_hypothesis
         sig = f"{hyp.action}_{hyp.target_idx}"
 
-        if improvement >= self.min_metric_improvement:
+        metric_ok = improvement >= self.min_metric_improvement
+        coherence_ok = motion_coherence is None or motion_coherence >= self.min_motion_coherence
+
+        if metric_ok and coherence_ok:
             # ACCEPT: commit structural change
             self.ledger.append({
                 "action": hyp.action,
@@ -460,6 +469,7 @@ class ComponentSplitMergeController:
                 "decision_iter": current_iter,
                 "status": "accepted",
                 "metric_improvement": float(improvement),
+                "motion_coherence": float(motion_coherence) if motion_coherence is not None else None,
                 "resulting_components": mc.num_components,
             })
             self.snapshot = None
@@ -467,6 +477,7 @@ class ComponentSplitMergeController:
             return True, "accepted"
         else:
             # REJECT: bit-for-bit exact rollback
+            rejection_reason = "metric" if not metric_ok else "incoherent_motion"
             self.snapshot.restore(pc, mc, opt, mc_opt)
             self.rejection_cooldowns[sig] = current_iter + self.cooldown_iters
             self.ledger.append({
@@ -475,7 +486,9 @@ class ComponentSplitMergeController:
                 "proposal_iter": hyp.proposal_iter,
                 "decision_iter": current_iter,
                 "status": "rejected",
+                "reason": rejection_reason,
                 "metric_improvement": float(improvement),
+                "motion_coherence": float(motion_coherence) if motion_coherence is not None else None,
                 "cooldown_until": current_iter + self.cooldown_iters,
                 "resulting_components": mc.num_components,
             })
@@ -493,6 +506,7 @@ class ComponentSplitMergeController:
             "min_component_support": self.min_component_support,
             "eval_window": self.eval_window,
             "min_metric_improvement": self.min_metric_improvement,
+            "min_motion_coherence": self.min_motion_coherence,
             "rejections": len([e for e in self.ledger if e["status"] == "rejected"]),
             "acceptances": len([e for e in self.ledger if e["status"] == "accepted"]),
             "ledger": self.ledger,
