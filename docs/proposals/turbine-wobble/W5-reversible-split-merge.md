@@ -1,10 +1,10 @@
 # W5 (T53) — Reversible outer-loop component split and merge
 
-**Status:** todo  
+**Status:** done  
 **Phase:** 14 (Segmentation-Free Wobble Recovery)  
 **Depends on:** W4 (T52)  
 **Experiment:** E4 (Best W4 configuration + reversible split/merge)  
-**Gate before W6:** Synthetic two-mover scene initialized at $K=1$ discovers $K=2$ with soft responsibilities matching ground-truth movers; static scene stays at $K=0/1$ without inventing components; rejected split restores exact pre-proposal model/optimizer/scheduler state.
+**Gate before W6:** Synthetic two-mover scene initialized at $K=1$ discovers $K=2$ with soft responsibilities matching ground-truth movers; static scene stays at $K=0/1$ without inventing components; rejected split restores exact pre-proposal model/optimizer/scheduler state. All gate tests verified in `orchestrator/tests/test_w5_component_split_merge.py`.
 
 ---
 

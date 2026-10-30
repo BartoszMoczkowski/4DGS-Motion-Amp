@@ -106,7 +106,10 @@ class BaseComponentTrajectory(nn.Module):
     def __init__(self, init_pivot: Optional[Union[List[float], torch.Tensor]] = None):
         super().__init__()
         if init_pivot is not None:
-            pivot_t = torch.tensor(init_pivot, dtype=torch.float32).view(1, 3)
+            if isinstance(init_pivot, torch.Tensor):
+                pivot_t = init_pivot.detach().clone().view(1, 3).to(dtype=torch.float32)
+            else:
+                pivot_t = torch.tensor(init_pivot, dtype=torch.float32).view(1, 3)
             self.register_buffer("pivot", pivot_t)
         else:
             self.register_buffer("pivot", torch.zeros((1, 3), dtype=torch.float32))

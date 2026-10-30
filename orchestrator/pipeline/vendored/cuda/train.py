@@ -92,6 +92,7 @@ def scene_reconstruction(
     fourier_optimizer=None,
     motion_components=None,
     motion_components_optimizer=None,
+    split_merge_controller=None,
 ):
     first_iter = 0
 
@@ -399,6 +400,38 @@ def scene_reconstruction(
                 loss_res = motion_components.compute_residual_loss(h_res, gaussians, iteration)
                 loss = loss + loss_res
 
+                # W5 (T53): Outer-loop split/merge hypothesis evaluation and proposal
+                if split_merge_controller is not None:
+                    if split_merge_controller.active_hypothesis is not None:
+                        decided, status = split_merge_controller.evaluate_and_decide(
+                            current_iter=iteration,
+                            current_metric=psnr_.item(),
+                            pc=gaussians,
+                            mc=motion_components,
+                            opt=gaussians.optimizer,
+                            mc_opt=motion_components_optimizer,
+                        )
+                        if decided:
+                            print(f"[W5 ITER {iteration}] Structural hypothesis {status}: resulting K={motion_components.num_components}")
+
+                    if split_merge_controller.is_proposal_due(iteration):
+                        for k in range(motion_components.num_components):
+                            proposed = split_merge_controller.propose_split(
+                                pc=gaussians,
+                                mc=motion_components,
+                                target_k=k,
+                                iteration=iteration,
+                                baseline_metric=psnr_.item(),
+                                hex_residuals=h_res,
+                                opt=gaussians.optimizer,
+                                mc_opt=motion_components_optimizer,
+                                lr=getattr(opt, "motion_components_lr", 0.001),
+                                resp_lr=getattr(opt, "motion_components_responsibilities_lr", 0.01),
+                            )
+                            if proposed:
+                                print(f"[W5 ITER {iteration}] Proposed split for component {k} -> K={motion_components.num_components}")
+                                break
+
             if trajectory_loss_fn is not None and getattr(opt, "lambda_trajectory", 0.0) > 0.0:
                 traj_losses = []
                 for v_idx, viewpoint_cam in enumerate(viewpoint_cams):
@@ -494,6 +527,12 @@ def scene_reconstruction(
                             torch.save(gaussians._motion_component_logits, os.path.join(scene.model_path, "motion_component_logits.pth"))
                     except Exception as e:
                         print(f"Warning: failed to save motion components at iter {iteration}: {e}")
+                if split_merge_controller is not None:
+                    try:
+                        with open(os.path.join(scene.model_path, "split_merge_state.json"), "w", encoding="utf-8") as f:
+                            json.dump(split_merge_controller.get_summary(), f, indent=2)
+                    except Exception as e:
+                        print(f"Warning: failed to save split_merge_state at iter {iteration}: {e}")
                 if fourier_head is not None:
                     try:
                         torch.save(fourier_head.state_dict(), os.path.join(scene.model_path, "fourier_head.pth"))
@@ -861,6 +900,21 @@ def training(
         gaussians.motion_components = motion_components
         print(f"[W4] Initialized MotionComponents with K={K} ({comp_type}), ramp=[{motion_components.ramp_start_iter}, {motion_components.ramp_end_iter}], lambda_res={motion_components.lambda_res_max}")
 
+    split_merge_controller = None
+    if getattr(opt, "use_split_merge", False) and motion_components is not None:
+        from scene.component_split_merge import ComponentSplitMergeController
+        split_merge_controller = ComponentSplitMergeController(
+            enabled=True,
+            start_iter=getattr(opt, "split_merge_start_iter", 1500),
+            interval=getattr(opt, "split_merge_interval", 1000),
+            max_components=getattr(opt, "split_merge_max_components", 4),
+            min_component_support=getattr(opt, "split_merge_min_support", 10.0),
+            eval_window=getattr(opt, "split_merge_eval_window", 300),
+            min_metric_improvement=getattr(opt, "split_merge_min_improvement", 0.05),
+            cooldown_iters=getattr(opt, "split_merge_cooldown_iters", 2000),
+        )
+        print(f"[W5] Initialized ComponentSplitMergeController (start={split_merge_controller.start_iter}, interval={split_merge_controller.interval}, K_max={split_merge_controller.max_components})")
+
     if opt.coarse_iterations > 0:
         scene_reconstruction(
             dataset,
@@ -885,6 +939,7 @@ def training(
             fourier_optimizer=fourier_optimizer,
             motion_components=motion_components,
             motion_components_optimizer=motion_components_optimizer,
+            split_merge_controller=split_merge_controller,
         )
     else:
         print("coarse_iterations <= 0: skipping coarse stage entirely.")
@@ -928,6 +983,14 @@ def training(
             print(f"[W4] Saved final MotionComponents to {args.model_path}")
         except Exception as e:
             print(f"Warning: could not save final motion components: {e}")
+
+    if split_merge_controller is not None:
+        try:
+            with open(os.path.join(args.model_path, "split_merge_state.json"), "w", encoding="utf-8") as f:
+                json.dump(split_merge_controller.get_summary(), f, indent=2)
+            print(f"[W5] Saved final split/merge ledger to {args.model_path}")
+        except Exception as e:
+            print(f"Warning: could not save final split_merge_state: {e}")
 
     if fourier_head is not None:
         try:

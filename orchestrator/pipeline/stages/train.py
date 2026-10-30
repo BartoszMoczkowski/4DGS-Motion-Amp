@@ -212,6 +212,15 @@ class TrainStage(Stage):
             except Exception:
                 pass
 
+        sm_state_file = model_host / "split_merge_state.json"
+        if sm_state_file.is_file():
+            try:
+                model_meta["split_merge"] = json.loads(
+                    sm_state_file.read_text(encoding="utf-8")
+                )
+            except Exception:
+                pass
+
         artifacts = {
             "model": Artifact(
                 name="model",

@@ -213,6 +213,15 @@ class OptimizationParams(ParamGroup):
         self.motion_components_num_harmonics = 1 # Number of harmonics (enforces Nyquist guardrail)
         self.motion_components_degree = 4 # Polynomial degree for Chebyshev components
         self.motion_components_ema_interval = 0 # Iteration interval for EMA responsibility update (0 to disable)
+        # W5 (T53): Reversible outer-loop component split and merge
+        self.use_split_merge = False # Enable reversible outer-loop split and merge (W5)
+        self.split_merge_start_iter = 1500 # Iteration to begin testing structural proposals
+        self.split_merge_interval = 1000 # Proposal frequency in fine iterations
+        self.split_merge_max_components = 4 # Maximum allowed motion components (K_max)
+        self.split_merge_min_support = 10.0 # Minimum component responsibility mass to allow split
+        self.split_merge_eval_window = 300 # Held-out evaluation window length in iterations
+        self.split_merge_min_improvement = 0.05 # Minimum held-out PSNR improvement for acceptance
+        self.split_merge_cooldown_iters = 2000 # Cooldown iterations after rejection
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

@@ -161,6 +161,15 @@ class OptimizationParams(StrictModel):
     motion_components_num_harmonics: int = 1
     motion_components_degree: int = 4
     motion_components_ema_interval: int = 0
+    # W5 (T53): Reversible outer-loop component split and merge
+    use_split_merge: bool = False
+    split_merge_start_iter: int = 1500
+    split_merge_interval: int = 1000
+    split_merge_max_components: int = 4
+    split_merge_min_support: float = 10.0
+    split_merge_eval_window: int = 300
+    split_merge_min_improvement: float = 0.05
+    split_merge_cooldown_iters: int = 2000
 
 
 class ModelParams(StrictModel):
