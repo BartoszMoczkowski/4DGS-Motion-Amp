@@ -134,7 +134,7 @@ class Scene:
             # W4 (T52): Load learned MotionComponents if checkpoint exists
             mc_pth = os.path.join(self.model_path, "motion_components.pth")
             mc_state = os.path.join(self.model_path, "motion_components_state.json")
-            iter_path = os.path.join(self.model_path, f"point_cloud/iteration_{load_iteration}")
+            iter_path = os.path.join(self.model_path, f"point_cloud/iteration_{self.loaded_iter}")
             if not os.path.exists(mc_pth) and os.path.exists(os.path.join(iter_path, "motion_components.pth")):
                 mc_pth = os.path.join(iter_path, "motion_components.pth")
                 mc_state = os.path.join(iter_path, "motion_components_state.json")

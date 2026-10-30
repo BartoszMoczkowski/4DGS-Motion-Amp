@@ -115,9 +115,11 @@ class RunManifest(StrictModel):
     preset: str
     resolved_config: dict[str, Any]
     git_sha: Optional[str] = None
+    git_dirty: Optional[bool] = None
     created_at: str  # ISO 8601, UTC
     updated_at: str  # ISO 8601, UTC
     status: RunState = "pending"
     metadata: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
     stages: dict[str, StageRecord] = Field(default_factory=dict)
     artifacts: dict[str, Artifact] = Field(default_factory=dict)

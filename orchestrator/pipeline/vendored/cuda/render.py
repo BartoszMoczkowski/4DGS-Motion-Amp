@@ -21,6 +21,7 @@ import threading
 from argparse import ArgumentParser
 from os import makedirs
 from time import time
+from typing import Any
 
 import cv2
 import imageio
@@ -33,6 +34,35 @@ from arguments import ModelHiddenParams, ModelParams, PipelineParams, get_combin
 from gaussian_renderer import GaussianModel, render
 from scene import Scene
 from utils.general_utils import safe_state
+
+
+class BoundedAsyncWriter:
+    """Bounded asynchronous disk writer to prevent OOM on long multi-camera sequences."""
+
+    def __init__(self, max_workers: int = 4, max_queued: int = 4):
+        self.semaphore = threading.Semaphore(max_queued)
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        self.futures = []
+
+    def submit(self, out_path: str, image: Any):
+        self.semaphore.acquire()
+
+        def _task():
+            try:
+                if isinstance(image, np.ndarray):
+                    cv2.imwrite(out_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+                else:
+                    torchvision.utils.save_image(image, out_path)
+            finally:
+                self.semaphore.release()
+
+        fut = self.executor.submit(_task)
+        self.futures.append(fut)
+
+    def close(self):
+        for fut in self.futures:
+            fut.result()
+        self.executor.shutdown(wait=True)
 
 
 def multithread_write(image_list, path):
@@ -66,39 +96,46 @@ def render_set(
 ):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
+    video_path = os.path.join(model_path, name, "ours_{}".format(iteration), "video_rgb.mp4")
 
     makedirs(render_path, exist_ok=True)
     makedirs(gts_path, exist_ok=True)
-    render_images = []
-    gt_list = []
-    print("point nums:", gaussians._xyz.shape[0])
-    for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
-        if idx == 0:
-            time1 = time()
 
+    print("point nums:", gaussians._xyz.shape[0])
+    num_views = len(views)
+    video_writer = None
+    if num_views > 0:
+        video_writer = imageio.get_writer(video_path, fps=30)
+    async_writer = BoundedAsyncWriter(max_workers=4, max_queued=4)
+
+    time1 = time()
+    for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         rendering = render(view, gaussians, pipeline, background, cam_type=cam_type)[
             "render"
         ]
-        render_images.append(to8b(rendering).transpose(1, 2, 0))
+        render_frame = to8b(rendering).transpose(1, 2, 0)
+        if video_writer is not None:
+            video_writer.append_data(render_frame)
+
+        out_render_path = os.path.join(render_path, "{0:05d}.png".format(idx))
+        async_writer.submit(out_render_path, render_frame)
+
         if name in ["train", "test"]:
             if cam_type != "PanopticSports":
                 gt = view.original_image[0:3, :, :]
             else:
                 gt = view["image"].cuda()
-            gt_list.append(gt.cpu())
+            gt_frame = to8b(gt).transpose(1, 2, 0)
+            out_gt_path = os.path.join(gts_path, "{0:05d}.png".format(idx))
+            async_writer.submit(out_gt_path, gt_frame)
 
     time2 = time()
-    print("FPS:", (len(views) - 1) / (time2 - time1))
+    if num_views > 1:
+        print("FPS:", (num_views - 1) / max(time2 - time1, 1e-6))
 
-    multithread_write(gt_list, gts_path)
-
-    multithread_write(render_images, render_path)
-
-    imageio.mimwrite(
-        os.path.join(model_path, name, "ours_{}".format(iteration), "video_rgb.mp4"),
-        render_images,
-        fps=30,
-    )
+    if video_writer is not None:
+        video_writer.close()
+    async_writer.close()
 
 
 def render_sets(

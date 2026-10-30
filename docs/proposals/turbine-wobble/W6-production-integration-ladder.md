@@ -1,10 +1,10 @@
 # W6 (T54) — Production integration, streaming render, and single-factor experiment ladder
 
-**Status:** todo  
+**Status:** done  
 **Phase:** 14 (Segmentation-Free Wobble Recovery)  
 **Depends on:** W1–W5 (T48–T53)  
 **Experiments:** Full single-factor ladder execution (`E1a` → `E1b` → `E2` → `E3` → `E4`)  
-**Gate:** Training, offline render, `seg_extract`, and `amp` outputs are numerically equivalent at arbitrary physical timestamps; long sequences stream with bounded RAM/VRAM (no OOM); every ladder run is single-factor and fully provenance-hashed in its manifest.
+**Gate:** Training, offline render, `seg_extract`, and `amp` outputs are numerically equivalent at arbitrary physical timestamps; long sequences stream with bounded RAM/VRAM (no OOM); every ladder run is single-factor and fully provenance-hashed in its manifest. All gate tests verified in `orchestrator/tests/test_w6_production_parity.py`.
 
 ---
 

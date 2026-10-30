@@ -64,6 +64,24 @@ def get_git_sha(repo_root: Optional[Path] = None) -> Optional[str]:
         return None
 
 
+def get_git_dirty(repo_root: Optional[Path] = None) -> bool:
+    """Best-effort check if the working tree has uncommitted changes."""
+
+    root = repo_root or REPO_ROOT
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+        return bool(out.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def new_manifest(
     run_id: str,
     preset: str,
@@ -76,15 +94,27 @@ def new_manifest(
     """Build a fresh, all-``pending`` manifest. Doesn't touch disk — pair with :func:`save_manifest`."""
 
     now = _utc_now_iso()
+    dirty = get_git_dirty()
+    prov: dict[str, Any] = {
+        "git_revision": git_sha,
+        "git_dirty": dirty,
+    }
+    if isinstance(resolved_config, dict):
+        seed = resolved_config.get("train", {}).get("random_seed")
+        if seed is not None:
+            prov["random_seed"] = seed
+
     return RunManifest(
         run_id=run_id,
         preset=preset,
         resolved_config=resolved_config,
         git_sha=git_sha,
+        git_dirty=dirty,
         created_at=now,
         updated_at=now,
         status="pending",
         metadata=dict(metadata) if metadata else {},
+        provenance=prov,
         stages={name: StageRecord() for name in stage_names},
         artifacts={},
     )
@@ -356,6 +386,15 @@ def record_stage_result(
             m.artifacts[art.name] = art
             if art.name not in rec.artifacts:
                 rec.artifacts.append(art.name)
+            if art.name == "model" and isinstance(art.metadata, dict):
+                for k in (
+                    "offsets_json_hash",
+                    "weight_maps_hash",
+                    "warmstart_checkpoint_hash",
+                    "component_structural_history",
+                ):
+                    if k in art.metadata and k not in m.provenance:
+                        m.provenance[k] = art.metadata[k]
 
         if status == "failed":
             m.status = "failed"

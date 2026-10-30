@@ -173,7 +173,15 @@ class TrainStage(Stage):
         }
         offsets_json = Path(scene.path) / "offsets.json"
         if offsets_json.is_file():
-            model_meta["offsets_file_sha256"] = hashlib.sha256(offsets_json.read_bytes()).hexdigest()
+            off_sha = hashlib.sha256(offsets_json.read_bytes()).hexdigest()
+            model_meta["offsets_file_sha256"] = off_sha
+            model_meta["offsets_json_hash"] = f"sha256:{off_sha}"
+
+        start_ckpt = cfg.get("start_checkpoint")
+        if start_ckpt:
+            start_ckpt_path = Path(start_ckpt)
+            if start_ckpt_path.is_file():
+                model_meta["warmstart_checkpoint_hash"] = f"sha256:{hashlib.sha256(start_ckpt_path.read_bytes()).hexdigest()}"
 
         motion_masks_dir = Path(scene.path) / "motion_masks"
         if motion_masks_dir.is_dir():
@@ -215,9 +223,11 @@ class TrainStage(Stage):
         sm_state_file = model_host / "split_merge_state.json"
         if sm_state_file.is_file():
             try:
-                model_meta["split_merge"] = json.loads(
+                sm_data = json.loads(
                     sm_state_file.read_text(encoding="utf-8")
                 )
+                model_meta["split_merge"] = sm_data
+                model_meta["component_structural_history"] = sm_data.get("history", [])
             except Exception:
                 pass
 
