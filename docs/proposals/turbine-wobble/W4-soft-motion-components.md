@@ -1,6 +1,6 @@
 # W4 (T52) — Fixed-K soft learned motion components
 
-**Status:** todo  
+**Status:** done  
 **Phase:** 14 (Segmentation-Free Wobble Recovery)  
 **Depends on:** W3 (T51)  
 **Experiment:** E3 (Best W3 configuration + fixed-$K$ soft motion components, split/merge disabled)  
@@ -19,7 +19,7 @@ where $h_i(t) = p_i^{\text{hex}}(t) - p_i^{\text{canon}}$ is the persistent nati
 ## 2. Design Requirements & Codebase Integration Points
 
 1. **Design note first:**
-   - Before editing training code, commit a concise design note specifying:
+   - Completed and committed in [`W4-design-note.md`](W4-design-note.md). Specifies:
      - Exact position and quaternion composition equations (evaluate candidate 3D displacements $g_{ik}(t)$ per component first and blend displacements linearly with $q_{ik}$; compose small-angle rotational increments in tangent/axis-angle space $\sum_{k=1}^K q_{ik} \theta_k(t) \hat{w}_k$ before quaternion conversion—never average rotation matrices or quaternions naively).
      - Warm-start initialization from a W3 native checkpoint by fitting $K$ candidate rigid trajectories + soft responsibilities $q_{ik} \in (0, 1)$ to extracted HexPlane residual trajectories $h_i(t)$.
      - Alternating optimization & EMA responsibility update schedule + gradual ramp-in $\alpha(t) \in [0, 1]$ of component displacement and detached responsibility-weighted residual penalty:

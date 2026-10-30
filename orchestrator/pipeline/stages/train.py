@@ -203,6 +203,15 @@ class TrainStage(Stage):
             except Exception:
                 pass
 
+        mc_state_file = model_host / "motion_components_state.json"
+        if mc_state_file.is_file():
+            try:
+                model_meta["motion_components"] = json.loads(
+                    mc_state_file.read_text(encoding="utf-8")
+                )
+            except Exception:
+                pass
+
         artifacts = {
             "model": Artifact(
                 name="model",

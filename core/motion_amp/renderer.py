@@ -76,20 +76,18 @@ def render_mod(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tens
     else:
         scales = pc._scaling
         rotations = pc._rotation
-    deformation_point = pc._deformation_table
-    if "coarse" in stage:
-        means3D_final, scales_final, rotations_final, opacity_final, shs_final = means3D, scales, rotations, opacity, shs
-    elif "fine" in stage:
-        # time0 = get_time()
-        # means3D_deform, scales_deform, rotations_deform, opacity_deform = pc._deformation(means3D[deformation_point], scales[deformation_point], 
-        #                                                                  rotations[deformation_point], opacity[deformation_point],
-        #                                                                  time[deformation_point])
-        means3D_final, scales_final, rotations_final, opacity_final, shs_final = pc._deformation(means3D, scales, 
-                                                                 rotations, opacity, shs,
-                                                                 time)
-
-    else:
-        raise NotImplementedError
+    from scene.deformation_dispatch import dispatch_deformation
+    means3D_final, scales_final, rotations_final, opacity_final, shs_final = dispatch_deformation(
+        pc=pc,
+        means3D=means3D,
+        scales=scales,
+        rotations=rotations,
+        opacity=opacity,
+        shs=shs,
+        time=time,
+        stage=stage,
+        pipe=pipe,
+    )
 
 
 

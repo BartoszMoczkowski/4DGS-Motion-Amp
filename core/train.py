@@ -69,6 +69,8 @@ def scene_reconstruction(
     trajectory_loss_fn=None,
     fourier_head=None,
     fourier_optimizer=None,
+    motion_components=None,
+    motion_components_optimizer=None,
 ):
     first_iter = 0
 
@@ -265,6 +267,8 @@ def scene_reconstruction(
                 cam_type=scene.dataset_type,
                 custom_time=custom_time,
                 fourier_head=fourier_head,
+                motion_components=motion_components,
+                iteration=iteration,
             )
             render_pkg_list.append(render_pkg)
             image, viewspace_point_tensor, visibility_filter, radii = (
@@ -367,6 +371,14 @@ def scene_reconstruction(
                     )
                     loss = loss + offset_prior_loss
 
+            if motion_components is not None and getattr(motion_components, "is_active", True):
+                t_val = custom_time if custom_time is not None else viewpoint_cams[0].time
+                t_tensor = torch.as_tensor(t_val, dtype=torch.float32, device=gaussians.get_xyz.device).view(1, 1).repeat(gaussians.get_xyz.shape[0], 1)
+                m_hex, _, _, _, _ = gaussians._deformation(gaussians.get_xyz, gaussians._scaling, gaussians._rotation, gaussians._opacity, gaussians.get_features, t_tensor)
+                h_res = m_hex - gaussians.get_xyz
+                loss_res = motion_components.compute_residual_loss(h_res, gaussians, iteration)
+                loss = loss + loss_res
+
             if trajectory_loss_fn is not None and getattr(opt, "lambda_trajectory", 0.0) > 0.0:
                 traj_losses = []
                 for v_idx, viewpoint_cam in enumerate(viewpoint_cams):
@@ -453,6 +465,15 @@ def scene_reconstruction(
                             json.dump(camera_offsets_module.get_telemetry_dict(), f, indent=2)
                     except Exception as e:
                         print(f"Warning: failed to save learned offsets at iter {iteration}: {e}")
+                if motion_components is not None:
+                    try:
+                        torch.save(motion_components.state_dict(), os.path.join(scene.model_path, "motion_components.pth"))
+                        with open(os.path.join(scene.model_path, "motion_components_state.json"), "w", encoding="utf-8") as f:
+                            json.dump(motion_components.get_summary(), f, indent=2)
+                        if gaussians._motion_component_logits is not None:
+                            torch.save(gaussians._motion_component_logits, os.path.join(scene.model_path, "motion_component_logits.pth"))
+                    except Exception as e:
+                        print(f"Warning: failed to save motion components at iter {iteration}: {e}")
                 if fourier_head is not None:
                     try:
                         torch.save(fourier_head.state_dict(), os.path.join(scene.model_path, "fourier_head.pth"))
@@ -460,6 +481,15 @@ def scene_reconstruction(
                             json.dump(fourier_head.get_summary(), f, indent=2)
                     except Exception as e:
                         print(f"Warning: failed to save fourier head at iter {iteration}: {e}")
+                if motion_components is not None:
+                    try:
+                        torch.save(motion_components.state_dict(), os.path.join(scene.model_path, "motion_components.pth"))
+                        with open(os.path.join(scene.model_path, "motion_components_state.json"), "w", encoding="utf-8") as f:
+                            json.dump(motion_components.get_summary(), f, indent=2)
+                        if gaussians._motion_component_logits is not None:
+                            torch.save(gaussians._motion_component_logits, os.path.join(scene.model_path, "motion_component_logits.pth"))
+                    except Exception as e:
+                        print(f"Warning: failed to save motion components at iter {iteration}: {e}")
             if dataset.render_process:
                 if (
                     (iteration < 1000 and iteration % 10 == 9)
@@ -587,6 +617,11 @@ def scene_reconstruction(
                 if iteration >= freeze_iter and iteration < opt.iterations:
                     fourier_optimizer.step()
                 fourier_optimizer.zero_grad(set_to_none=True)
+
+            if motion_components_optimizer is not None:
+                if iteration < opt.iterations:
+                    motion_components_optimizer.step()
+                motion_components_optimizer.zero_grad(set_to_none=True)
 
             if iteration in checkpoint_iterations:
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
@@ -756,6 +791,56 @@ def training(
         gaussians.fourier_head = fourier_head
         print(f"[R9] Initialized FourierRigidHead at {fourier_head.effective_frequency_hz.item():.3f} Hz with {fourier_head.num_harmonics} harmonics, lr={getattr(opt, 'fourier_head_lr', 0.001)}")
 
+    motion_components = None
+    motion_components_optimizer = None
+    if getattr(opt, "use_motion_components", False):
+        from scene.motion_components import (
+            MotionComponents,
+            FourierComponentTrajectory,
+            ChebyshevComponentTrajectory,
+        )
+        K = getattr(opt, "num_motion_components", 1)
+        comp_type = getattr(opt, "motion_components_type", "fourier")
+        fps = scene.train_camera.fps if hasattr(scene, "train_camera") else 20.004
+        comps = []
+        for _ in range(K):
+            if comp_type == "fourier":
+                comps.append(
+                    FourierComponentTrajectory(
+                        base_frequency_hz=getattr(opt, "motion_components_frequency_hz", 5.691),
+                        fps=fps,
+                        num_harmonics=getattr(opt, "motion_components_num_harmonics", 1),
+                    )
+                )
+            elif comp_type == "chebyshev":
+                comps.append(
+                    ChebyshevComponentTrajectory(
+                        degree=getattr(opt, "motion_components_degree", 4),
+                    )
+                )
+            else:
+                raise ValueError(f"Unknown motion_components_type: {comp_type}")
+
+        motion_components = MotionComponents(
+            num_components=K,
+            components=comps,
+            ramp_start_iter=getattr(opt, "motion_components_ramp_start_iter", 1000),
+            ramp_end_iter=getattr(opt, "motion_components_ramp_end_iter", 3000),
+            lambda_res_max=getattr(opt, "motion_components_lambda_res_max", 1.0),
+        ).cuda()
+
+        if gaussians._motion_component_logits is None or gaussians._motion_component_logits.shape[-1] != K:
+            init_logits = torch.full((gaussians.get_xyz.shape[0], K), -5.0, device="cuda", dtype=torch.float32)
+            gaussians._motion_component_logits = nn.Parameter(init_logits.requires_grad_(True))
+
+        params = [
+            {"params": list(motion_components.parameters()), "lr": getattr(opt, "motion_components_lr", 0.001), "name": "mc_trajectories"},
+            {"params": [gaussians._motion_component_logits], "lr": getattr(opt, "motion_components_responsibilities_lr", 0.01), "name": "mc_logits"},
+        ]
+        motion_components_optimizer = torch.optim.Adam(params)
+        gaussians.motion_components = motion_components
+        print(f"[W4] Initialized MotionComponents with K={K} ({comp_type}), ramp=[{motion_components.ramp_start_iter}, {motion_components.ramp_end_iter}], lambda_res={motion_components.lambda_res_max}")
+
     if opt.coarse_iterations > 0:
         scene_reconstruction(
             dataset,
@@ -778,6 +863,8 @@ def training(
             trajectory_loss_fn=trajectory_loss_fn,
             fourier_head=fourier_head,
             fourier_optimizer=fourier_optimizer,
+            motion_components=motion_components,
+            motion_components_optimizer=motion_components_optimizer,
         )
     else:
         print("coarse_iterations <= 0: skipping coarse stage entirely.")
@@ -811,6 +898,17 @@ def training(
             print(f"[W1] Saved final learned offsets telemetry to {offsets_file}")
         except Exception as e:
             print(f"Warning: failed to save final learned offsets: {e}")
+    if motion_components is not None:
+        try:
+            torch.save(motion_components.state_dict(), os.path.join(args.model_path, "motion_components.pth"))
+            with open(os.path.join(args.model_path, "motion_components_state.json"), "w", encoding="utf-8") as f:
+                json.dump(motion_components.get_summary(), f, indent=2)
+            if gaussians._motion_component_logits is not None:
+                torch.save(gaussians._motion_component_logits, os.path.join(args.model_path, "motion_component_logits.pth"))
+            print(f"[W4] Saved final MotionComponents to {args.model_path}")
+        except Exception as e:
+            print(f"Warning: could not save final motion components: {e}")
+
     if fourier_head is not None:
         try:
             torch.save(fourier_head.state_dict(), os.path.join(args.model_path, "fourier_head.pth"))

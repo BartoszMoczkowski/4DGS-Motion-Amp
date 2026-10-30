@@ -61,6 +61,8 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self._deformation_table = torch.empty(0)
+        self._motion_component_logits = None
+        self.motion_components = None
         self.setup_functions()
 
     def capture(self):
@@ -241,12 +243,25 @@ class GaussianModel:
             self._deformation_table = torch.load(os.path.join(path, "deformation_table.pth"),map_location="cuda")
         if os.path.exists(os.path.join(path, "deformation_accum.pth")):
             self._deformation_accum = torch.load(os.path.join(path, "deformation_accum.pth"),map_location="cuda")
+        if os.path.exists(os.path.join(path, "motion_component_logits.pth")):
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self._motion_component_logits = torch.load(os.path.join(path, "motion_component_logits.pth"), map_location=device)
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
         # print(self._deformation.deformation_net.grid.)
     def save_deformation(self, path):
         torch.save(self._deformation.state_dict(),os.path.join(path, "deformation.pth"))
         torch.save(self._deformation_table,os.path.join(path, "deformation_table.pth"))
         torch.save(self._deformation_accum,os.path.join(path, "deformation_accum.pth"))
+        if self._motion_component_logits is not None:
+            torch.save(self._motion_component_logits, os.path.join(path, "motion_component_logits.pth"))
+        if getattr(self, "motion_components", None) is not None:
+            torch.save(self.motion_components.state_dict(), os.path.join(path, "motion_components.pth"))
+            try:
+                import json
+                with open(os.path.join(path, "motion_components_state.json"), "w", encoding="utf-8") as f:
+                    json.dump(self.motion_components.get_summary(), f, indent=2)
+            except Exception as e:
+                print(f"Warning: could not save motion_components_state.json: {e}")
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
 
@@ -358,6 +373,11 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        if self._motion_component_logits is not None:
+            if "motion_component_logits" in optimizable_tensors:
+                self._motion_component_logits = optimizable_tensors["motion_component_logits"]
+            else:
+                self._motion_component_logits = self._motion_component_logits[valid_points_mask]
         self._deformation_accum = self._deformation_accum[valid_points_mask]
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
         self._deformation_table = self._deformation_table[valid_points_mask]
@@ -387,7 +407,7 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_deformation_table):
+    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_deformation_table, new_motion_component_logits=None):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
@@ -396,6 +416,8 @@ class GaussianModel:
         "rotation" : new_rotation,
         # "deformation": new_deformation
        }
+        if new_motion_component_logits is not None:
+            d["motion_component_logits"] = new_motion_component_logits
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
@@ -404,18 +426,24 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        if self._motion_component_logits is not None:
+            if "motion_component_logits" in optimizable_tensors:
+                self._motion_component_logits = optimizable_tensors["motion_component_logits"]
+            elif new_motion_component_logits is not None:
+                self._motion_component_logits = torch.cat([self._motion_component_logits, new_motion_component_logits], dim=0)
         # self._deformation = optimizable_tensors["deformation"]
         
         self._deformation_table = torch.cat([self._deformation_table,new_deformation_table],-1)
-        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self._deformation_accum = torch.zeros((self.get_xyz.shape[0], 3), device="cuda")
-        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        dev = self.get_xyz.device
+        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device=dev)
+        self._deformation_accum = torch.zeros((self.get_xyz.shape[0], 3), device=dev)
+        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device=dev)
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device=dev)
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
         n_init_points = self.get_xyz.shape[0]
         # Extract points that satisfy the gradient condition
-        padded_grad = torch.zeros((n_init_points), device="cuda")
+        padded_grad = torch.zeros((n_init_points), device=self.get_xyz.device)
         padded_grad[:grads.shape[0]] = grads.squeeze()
         selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
 
@@ -425,7 +453,7 @@ class GaussianModel:
         if not selected_pts_mask.any():
             return
         stds = self.get_scaling[selected_pts_mask].repeat(N,1)
-        means =torch.zeros((stds.size(0), 3),device="cuda")
+        means = torch.zeros((stds.size(0), 3), device=self.get_xyz.device)
         samples = torch.normal(mean=means, std=stds)
         rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
         new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
@@ -435,9 +463,13 @@ class GaussianModel:
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
         new_deformation_table = self._deformation_table[selected_pts_mask].repeat(N)
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_deformation_table)
+        new_motion_component_logits = None
+        if self._motion_component_logits is not None:
+            new_motion_component_logits = self._motion_component_logits[selected_pts_mask].repeat(N, 1)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_deformation_table, new_motion_component_logits)
 
-        prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
+        dev = self.get_xyz.device
+        prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device=dev, dtype=bool)))
         self.prune_points(prune_filter)
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent, density_threshold=20, displacement_scale=20, model_path=None, iteration=None, stage=None):
@@ -453,7 +485,10 @@ class GaussianModel:
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
         new_deformation_table = self._deformation_table[selected_pts_mask]
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_deformation_table)
+        new_motion_component_logits = None
+        if self._motion_component_logits is not None:
+            new_motion_component_logits = self._motion_component_logits[selected_pts_mask]
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_deformation_table, new_motion_component_logits)
 
     @property
     def get_aabb(self):
@@ -482,8 +517,11 @@ class GaussianModel:
         new_scaling = self._scaling[selected_pts_mask][mask]
         new_rotation = self._rotation[selected_pts_mask][mask]
         new_deformation_table = self._deformation_table[selected_pts_mask][mask]
+        new_motion_component_logits = None
+        if self._motion_component_logits is not None:
+            new_motion_component_logits = self._motion_component_logits[selected_pts_mask][mask]
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_deformation_table)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_deformation_table, new_motion_component_logits)
         return selected_xyz, new_xyz
 
     def prune(self, max_grad, min_opacity, extent, max_screen_size):

@@ -1,0 +1,25 @@
+# W4 (E3) — Fixed-K soft learned motion components on W3 (E2) baseline
+# Discovers shared low-dimensional rigid/periodic motion components during training
+# without binary ROI masks, without pure_rigid, and without static_background.
+extends: turbine_r1_missing_6_w3_e2
+name: turbine_r1_missing_6_w4_e3
+
+model:
+  model_path: "output/multipleview/turbine_r1_missing_6_w4_e3"
+
+train:
+  port: 6026
+  expname: "multipleview/turbine_r1_missing_6_w4_e3"
+
+optim:
+  use_motion_components: true
+  num_motion_components: 1
+  motion_components_type: "fourier"
+  motion_components_frequency_hz: 5.691
+  motion_components_num_harmonics: 1
+  motion_components_ramp_start_iter: 1000
+  motion_components_ramp_end_iter: 3000
+  motion_components_lambda_res_max: 1.0
+  motion_components_lr: 0.001
+  motion_components_responsibilities_lr: 0.01
+

@@ -131,6 +131,76 @@ class Scene:
                         print(f"[ROI] Loaded voxel ROI from {roi_npz}")
                     except Exception as e:
                         print(f"Warning: could not load ROI grid from {roi_npz}: {e}")
+            # W4 (T52): Load learned MotionComponents if checkpoint exists
+            mc_pth = os.path.join(self.model_path, "motion_components.pth")
+            mc_state = os.path.join(self.model_path, "motion_components_state.json")
+            iter_path = os.path.join(self.model_path, f"point_cloud/iteration_{load_iteration}")
+            if not os.path.exists(mc_pth) and os.path.exists(os.path.join(iter_path, "motion_components.pth")):
+                mc_pth = os.path.join(iter_path, "motion_components.pth")
+                mc_state = os.path.join(iter_path, "motion_components_state.json")
+            
+            logits_pth = os.path.join(self.model_path, "motion_component_logits.pth")
+            if not os.path.exists(logits_pth) and os.path.exists(os.path.join(iter_path, "motion_component_logits.pth")):
+                logits_pth = os.path.join(iter_path, "motion_component_logits.pth")
+            if os.path.exists(logits_pth):
+                try:
+                    import torch
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    self.gaussians._motion_component_logits = torch.load(logits_pth, map_location=device)
+                    print(f"[W4] Loaded motion component logits shape {self.gaussians._motion_component_logits.shape} from {logits_pth}")
+                except Exception as e:
+                    print(f"Warning: could not load motion component logits from {logits_pth}: {e}")
+
+            if os.path.exists(mc_pth) and os.path.exists(mc_state):
+                try:
+                    import json
+                    import torch
+                    from scene.motion_components import (
+                        MotionComponents,
+                        FourierComponentTrajectory,
+                        ChebyshevComponentTrajectory,
+                    )
+                    with open(mc_state, "r", encoding="utf-8") as f:
+                        state = json.load(f)
+                    
+                    comps = []
+                    fps = self.train_camera.fps if hasattr(self, "train_camera") else 20.004
+                    for c_info in state.get("components", []):
+                        c_type = c_info.get("type", "FourierComponentTrajectory")
+                        pivot = c_info.get("pivot", [0.0, 0.0, 0.0])
+                        if c_type == "FourierComponentTrajectory":
+                            comp = FourierComponentTrajectory(
+                                base_frequency_hz=c_info.get("base_frequency_hz", 5.691),
+                                fps=fps,
+                                num_harmonics=c_info.get("num_harmonics", 1),
+                                init_pivot=pivot,
+                            )
+                        elif c_type == "ChebyshevComponentTrajectory":
+                            comp = ChebyshevComponentTrajectory(
+                                degree=c_info.get("degree", 4),
+                                init_pivot=pivot,
+                            )
+                        else:
+                            raise ValueError(f"Unknown component type: {c_type}")
+                        comps.append(comp)
+                    
+                    mc = MotionComponents(
+                        num_components=len(comps),
+                        components=comps,
+                        ramp_start_iter=state.get("ramp_start_iter", 1000),
+                        ramp_end_iter=state.get("ramp_end_iter", 3000),
+                        lambda_res_max=state.get("lambda_res_max", 1.0),
+                        is_active=state.get("is_active", True),
+                    )
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    mc.to(device)
+                    mc.load_state_dict(torch.load(mc_pth, map_location=device), strict=False)
+                    mc.eval()
+                    self.gaussians.motion_components = mc
+                    print(f"[W4] Loaded MotionComponents (K={mc.num_components}) from {mc_pth}")
+                except Exception as e:
+                    print(f"Warning: could not load MotionComponents from {mc_pth}: {e}")
+
             if getattr(args, "use_fourier_rigid_head", False):
                 fh_pth = os.path.join(self.model_path, "fourier_head.pth")
                 fh_state = os.path.join(self.model_path, "fourier_head_state.json")

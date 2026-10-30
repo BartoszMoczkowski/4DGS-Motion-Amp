@@ -149,6 +149,18 @@ class OptimizationParams(StrictModel):
     fourier_head_pure_rigid: bool = False
     fourier_head_static_background: bool = False
     fourier_head_roi_bbox: Optional[list[float]] = None
+    use_motion_components: bool = False
+    num_motion_components: int = 1
+    motion_components_type: str = "fourier"
+    motion_components_lr: float = 0.001
+    motion_components_responsibilities_lr: float = 0.01
+    motion_components_ramp_start_iter: int = 1000
+    motion_components_ramp_end_iter: int = 3000
+    motion_components_lambda_res_max: float = 1.0
+    motion_components_frequency_hz: float = 5.691
+    motion_components_num_harmonics: int = 1
+    motion_components_degree: int = 4
+    motion_components_ema_interval: int = 0
 
 
 class ModelParams(StrictModel):

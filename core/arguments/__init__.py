@@ -200,6 +200,19 @@ class OptimizationParams(ParamGroup):
         self.fourier_head_pure_rigid = False # Strict pure rigid motion inside ROI (replaces HexPlane)
         self.fourier_head_static_background = False # Freeze non-ROI Gaussians at canonical pose (r14)
         self.fourier_head_roi_bbox = None # Optional [xmin, ymin, zmin, xmax, ymax, zmax] 3D ROI box
+        # W4 (T52): Soft learned motion components parameters
+        self.use_motion_components = False # Enable learned soft motion components (W4)
+        self.num_motion_components = 1 # Number of components K
+        self.motion_components_type = "fourier" # "fourier" or "chebyshev"
+        self.motion_components_lr = 0.001 # Learning rate for component trajectory parameters
+        self.motion_components_responsibilities_lr = 0.01 # Learning rate for responsibility logits
+        self.motion_components_ramp_start_iter = 1000 # Iteration to begin ramping in components
+        self.motion_components_ramp_end_iter = 3000 # Iteration when component ramp reaches 1.0
+        self.motion_components_lambda_res_max = 1.0 # Peak weight for detached residual penalty
+        self.motion_components_frequency_hz = 5.691 # Base frequency for Fourier components
+        self.motion_components_num_harmonics = 1 # Number of harmonics (enforces Nyquist guardrail)
+        self.motion_components_degree = 4 # Polynomial degree for Chebyshev components
+        self.motion_components_ema_interval = 0 # Iteration interval for EMA responsibility update (0 to disable)
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
