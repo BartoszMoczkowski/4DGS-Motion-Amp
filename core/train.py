@@ -1244,7 +1244,10 @@ if __name__ == "__main__":
     safe_state(args.quiet)
 
     # Start GUI server, configure and run training
-    network_gui.init(args.ip, args.port)
+    try:
+        network_gui.init(args.ip, args.port)
+    except Exception as e:
+        print(f"Warning: network_gui could not initialize ({e}); continuing without GUI.")
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(
         lp.extract(args),

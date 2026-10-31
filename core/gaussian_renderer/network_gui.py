@@ -27,16 +27,23 @@ def init(wish_host, wish_port):
     global host, port, listener
     host = wish_host
     port = wish_port
-    # Allow immediate rebind after a crash/restart (e.g. train.py's nan-loss os.execv
-    # self-restart): without SO_REUSEADDR the port can be stuck in TIME_WAIT and bind()
-    # raises "Address already in use" even though nothing is actively listening.
-    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind((host, port))
-    listener.listen()
-    listener.settimeout(0)
+    try:
+        if listener is None:
+            listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        listener.bind((host, port))
+        listener.listen()
+        listener.settimeout(0)
+    except OSError as e:
+        print(f"Warning: network_gui could not bind to {host}:{port} ({e}); continuing without GUI server.")
+        listener = None
 
 def try_connect():
     global conn, addr, listener
+    if listener is None:
+        return
     try:
         conn, addr = listener.accept()
         print(f"\nConnected by {addr}")
