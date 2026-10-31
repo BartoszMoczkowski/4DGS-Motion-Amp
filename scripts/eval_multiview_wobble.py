@@ -848,7 +848,9 @@ def evaluate_scene_multiview(
 
     camera_evals: dict[str, CameraEvaluationResult] = {}
 
-    for cid in avail_real_cams:
+    total_cams = len(avail_real_cams)
+    for cam_idx, cid in enumerate(avail_real_cams):
+        t0_cam = datetime.datetime.now()
         real_cam_dir = scene_dir / cid
         real_frame_files = sorted(list(real_cam_dir.glob("*.jpg")) + list(real_cam_dir.glob("*.png")))
         if not real_frame_files:
@@ -898,16 +900,94 @@ def evaluate_scene_multiview(
             except Exception:
                 pass
 
-        # Track rotor patch in real frames
-        real_disp, _ = track_patch_displacements(stream_disk_series(real_frames_subset), cx, cy, patch_size)
-        real_proj, ref_axis, angle_deg = project_1d_motion(real_disp)
+        # Unified single-pass frame loader for optical tracking + image metrics
+        ph = patch_size // 2
+        y0, y1 = cy - ph, cy + ph
+        x0, x1 = cx - ph, cx + ph
+        win = cv2.createHanningWindow((patch_size, patch_size), cv2.CV_32F)
+
+        real_disp = []
+        ren_disp = []
+        real_tpl = None
+        ren_tpl = None
+
+        psnr_vals = []
+        ssim_vals = []
+        sum_real = None
+        sum_sq_real = None
+        sum_ren = None
+        sum_sq_ren = None
+
+        for fr_idx in range(n_frames):
+            r_raw = cv2.imread(str(real_frames_subset[fr_idx]), cv2.IMREAD_GRAYSCALE)
+            if r_raw is None:
+                raise RuntimeError(f"Failed to read image at {real_frames_subset[fr_idx]}")
+            r_f = r_raw.astype(np.float32) / 255.0
+
+            # Rotor patch tracking (real)
+            p_r = r_f[y0:y1, x0:x1]
+            if real_tpl is None:
+                real_tpl = p_r.copy()
+                real_disp.append((0.0, 0.0))
+            else:
+                (dx, dy), _ = cv2.phaseCorrelate(real_tpl, p_r, win)
+                real_disp.append((float(dx), float(dy)))
+
+            if ren_frames_subset:
+                g_raw = cv2.imread(str(ren_frames_subset[fr_idx]), cv2.IMREAD_GRAYSCALE)
+                if g_raw is None:
+                    raise RuntimeError(f"Failed to read image at {ren_frames_subset[fr_idx]}")
+                g_f = g_raw.astype(np.float32) / 255.0
+                if r_f.shape != g_f.shape:
+                    g_f = cv2.resize(g_f, (r_f.shape[1], r_f.shape[0]), interpolation=cv2.INTER_AREA)
+
+                # Rotor patch tracking (render)
+                p_g = g_f[y0:y1, x0:x1]
+                if ren_tpl is None:
+                    ren_tpl = p_g.copy()
+                    ren_disp.append((0.0, 0.0))
+                else:
+                    (dx, dy), _ = cv2.phaseCorrelate(ren_tpl, p_g, win)
+                    ren_disp.append((float(dx), float(dy)))
+
+                # PSNR
+                diff = r_f - g_f
+                mse = float(np.mean(diff * diff))
+                psnr = 100.0 if mse < 1e-10 else float(10.0 * np.log10(1.0 / mse))
+                psnr_vals.append(psnr)
+
+                # SSIM
+                mu_r = float(np.mean(r_f))
+                mu_g = float(np.mean(g_f))
+                var_r = float(np.var(r_f))
+                var_g = float(np.var(g_f))
+                cov_rg = float(np.mean((r_f - mu_r) * (g_f - mu_g)))
+                c1_s = (0.01 * 1.0) ** 2
+                c2_s = (0.03 * 1.0) ** 2
+                ssim_val = float(((2 * mu_r * mu_g + c1_s) * (2 * cov_rg + c2_s)) /
+                                 ((mu_r**2 + mu_g**2 + c1_s) * (var_r + var_g + c2_s)))
+                ssim_vals.append(ssim_val)
+
+                # Temporal stats accumulators
+                if sum_real is None:
+                    sum_real = np.zeros_like(r_f, dtype=np.float64)
+                    sum_sq_real = np.zeros_like(r_f, dtype=np.float64)
+                    sum_ren = np.zeros_like(g_f, dtype=np.float64)
+                    sum_sq_ren = np.zeros_like(g_f, dtype=np.float64)
+                sum_real += r_f
+                sum_sq_real += r_f * r_f
+                sum_ren += g_f
+                sum_sq_ren += g_f * g_f
+
+        # Fit harmonics
+        real_disp_arr = np.array(real_disp, dtype=np.float64)
+        real_proj, ref_axis, angle_deg = project_1d_motion(real_disp_arr)
         real_fit = fit_harmonic_phasor(real_proj, t_arr, f0)
 
-        # Track rotor in render frames if available
         render_fit = None
         if ren_frames_subset:
-            ren_disp, _ = track_patch_displacements(stream_disk_series(ren_frames_subset), cx, cy, patch_size)
-            ren_proj, _, _ = project_1d_motion(ren_disp, ref_axis=ref_axis)
+            ren_disp_arr = np.array(ren_disp, dtype=np.float64)
+            ren_proj, _, _ = project_1d_motion(ren_disp_arr, ref_axis=ref_axis)
             render_fit = fit_harmonic_phasor(ren_proj, t_arr, f0)
 
         rotor_comp = compare_phasors(
@@ -919,14 +999,15 @@ def evaluate_scene_multiview(
             min_amp_px=min_amp_px,
         )
 
-        # Image-level PSNR / SSIM / tstd
         psnr_db, ssim, tstd_real, tstd_ren = (None, None, None, None)
         tstd_ratio = None
-        if ren_frames_subset:
-            psnr_db, ssim, tstd_real, tstd_ren = compute_image_metrics(
-                stream_disk_series(real_frames_subset),
-                stream_disk_series(ren_frames_subset),
-            )
+        if ren_frames_subset and psnr_vals:
+            psnr_db = float(np.mean(psnr_vals))
+            ssim = float(np.mean(ssim_vals))
+            var_real_map = np.maximum(0.0, (sum_sq_real / n_frames) - (sum_real / n_frames) ** 2)
+            var_ren_map = np.maximum(0.0, (sum_sq_ren / n_frames) - (sum_ren / n_frames) ** 2)
+            tstd_real = float(np.mean(np.sqrt(var_real_map)))
+            tstd_ren = float(np.mean(np.sqrt(var_ren_map)))
             tstd_ratio = float(tstd_ren / (tstd_real + 1e-8)) if tstd_real > 0 else 1.0
 
         camera_evals[cid] = CameraEvaluationResult(
@@ -939,6 +1020,10 @@ def evaluate_scene_multiview(
             sample_count=n_frames,
             rejection_reasons=rotor_comp.rejection_reasons,
         )
+
+        dt_cam = (datetime.datetime.now() - t0_cam).total_seconds()
+        psnr_str = f"{psnr_db:.2f} dB" if psnr_db is not None else "N/A"
+        print(f"[W2 EVAL] ({cam_idx+1}/{total_cams}) {cid}: PSNR={psnr_str}, status={rotor_comp.status} ({dt_cam:.1f}s)", flush=True)
 
     # 3D trajectory diagnostics if file provided
     traj_diag = None
