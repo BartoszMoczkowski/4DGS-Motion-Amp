@@ -100,7 +100,9 @@ def resolve_render_fps(views, default_fps: float = 20.004, override_fps: Optiona
         return float(override_fps)
     if views and len(views) > 1:
         times = []
-        for v in views[:20]:
+        n_check = min(20, len(views))
+        for idx in range(n_check):
+            v = views[idx]
             pt = getattr(v, "physical_time", None)
             if pt is not None:
                 times.append(float(pt))
