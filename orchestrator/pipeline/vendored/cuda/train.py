@@ -614,7 +614,7 @@ def scene_reconstruction(
                 if (
                     iteration > opt.densify_from_iter
                     and iteration % opt.densification_interval == 0
-                    and gaussians.get_xyz.shape[0] < 360000
+                    and gaussians.get_xyz.shape[0] < getattr(opt, 'max_points', 360000)
                 ):
                     size_threshold = (
                         20 if iteration > opt.opacity_reset_interval else None
@@ -650,7 +650,7 @@ def scene_reconstruction(
                 # if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0 :
                 if (
                     iteration % opt.densification_interval == 0
-                    and gaussians.get_xyz.shape[0] < 360000
+                    and gaussians.get_xyz.shape[0] < getattr(opt, 'max_points', 360000)
                     and opt.add_point
                 ):
                     gaussians.grow(5, 5, scene.model_path, iteration, stage)
@@ -658,6 +658,8 @@ def scene_reconstruction(
                 if iteration % opt.opacity_reset_interval == 0:
                     print("reset opacity")
                     gaussians.reset_opacity()
+                if iteration % 500 == 0:
+                    torch.cuda.empty_cache()
 
             # Optimizer step
             if iteration < opt.iterations:

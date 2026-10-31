@@ -116,6 +116,7 @@ class OptimizationParams(StrictModel):
     densify_grad_threshold_after: float = 0.0002
     pruning_from_iter: int = 500
     pruning_interval: int = 100
+    max_points: int = 360_000
     opacity_threshold_coarse: float = 0.005
     opacity_threshold_fine_init: float = 0.005
     opacity_threshold_fine_after: float = 0.005

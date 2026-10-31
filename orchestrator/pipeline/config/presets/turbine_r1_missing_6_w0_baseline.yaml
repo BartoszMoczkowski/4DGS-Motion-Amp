@@ -31,6 +31,10 @@ pipeline_params:
 
 optim:
   coarse_iterations: 500
+  densify_until_iter: 3000
+  densify_grad_threshold_fine_init: 0.0004
+  densify_grad_threshold_after: 0.0004
+  max_points: 90000
   use_camera_offsets: true
   learnable_camera_offsets: false
   gated_coarse: false
