@@ -267,19 +267,23 @@ def test_w3_e2_presets_valid_and_single_factor():
         cfg_e1a = validate_config(e1a_name)
         cfg_e2 = validate_config(e2_name)
 
+        # Determine parent baseline (e1b if preset extends e1b, else e1a)
+        parent_name = f"{scene_base}_w1_e1b" if "e1b" in (preset_dir / f"{e2_name}.yaml").read_text(encoding="utf-8") else e1a_name
+        cfg_parent = validate_config(parent_name)
+
         # E2 must have use_motion_mask enabled
         assert cfg_e2.optim.use_motion_mask is True
         assert cfg_e2.optim.normalize_motion_mask is True
         assert cfg_e2.optim.motion_mask_max == 15.0
 
-        # E1a must have use_motion_mask disabled
-        assert cfg_e1a.optim.use_motion_mask is False
+        # Parent must have use_motion_mask disabled
+        assert cfg_parent.optim.use_motion_mask is False
 
-        # Single factor check: timing parameters must match identically
-        assert cfg_e2.optim.use_camera_offsets == cfg_e1a.optim.use_camera_offsets
-        assert cfg_e2.optim.strict_camera_offsets == cfg_e1a.optim.strict_camera_offsets
-        assert cfg_e2.optim.learnable_camera_offsets == cfg_e1a.optim.learnable_camera_offsets
-        assert cfg_e2.optim.offsets_file == cfg_e1a.optim.offsets_file
+        # Single factor check: timing parameters must match parent baseline identically
+        assert cfg_e2.optim.use_camera_offsets == cfg_parent.optim.use_camera_offsets
+        assert cfg_e2.optim.strict_camera_offsets == cfg_parent.optim.strict_camera_offsets
+        assert cfg_e2.optim.learnable_camera_offsets == cfg_parent.optim.learnable_camera_offsets
+        assert cfg_e2.optim.offsets_file == cfg_parent.optim.offsets_file
 
         # Rigid head / ROI / gating must remain disabled (W0 baseline integrity)
         assert cfg_e2.optim.use_fourier_rigid_head is False

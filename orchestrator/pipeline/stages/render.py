@@ -55,6 +55,7 @@ class RenderStage(Stage):
             *bool_flag("skip_train", cfg.get("skip_train", False)),
             *bool_flag("skip_test", cfg.get("skip_test", False)),
             *bool_flag("skip_video", cfg.get("skip_video", False)),
+            *bool_flag("skip_gt", cfg.get("skip_gt", True)),
             *bool_flag("quiet", cfg.get("quiet", False)),
         ]
 

@@ -714,6 +714,21 @@ def aggregate_multiview_verdict(
     }
 
     # GATING DECISION TREE
+    if total_cameras == 0:
+        if traj_diag is not None:
+            if traj_diag.global_drift_detected:
+                return (
+                    "FAIL_GLOBAL_DRIFT",
+                    f"ROI-free 3D diagnostics detected unconstrained scene-wide drift (drift_ratio={traj_diag.drift_ratio:.3f}).",
+                    summary_stats,
+                )
+            return (
+                "PASS_3D_TRAJECTORY_ONLY",
+                f"3D Trajectory evaluation passed without camera renders (Gini={traj_diag.gini_coefficient:.3f}, Coherence={traj_diag.phase_coherence_r:.3f}, Drift={traj_diag.drift_ratio:.3f}).",
+                summary_stats,
+            )
+        return ("INCONCLUSIVE_NO_DATA", "No cameras or 3D trajectories provided.", summary_stats)
+
     # 1. Stop condition: Single-camera evaluation is never sufficient for scene pass
     if total_cameras == 1:
         return (
@@ -828,7 +843,7 @@ def stream_disk_series(frame_paths: list[Path]) -> Generator[np.ndarray, None, N
 
 def evaluate_scene_multiview(
     scene_dir: Path,
-    render_dir: Path,
+    render_dir: Path | None = None,
     f0: float = DEFAULT_WOBBLE_HZ,
     fps: float = DEFAULT_FPS,
     trajectories_file: Path | None = None,
@@ -839,20 +854,24 @@ def evaluate_scene_multiview(
 ) -> MultiviewEvaluationPayload:
     """Evaluates a full multi-camera capture and rendered reconstruction."""
     scene_dir = Path(scene_dir).resolve()
-    render_dir = Path(render_dir).resolve()
-
-    # Discover camera directories
-    cam_ids = [f"cam{i:02d}" for i in range(1, max_cameras + 1)]
-    avail_real_cams = [cid for cid in cam_ids if (scene_dir / cid).is_dir()]
-    if not avail_real_cams:
-        raise FileNotFoundError(f"No camera folders (cam01..) found in real scene dir: {scene_dir}")
-
-    # Discover render directory layout
-    timestamps, time_prov = load_timestamps(scene_dir, avail_real_cams, fps=fps)
+    render_dir = Path(render_dir).resolve() if render_dir is not None else None
 
     camera_evals: dict[str, CameraEvaluationResult] = {}
+    time_prov = {}
 
-    total_cams = len(avail_real_cams)
+    if render_dir is not None:
+        # Discover camera directories
+        cam_ids = [f"cam{i:02d}" for i in range(1, max_cameras + 1)]
+        avail_real_cams = [cid for cid in cam_ids if (scene_dir / cid).is_dir()]
+        if not avail_real_cams:
+            raise FileNotFoundError(f"No camera folders (cam01..) found in real scene dir: {scene_dir}")
+
+        # Discover render directory layout
+        timestamps, time_prov = load_timestamps(scene_dir, avail_real_cams, fps=fps)
+        total_cams = len(avail_real_cams)
+    else:
+        avail_real_cams = []
+        total_cams = 0
     for cam_idx, cid in enumerate(avail_real_cams):
         t0_cam = datetime.datetime.now()
         real_cam_dir = scene_dir / cid
@@ -870,8 +889,41 @@ def evaluate_scene_multiview(
         has_render = render_cam_dir.is_dir()
         render_frame_files = sorted(list(render_cam_dir.glob("*.png")) + list(render_cam_dir.glob("*.jpg"))) if has_render else []
 
-        n_frames = min(len(real_frame_files), len(render_frame_files)) if render_frame_files else len(real_frame_files)
+        # Video container fallback
+        vid_cap = None
+        is_concatenated_video = False
+        if not render_frame_files and render_dir is not None:
+            vid_candidates = [
+                (render_dir / f"{cid}.mp4", False),
+                (render_dir / f"{cid}_video.mp4", False),
+                (render_dir / f"video_{cid}.mp4", False),
+                (render_dir / "video_rgb.mp4", True),
+            ]
+            for vc, is_concat in vid_candidates:
+                if vc.is_file():
+                    vid_cap = cv2.VideoCapture(str(vc))
+                    is_concatenated_video = is_concat
+                    break
+
+        n_vid_frames = int(vid_cap.get(cv2.CAP_PROP_FRAME_COUNT)) if vid_cap is not None else 0
+        if render_frame_files:
+            n_frames = min(len(real_frame_files), len(render_frame_files))
+        elif vid_cap is not None and n_vid_frames > 0:
+            if is_concatenated_video:
+                n_frames = len(real_frame_files)
+                # Seek to camera offset in concatenated 4DGS render video
+                camera_order = ["cam05", "cam01", "cam03", "cam04", "cam07", "cam08", "cam10", "cam06", "cam02", "cam09"]
+                if cid in camera_order:
+                    start_frame = camera_order.index(cid) * n_frames
+                    vid_cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            else:
+                n_frames = min(len(real_frame_files), n_vid_frames)
+        else:
+            n_frames = len(real_frame_files)
+
         if n_frames < 10:
+            if vid_cap is not None:
+                vid_cap.release()
             continue
 
         real_frames_subset = real_frame_files[:n_frames]
@@ -937,6 +989,7 @@ def evaluate_scene_multiview(
                 (dx, dy), _ = cv2.phaseCorrelate(real_tpl, p_r, win)
                 real_disp.append((float(dx), float(dy)))
 
+            g_f = None
             if ren_frames_subset:
                 g_raw = cv2.imread(str(ren_frames_subset[fr_idx]), cv2.IMREAD_GRAYSCALE)
                 if g_raw is None:
@@ -944,6 +997,15 @@ def evaluate_scene_multiview(
                 g_f = g_raw.astype(np.float32) / 255.0
                 if r_f.shape != g_f.shape:
                     g_f = cv2.resize(g_f, (r_f.shape[1], r_f.shape[0]), interpolation=cv2.INTER_AREA)
+            elif vid_cap is not None:
+                ret_v, v_frame = vid_cap.read()
+                if ret_v and v_frame is not None:
+                    g_raw = cv2.cvtColor(v_frame, cv2.COLOR_BGR2GRAY)
+                    g_f = g_raw.astype(np.float32) / 255.0
+                    if r_f.shape != g_f.shape:
+                        g_f = cv2.resize(g_f, (r_f.shape[1], r_f.shape[0]), interpolation=cv2.INTER_AREA)
+
+            if g_f is not None:
 
                 # Rotor patch tracking (render)
                 p_g = g_f[y0:y1, x0:x1]
@@ -989,7 +1051,7 @@ def evaluate_scene_multiview(
         real_fit = fit_harmonic_phasor(real_proj, t_arr, f0)
 
         render_fit = None
-        if ren_frames_subset:
+        if len(ren_disp) == n_frames:
             ren_disp_arr = np.array(ren_disp, dtype=np.float64)
             ren_proj, _, _ = project_1d_motion(ren_disp_arr, ref_axis=ref_axis)
             render_fit = fit_harmonic_phasor(ren_proj, t_arr, f0)
@@ -1005,7 +1067,7 @@ def evaluate_scene_multiview(
 
         psnr_db, ssim, tstd_real, tstd_ren = (None, None, None, None)
         tstd_ratio = None
-        if ren_frames_subset and psnr_vals:
+        if psnr_vals:
             psnr_db = float(np.mean(psnr_vals))
             ssim = float(np.mean(ssim_vals))
             var_real_map = np.maximum(0.0, (sum_sq_real / n_frames) - (sum_real / n_frames) ** 2)
@@ -1025,6 +1087,8 @@ def evaluate_scene_multiview(
             rejection_reasons=rotor_comp.rejection_reasons,
         )
 
+        if vid_cap is not None:
+            vid_cap.release()
         dt_cam = (datetime.datetime.now() - t0_cam).total_seconds()
         psnr_str = f"{psnr_db:.2f} dB" if psnr_db is not None else "N/A"
         print(f"[W2 EVAL] ({cam_idx+1}/{total_cams}) {cid}: PSNR={psnr_str}, status={rotor_comp.status} ({dt_cam:.1f}s)", flush=True)
@@ -1110,19 +1174,22 @@ def print_human_summary(payload: MultiviewEvaluationPayload):
     print(f"Summary: {payload.verdict_explanation}")
     print("=" * 95)
 
-    print(f"\n{'Camera':<8} | {'Real Amp':<10} | {'Ren Amp':<10} | {'Ratio':<7} | {'Phase Err':<10} | {'Vec Err':<8} | {'R2 Real':<7} | {'PSNR':<6} | {'Status':<15}")
-    print("-" * 95)
-    for cid, c_data in sorted(payload.cameras.items()):
-        rp = c_data.get("rotor_patch", {})
-        r_amp = f"{rp.get('real_amp_px', 0.0):.3f} px" if rp.get("real_amp_px") is not None else "N/A"
-        g_amp = f"{rp.get('render_amp_px', 0.0):.3f} px" if rp.get("render_amp_px") is not None else "N/A"
-        ratio = f"{rp.get('amp_ratio', 0.0):.2f}" if rp.get("amp_ratio") is not None else "N/A"
-        p_err = f"{rp.get('phase_err_deg', 0.0):.1f}°" if rp.get("phase_err_deg") is not None else "N/A"
-        v_err = f"{rp.get('complex_vector_err', 0.0):.3f}" if rp.get("complex_vector_err") is not None else "N/A"
-        r2 = f"{rp.get('real_r2', 0.0):.2f}" if rp.get("real_r2") is not None else "N/A"
-        psnr = f"{c_data.get('psnr_db', 0.0):.1f}" if c_data.get("psnr_db") is not None else "N/A"
-        status = c_data.get("status", "UNKNOWN")
-        print(f"{cid:<8} | {r_amp:<10} | {g_amp:<10} | {ratio:<7} | {p_err:<10} | {v_err:<8} | {r2:<7} | {psnr:<6} | {status:<15}")
+    if payload.cameras:
+        print(f"\n{'Camera':<8} | {'Real Amp':<10} | {'Ren Amp':<10} | {'Ratio':<7} | {'Phase Err':<10} | {'Vec Err':<8} | {'R2 Real':<7} | {'PSNR':<6} | {'Status':<15}")
+        print("-" * 95)
+        for cid, c_data in sorted(payload.cameras.items()):
+            rp = c_data.get("rotor_patch", {})
+            r_amp = f"{rp.get('real_amp_px', 0.0):.3f} px" if rp.get("real_amp_px") is not None else "N/A"
+            g_amp = f"{rp.get('render_amp_px', 0.0):.3f} px" if rp.get("render_amp_px") is not None else "N/A"
+            ratio = f"{rp.get('amp_ratio', 0.0):.2f}" if rp.get("amp_ratio") is not None else "N/A"
+            p_err = f"{rp.get('phase_err_deg', 0.0):.1f}°" if rp.get("phase_err_deg") is not None else "N/A"
+            v_err = f"{rp.get('complex_vector_err', 0.0):.3f}" if rp.get("complex_vector_err") is not None else "N/A"
+            r2 = f"{rp.get('real_r2', 0.0):.2f}" if rp.get("real_r2") is not None else "N/A"
+            psnr = f"{c_data.get('psnr_db', 0.0):.1f}" if c_data.get("psnr_db") is not None else "N/A"
+            status = c_data.get("status", "UNKNOWN")
+            print(f"{cid:<8} | {r_amp:<10} | {g_amp:<10} | {ratio:<7} | {p_err:<10} | {v_err:<8} | {r2:<7} | {psnr:<6} | {status:<15}")
+    else:
+        print("\nNo camera renders evaluated (3D Trajectory-Only Evaluation Mode).")
 
     if payload.trajectory_3d:
         t3 = payload.trajectory_3d
@@ -1147,8 +1214,8 @@ def main():
     )
     parser.add_argument("--scene", type=str, required=True,
                         help="Path to real capture scene directory (e.g. data/multipleview/turbine_r1_missing_6)")
-    parser.add_argument("--render-dir", type=str, required=True,
-                        help="Path to rendered camera series or run root")
+    parser.add_argument("--render-dir", type=str, default=None,
+                        help="Optional path to rendered camera series or run root")
     parser.add_argument("--trajectories", type=str, default=None,
                         help="Optional path to trajectories.npz for 3D trajectory field diagnostics")
     parser.add_argument("--f0", type=float, default=DEFAULT_WOBBLE_HZ,
@@ -1163,10 +1230,12 @@ def main():
                         help="Minimum R2 score to consider an optical track valid")
     parser.add_argument("--min-amp", type=float, default=DEFAULT_MIN_AMP_PX,
                         help="Minimum real amplitude in px to consider motion detectable")
+    parser.add_argument("--max-cameras", type=int, default=10,
+                        help="Maximum number of cameras to evaluate")
     args = parser.parse_args()
 
     scene_path = Path(args.scene)
-    render_path = Path(args.render_dir)
+    render_path = Path(args.render_dir) if args.render_dir else None
 
     payload = evaluate_scene_multiview(
         scene_dir=scene_path,
@@ -1176,6 +1245,7 @@ def main():
         trajectories_file=Path(args.trajectories) if args.trajectories else None,
         min_r2=args.min_r2,
         min_amp_px=args.min_amp,
+        max_cameras=args.max_cameras,
     )
 
     if args.human or not args.out_json:

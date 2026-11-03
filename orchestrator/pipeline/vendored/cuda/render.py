@@ -115,14 +115,15 @@ def resolve_render_fps(views, default_fps: float = 20.004, override_fps: Optiona
 
 
 def render_set(
-    model_path, name, iteration, views, gaussians, pipeline, background, cam_type, fps=None
+    model_path, name, iteration, views, gaussians, pipeline, background, cam_type, fps=None, skip_gt=False
 ):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), "renders")
     gts_path = os.path.join(model_path, name, "ours_{}".format(iteration), "gt")
     video_path = os.path.join(model_path, name, "ours_{}".format(iteration), "video_rgb.mp4")
 
     makedirs(render_path, exist_ok=True)
-    makedirs(gts_path, exist_ok=True)
+    if not skip_gt:
+        makedirs(gts_path, exist_ok=True)
 
     print("point nums:", gaussians._xyz.shape[0])
     num_views = len(views)
@@ -144,7 +145,7 @@ def render_set(
         out_render_path = os.path.join(render_path, "{0:05d}.png".format(idx))
         async_writer.submit(out_render_path, render_frame)
 
-        if name in ["train", "test"]:
+        if not skip_gt and name in ["train", "test"]:
             if cam_type != "PanopticSports":
                 gt = view.original_image[0:3, :, :]
             else:
@@ -171,6 +172,7 @@ def render_sets(
     skip_test: bool,
     skip_video: bool,
     fps: Optional[float] = None,
+    skip_gt: bool = True,
 ):
     with torch.no_grad():
         gaussians = GaussianModel(dataset.sh_degree, hyperparam)
@@ -190,6 +192,7 @@ def render_sets(
                 background,
                 cam_type,
                 fps=fps,
+                skip_gt=skip_gt,
             )
 
         if not skip_test:
@@ -203,6 +206,7 @@ def render_sets(
                 background,
                 cam_type,
                 fps=fps,
+                skip_gt=skip_gt,
             )
         if not skip_video:
             render_set(
@@ -215,6 +219,7 @@ def render_sets(
                 background,
                 cam_type,
                 fps=fps,
+                skip_gt=skip_gt,
             )
 
 
@@ -229,6 +234,8 @@ if __name__ == "__main__":
     parser.add_argument("--skip_test", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--skip_video", action="store_true")
+    parser.add_argument("--skip_gt", action="store_true", default=True, help="Skip dumping redundant ground truth PNGs to disk (default: True)")
+    parser.add_argument("--save_gt", dest="skip_gt", action="store_false", help="Explicitly dump ground truth PNGs to disk")
     parser.add_argument("--configs", type=str)
     parser.add_argument("--fps", default=None, type=float, help="Render frame rate (default: physical fps or 20.004)")
     args = get_combined_args(parser)
@@ -252,4 +259,5 @@ if __name__ == "__main__":
         args.skip_test,
         args.skip_video,
         fps=getattr(args, "fps", None) or getattr(hyperparam, "fps", None),
+        skip_gt=getattr(args, "skip_gt", True),
     )
