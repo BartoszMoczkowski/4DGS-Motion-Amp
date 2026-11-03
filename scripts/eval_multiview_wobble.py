@@ -546,6 +546,10 @@ def evaluate_3d_trajectories(
         t_arr = np.arange(n_timesteps, dtype=np.float64) / fps
     else:
         t_arr = np.asarray(times, dtype=np.float64).reshape(-1)
+        # Unified physical-time conversion: if normalized time in [0, 1], scale to physical seconds
+        if float(np.max(t_arr)) <= 1.05 and fps > 0 and n_timesteps > 1:
+            duration_s = float(n_timesteps) / float(fps)
+            t_arr = t_arr * duration_s
 
     omega = 2.0 * np.pi * f0
     cos_wt = np.cos(omega * t_arr)

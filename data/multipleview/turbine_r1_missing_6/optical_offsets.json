@@ -3,25 +3,32 @@
   "fps": 20.004025315610498,
   "frame_count": 261,
   "reference_camera": "cam01",
-  "wobble_frequency_hz": 5.690745121784875,
-  "wobble_period_s": 0.17572391287950614,
-  "conversion_deg_per_ms": 2.048668243842555,
+  "wobble_frequency_hz": 5.690745,
+  "wobble_period_s": 0.17572391664008843,
+  "conversion_deg_per_ms": 2.0486682000000003,
   "optical_offsets_s": {
     "cam01": 0.0,
-    "cam02": 0.03672844003526755,
-    "cam03": -0.00026198099316872243,
-    "cam04": -0.010395968851130545,
-    "cam05": 0.002861519945203936,
-    "cam06": 0.04736597429046744,
-    "cam07": 0.041841466059741345,
-    "cam08": -0.02503495660911064,
-    "cam09": -0.003682072584908236,
-    "cam10": 0.01703440619184053
+    "cam02": 0.03672844082127509,
+    "cam03": -0.00026198099877525075,
+    "cam04": -0.010395969073609635,
+    "cam05": 0.0028615200064419366,
+    "cam06": 0.047365975304123696,
+    "cam07": 0.04184146695517028,
+    "cam08": -0.025034957144871618,
+    "cam09": -0.003682072663706487,
+    "cam10": 0.017034406556385603
   },
   "validation_summary": {
-    "mean_discrepancy_ms": 16.225955268744645,
-    "max_discrepancy_ms": 37.84151964472527,
-    "status": "validated"
+    "mean_discrepancy_ms": 16.22595564933706,
+    "max_discrepancy_ms": 37.84152054015419,
+    "n_valid_cameras": 0,
+    "status": "rejected_low_r2",
+    "rejection_reasons": [
+      "10/10 cameras failed quality gate: ['cam01', 'cam02', 'cam03', 'cam04', 'cam05', 'cam06', 'cam07', 'cam08', 'cam09', 'cam10']",
+      "Insufficient valid cameras: 0 < required 8",
+      "Mean sidecar discrepancy 16.23 ms > 15.0 ms",
+      "Max sidecar discrepancy 37.84 ms > 20.0 ms"
+    ]
   },
   "cameras": {
     "cam01": {
@@ -37,11 +44,13 @@
       "r2_score": 0.0001368761344322511,
       "principal_axis_angle_deg": 141.38968337759565,
       "harmonics": {
-        "amp_f1": 3.704618944197548e-05,
-        "amp_f2": 1.5355448407394574e-05,
-        "amp_f3": 8.705180569111338e-05,
-        "thd": 2.38545139992678
-      }
+        "amp_f1": 3.7046346952198156e-05,
+        "amp_f2": 1.535539745198103e-05,
+        "amp_f3": 8.70528627983642e-05,
+        "thd": 2.385469114871849
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.000 < 0.50"
     },
     "cam02": {
       "camera_id": "cam02",
@@ -49,18 +58,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 0.002836113313899668,
       "phase_rad": 3.109048712152829,
-      "raw_offset_s": 0.03672844003526755,
-      "resolved_offset_s": 0.03672844003526755,
+      "raw_offset_s": 0.03672844082127509,
+      "resolved_offset_s": 0.03672844082127509,
       "sidecar_offset_s": 0.009970225310896126,
-      "discrepancy_ms": 26.75821472437142,
+      "discrepancy_ms": 26.758215510378964,
       "r2_score": 0.10494131236599269,
       "principal_axis_angle_deg": -166.1804939937491,
       "harmonics": {
-        "amp_f1": 0.0028350405505108227,
-        "amp_f2": 0.0013568350267703334,
-        "amp_f3": 0.00035952433344321413,
-        "thd": 0.4951090411083572
-      }
+        "amp_f1": 0.0028350403366960214,
+        "amp_f2": 0.001356834895382626,
+        "amp_f3": 0.0003595351842221665,
+        "thd": 0.49511001398202686
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.105 < 0.50"
     },
     "cam03": {
       "camera_id": "cam03",
@@ -68,18 +79,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 0.00011387886378292322,
       "phase_rad": 1.7864189908830421,
-      "raw_offset_s": -0.00026198099316872243,
-      "resolved_offset_s": -0.00026198099316872243,
+      "raw_offset_s": -0.00026198099877525075,
+      "resolved_offset_s": -0.00026198099877525075,
       "sidecar_offset_s": 0.021994962914709298,
-      "discrepancy_ms": -22.25694390787802,
+      "discrepancy_ms": -22.256943913484548,
       "r2_score": 0.0008730863852807191,
       "principal_axis_angle_deg": 148.6789001550324,
       "harmonics": {
-        "amp_f1": 0.00011442877458222553,
-        "amp_f2": 7.651070334976413e-05,
-        "amp_f3": 2.8951531069723836e-05,
-        "thd": 0.7148374994074939
-      }
+        "amp_f1": 0.00011442878958901224,
+        "amp_f2": 7.651067800119781e-05,
+        "amp_f3": 2.895220091979085e-05,
+        "thd": 0.714839270071867
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.001 < 0.50"
     },
     "cam04": {
       "camera_id": "cam04",
@@ -87,18 +100,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 0.004234645819568957,
       "phase_rad": 1.4240680588505696,
-      "raw_offset_s": -0.010395968851130545,
-      "resolved_offset_s": -0.010395968851130545,
+      "raw_offset_s": -0.010395969073609635,
+      "resolved_offset_s": -0.010395969073609635,
       "sidecar_offset_s": -0.0012829093341826573,
-      "discrepancy_ms": -9.113059516947887,
+      "discrepancy_ms": -9.113059739426978,
       "r2_score": 0.13693455773527363,
       "principal_axis_angle_deg": 61.162188619772756,
       "harmonics": {
-        "amp_f1": 0.004231864717924378,
-        "amp_f2": 0.0004255143567643128,
-        "amp_f3": 0.0008377062523893981,
-        "thd": 0.22202499094397699
-      }
+        "amp_f1": 0.004231865845439051,
+        "amp_f2": 0.0004255150409683077,
+        "amp_f3": 0.0008376812567361723,
+        "thd": 0.22201973893261798
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.137 < 0.50"
     },
     "cam05": {
       "camera_id": "cam05",
@@ -106,18 +121,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 0.008455373598653462,
       "phase_rad": -1.2434897439881756,
-      "raw_offset_s": -0.08500043649454914,
-      "resolved_offset_s": 0.002861519945203936,
+      "raw_offset_s": -0.08500043831360228,
+      "resolved_offset_s": 0.0028615200064419366,
       "sidecar_offset_s": -0.013995002152462042,
-      "discrepancy_ms": 16.856522097665977,
+      "discrepancy_ms": 16.856522158903978,
       "r2_score": 0.4747914293599391,
       "principal_axis_angle_deg": 150.9327796967004,
       "harmonics": {
-        "amp_f1": 0.008473430876824456,
-        "amp_f2": 0.0011619791182779938,
-        "amp_f3": 0.002374275606258456,
-        "thd": 0.31195890094178347
-      }
+        "amp_f1": 0.00847343578732912,
+        "amp_f2": 0.0011619791629721777,
+        "amp_f3": 0.0023742691136895335,
+        "thd": 0.3119580342501396
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.475 < 0.50"
     },
     "cam06": {
       "camera_id": "cam06",
@@ -125,18 +142,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 0.0010094236221331772,
       "phase_rad": 0.34781179866496537,
-      "raw_offset_s": -0.04049598214928563,
-      "resolved_offset_s": 0.04736597429046744,
+      "raw_offset_s": -0.04049598301592052,
+      "resolved_offset_s": 0.047365975304123696,
       "sidecar_offset_s": 0.015989635747296928,
-      "discrepancy_ms": 31.37633854317051,
+      "discrepancy_ms": 31.376339556826768,
       "r2_score": 0.017908426729397298,
       "principal_axis_angle_deg": 147.03125264547128,
       "harmonics": {
-        "amp_f1": 0.0010083219962003244,
-        "amp_f2": 0.0006524933949536601,
-        "amp_f3": 0.00028623262857538806,
-        "thd": 0.7066267729129821
-      }
+        "amp_f1": 0.0010083217515823157,
+        "amp_f2": 0.0006524929447718887,
+        "amp_f3": 0.0002862223839666131,
+        "thd": 0.7066224540666971
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.018 < 0.50"
     },
     "cam07": {
       "camera_id": "cam07",
@@ -144,18 +163,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 0.0003216204329040383,
       "phase_rad": 0.15027744846817379,
-      "raw_offset_s": -0.04602049038001173,
-      "resolved_offset_s": 0.041841466059741345,
+      "raw_offset_s": -0.04602049136487394,
+      "resolved_offset_s": 0.04184146695517028,
       "sidecar_offset_s": 0.003999946415016079,
-      "discrepancy_ms": 37.84151964472527,
+      "discrepancy_ms": 37.84152054015419,
       "r2_score": 0.0016170061952844872,
       "principal_axis_angle_deg": 154.7130720872421,
       "harmonics": {
-        "amp_f1": 0.00032512219095292714,
-        "amp_f2": 0.0005150762175844092,
-        "amp_f3": 0.0010159580837847777,
-        "thd": 3.503397517164305
-      }
+        "amp_f1": 0.000325123892738069,
+        "amp_f2": 0.0005150754377405314,
+        "amp_f3": 0.0010159335717457156,
+        "thd": 3.5033108531017265
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.002 < 0.50"
     },
     "cam08": {
       "camera_id": "cam08",
@@ -163,18 +184,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 6.774693969557654e-05,
       "phase_rad": 0.9006363227499019,
-      "raw_offset_s": -0.02503495660911064,
-      "resolved_offset_s": -0.02503495660911064,
+      "raw_offset_s": -0.025034957144871618,
+      "resolved_offset_s": -0.025034957144871618,
       "sidecar_offset_s": -0.00961315963504289,
-      "discrepancy_ms": -15.421796974067751,
+      "discrepancy_ms": -15.421797509828728,
       "r2_score": 0.00048031293568029376,
       "principal_axis_angle_deg": 135.33416174928576,
       "harmonics": {
-        "amp_f1": 6.780789614910282e-05,
-        "amp_f2": 2.099675964394375e-05,
-        "amp_f3": 2.6036829059515127e-05,
-        "thd": 0.49320572420491915
-      }
+        "amp_f1": 6.780786277109706e-05,
+        "amp_f2": 2.0996740568750184e-05,
+        "amp_f3": 2.6036802999435465e-05,
+        "thd": 0.49320549126030594
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.000 < 0.50"
     },
     "cam09": {
       "camera_id": "cam09",
@@ -182,18 +205,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 0.012856848877107868,
       "phase_rad": 1.664130174942771,
-      "raw_offset_s": -0.003682072584908236,
-      "resolved_offset_s": -0.003682072584908236,
+      "raw_offset_s": -0.003682072663706487,
+      "resolved_offset_s": -0.003682072663706487,
       "sidecar_offset_s": -0.004282931995479091,
-      "discrepancy_ms": 0.6008594105708547,
+      "discrepancy_ms": 0.6008593317726038,
       "r2_score": 0.3595649830594999,
       "principal_axis_angle_deg": -157.82292305940487,
       "harmonics": {
-        "amp_f1": 0.012898480564207046,
-        "amp_f2": 0.0034126650132667623,
-        "amp_f3": 0.0041860260410552024,
-        "thd": 0.41871893279341943
-      }
+        "amp_f1": 0.01289848494777543,
+        "amp_f2": 0.0034126636192983928,
+        "amp_f3": 0.004186019052897136,
+        "thd": 0.41871830228548623
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.360 < 0.50"
     },
     "cam10": {
       "camera_id": "cam10",
@@ -201,18 +226,20 @@
       "n_points_tracked": 40,
       "amplitude_px": 0.0017482334371834258,
       "phase_rad": 2.40486871720264,
-      "raw_offset_s": 0.01703440619184053,
-      "resolved_offset_s": 0.01703440619184053,
+      "raw_offset_s": 0.017034406556385603,
+      "resolved_offset_s": 0.017034406556385603,
       "sidecar_offset_s": 0.015000108323791771,
-      "discrepancy_ms": 2.0342978680487604,
+      "discrepancy_ms": 2.034298232593832,
       "r2_score": 0.052997004150027394,
       "principal_axis_angle_deg": -171.57995659293786,
       "harmonics": {
-        "amp_f1": 0.0017517309579581507,
-        "amp_f2": 0.0004414062876807367,
-        "amp_f3": 0.00035493881097380076,
-        "thd": 0.32334158081452813
-      }
+        "amp_f1": 0.0017517319404234412,
+        "amp_f2": 0.00044140682000815,
+        "amp_f3": 0.00035493503726268444,
+        "thd": 0.32334028633325806
+      },
+      "status": "REJECTED_LOW_R2",
+      "rejection_reason": "R2 score 0.053 < 0.50"
     }
   }
 }

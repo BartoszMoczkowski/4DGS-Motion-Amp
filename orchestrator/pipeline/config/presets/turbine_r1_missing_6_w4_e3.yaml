@@ -1,6 +1,7 @@
 # W4 (E3) — Fixed-K soft learned motion components on W3 (E2) baseline
-# Discovers shared low-dimensional rigid/periodic motion components during training
-# without binary ROI masks, without pure_rigid, and without static_background.
+# Discovers shared low-dimensional periodic rigid motion components (K=1) during training
+# with persistent HexPlane residual (coefficient 1.0), without hard ROI/binary masks.
+# Inherits guarded learnable offsets, continuous soft loss weighting, and clamped densification.
 extends: turbine_r1_missing_6_w3_e2
 name: turbine_r1_missing_6_w4_e3
 
@@ -15,11 +16,14 @@ optim:
   use_motion_components: true
   num_motion_components: 1
   motion_components_type: "fourier"
-  motion_components_frequency_hz: 5.691
+  motion_components_frequency_hz: 5.690745
   motion_components_num_harmonics: 1
   motion_components_ramp_start_iter: 1000
   motion_components_ramp_end_iter: 3000
   motion_components_lambda_res_max: 1.0
   motion_components_lr: 0.001
   motion_components_responsibilities_lr: 0.01
+  motion_components_ema_interval: 250
+  use_split_merge: false
+  lambda_trajectory: 0.0
 

@@ -69,6 +69,84 @@ except ImportError:
     TENSORBOARD_FOUND = False
 
 
+
+def _initialize_components_from_residuals(gaussians, motion_components, opt):
+    """Warm-start trajectory parameters and responsibilities from HexPlane deformation residuals."""
+    import math
+    with torch.no_grad():
+        M = 16
+        dev = gaussians.get_xyz.device
+        t_samples = torch.linspace(0.0, 1.0, M, device=dev)
+        N = gaussians.get_xyz.shape[0]
+        
+        # Sample HexPlane displacements [N, M, 3]
+        h_all = []
+        for t_val in t_samples:
+            t_tensor = t_val.view(1, 1).repeat(N, 1)
+            m_hex, _, _, _, _ = gaussians._deformation(
+                gaussians.get_xyz, gaussians._scaling, gaussians._rotation,
+                gaussians._opacity, gaussians.get_features, t_tensor
+            )
+            h_all.append(m_hex - gaussians.get_xyz)
+        H = torch.stack(h_all, dim=1)  # [N, M, 3]
+        
+        # Displacement variance per Gaussian: [N]
+        amp_per_point = torch.norm(H - H.mean(dim=1, keepdim=True), dim=-1).mean(dim=1)
+        
+        # Identify mover points: top 15% moving Gaussians
+        thresh = torch.quantile(amp_per_point, 0.85)
+        mover_mask = amp_per_point >= thresh
+        if mover_mask.sum() < 10:
+            mover_mask = amp_per_point > amp_per_point.median()
+            
+        H_movers = H[mover_mask]  # [N_m, M, 3]
+        mean_traj = H_movers.mean(dim=0)  # [M, 3]
+        mean_traj_centered = mean_traj - mean_traj.mean(dim=0, keepdim=True)
+        
+        # Dominant vibration axis via SVD
+        _, _, V = torch.linalg.svd(mean_traj_centered)
+        dominant_axis = V[0]
+        dominant_axis = dominant_axis / torch.norm(dominant_axis).clamp(min=1e-8)
+        
+        s_t = (mean_traj_centered @ dominant_axis)  # [M]
+        
+        c0 = motion_components.components[0]
+        if hasattr(c0, "effective_frequency_hz"):
+            duration_s = float(getattr(c0, "duration_s", 13.047))
+            t_sec = t_samples * duration_s
+            freq = float(c0.effective_frequency_hz)
+            omega = 2.0 * math.pi * freq * t_sec
+            cos_t = torch.cos(omega)
+            sin_t = torch.sin(omega)
+            
+            A_mat = torch.stack([cos_t, sin_t], dim=1)
+            ab = torch.linalg.lstsq(A_mat, s_t).solution
+            fitted_a = float(ab[0].item())
+            fitted_b = float(ab[1].item())
+            fitted_amp = math.sqrt(fitted_a**2 + fitted_b**2)
+            
+            init_amp = max(min(fitted_amp, 0.025), 0.002)
+            c0.u_axis.data.copy_(dominant_axis)
+            c0.a_trans.data[0] = init_amp * (fitted_a / (fitted_amp + 1e-8))
+            c0.b_trans.data[0] = init_amp * (fitted_b / (fitted_amp + 1e-8))
+            print(f"[W4 INIT iter {motion_components.ramp_start_iter}] Initialized FourierComponent 0: amp={init_amp*1000:.2f} mm, axis={dominant_axis.tolist()}")
+            
+        # Logits: set mover points to logit=+1.0 (q1 ~ 0.73), background to -5.0 (q1 ~ 0.007)
+        if hasattr(gaussians, "_motion_component_logits") and gaussians._motion_component_logits is not None:
+            new_logits = torch.full_like(gaussians._motion_component_logits.data, -5.0)
+            new_logits[mover_mask, 0] = 1.0
+            gaussians._motion_component_logits.data.copy_(new_logits)
+            
+            # Reset optimizer moments for logits
+            if gaussians.optimizer is not None:
+                for group in gaussians.optimizer.param_groups:
+                    if group.get("name") == "motion_component_logits":
+                        state = gaussians.optimizer.state.get(group["params"][0])
+                        if state is not None:
+                            state["exp_avg"].zero_()
+                            state["exp_avg_sq"].zero_()
+            print(f"[W4 INIT iter {motion_components.ramp_start_iter}] Assigned {mover_mask.sum().item()} mover Gaussians (q1=0.73) and {(~mover_mask).sum().item()} background Gaussians (q1=0.007)")
+
 def scene_reconstruction(
     dataset,
     opt,
@@ -97,6 +175,12 @@ def scene_reconstruction(
     first_iter = 0
 
     gaussians.training_setup(opt)
+    if gaussians._motion_component_logits is not None and not any(g.get("name") == "motion_component_logits" for g in gaussians.optimizer.param_groups):
+        gaussians.optimizer.add_param_group({
+            "params": [gaussians._motion_component_logits],
+            "lr": getattr(opt, "motion_components_responsibilities_lr", 0.01),
+            "name": "motion_component_logits",
+        })
     if checkpoint:
         # breakpoint()
         if stage == "coarse" and stage not in checkpoint:
@@ -393,12 +477,28 @@ def scene_reconstruction(
                     loss = loss + offset_prior_loss
 
             if motion_components is not None and getattr(motion_components, "is_active", True):
+                # Warm-start trajectory & logits at ramp_start_iter
+                if iteration == motion_components.ramp_start_iter:
+                    _initialize_components_from_residuals(gaussians, motion_components, opt)
+
                 t_val = custom_time if custom_time is not None else viewpoint_cams[0].time
                 t_tensor = torch.as_tensor(t_val, dtype=torch.float32, device=gaussians.get_xyz.device).view(1, 1).repeat(gaussians.get_xyz.shape[0], 1)
                 m_hex, _, _, _, _ = gaussians._deformation(gaussians.get_xyz, gaussians._scaling, gaussians._rotation, gaussians._opacity, gaussians.get_features, t_tensor)
                 h_res = m_hex - gaussians.get_xyz
                 loss_res = motion_components.compute_residual_loss(h_res, gaussians, iteration)
                 loss = loss + loss_res
+
+                # Periodic EMA responsibility update
+                ema_interval = getattr(opt, "motion_components_ema_interval", 250)
+                if ema_interval > 0 and iteration > motion_components.ramp_start_iter and iteration % ema_interval == 0:
+                    with torch.no_grad():
+                        cand_disps = []
+                        for comp in motion_components.components:
+                            gk = comp(gaussians.get_xyz, t_tensor)
+                            cand_disps.append(gk)
+                        G_mat = torch.stack(cand_disps, dim=1)
+                        motion_components.update_responsibilities_ema(gaussians, h_res, G_mat, beta=0.1)
+                        print(f"[W4 EMA iter {iteration}] Updated responsibilities via EMA (interval={ema_interval})")
 
                 # W5 (T53): Outer-loop split/merge hypothesis evaluation and proposal
                 if split_merge_controller is not None:
@@ -457,6 +557,30 @@ def scene_reconstruction(
         #     loss += opt.lambda_lpips * lpipsloss
 
         loss.backward()
+
+        # W4 Gradient and State Instrumentation
+        if stage == "fine" and motion_components is not None and getattr(motion_components, "is_active", True):
+            alpha_val = motion_components.get_alpha(iteration)
+            if iteration > motion_components.ramp_start_iter + 50:
+                assert alpha_val > 0.0, f"Alpha must be nonzero after ramp start, got {alpha_val} at iter {iteration}"
+                for p_name, p_param in motion_components.named_parameters():
+                    if p_param.requires_grad and p_param.grad is not None:
+                        assert torch.isfinite(p_param.grad).all(), f"Component parameter {p_name} has non-finite gradient at iter {iteration}"
+                if gaussians._motion_component_logits is not None and gaussians._motion_component_logits.grad is not None:
+                    assert torch.isfinite(gaussians._motion_component_logits.grad).all(), f"Logits have non-finite gradient at iter {iteration}"
+            
+            if iteration % 500 == 0:
+                with torch.no_grad():
+                    q_resp, _ = motion_components.get_responsibilities(gaussians)
+                    q1_mean = float(q_resp[:, 0].mean().item())
+                    q1_max = float(q_resp[:, 0].max().item())
+                    c0 = motion_components.components[0]
+                    c_amp = 0.0
+                    if hasattr(c0, "a_trans"):
+                        c_amp = float(torch.norm(torch.stack([c0.a_trans[0], c0.b_trans[0]])).item()) * 1000.0
+                    loss_res_val = loss_res.item() if ('loss_res' in locals() and loss_res is not None) else 0.0
+                    print(f"[W4 TELEMETRY iter {iteration}] alpha={alpha_val:.3f}, q1_mean={q1_mean:.4f}, q1_max={q1_max:.4f}, comp0_amp={c_amp:.2f} mm, loss_res={loss_res_val:.6f}")
+
         if torch.isnan(loss).any():
             print("loss is nan,end training, reexecv program now.")
             # Close the GUI listener socket before re-exec so the port is freed even if
@@ -866,10 +990,12 @@ def training(
         comps = []
         for _ in range(K):
             if comp_type == "fourier":
+                img_len = dataset.image_length if hasattr(dataset, "image_length") else (getattr(scene.train_camera.dataset, "image_length", 261) if hasattr(scene, "train_camera") else 261)
                 comps.append(
                     FourierComponentTrajectory(
                         base_frequency_hz=getattr(opt, "motion_components_frequency_hz", 5.691),
                         fps=fps,
+                        image_length=img_len,
                         num_harmonics=getattr(opt, "motion_components_num_harmonics", 1),
                     )
                 )
@@ -892,11 +1018,10 @@ def training(
 
         if gaussians._motion_component_logits is None or gaussians._motion_component_logits.shape[-1] != K:
             init_logits = torch.full((gaussians.get_xyz.shape[0], K), -5.0, device="cuda", dtype=torch.float32)
-            gaussians._motion_component_logits = nn.Parameter(init_logits.requires_grad_(True))
+            gaussians._motion_component_logits = torch.nn.Parameter(init_logits.requires_grad_(True))
 
         params = [
             {"params": list(motion_components.parameters()), "lr": getattr(opt, "motion_components_lr", 0.001), "name": "mc_trajectories"},
-            {"params": [gaussians._motion_component_logits], "lr": getattr(opt, "motion_components_responsibilities_lr", 0.01), "name": "mc_logits"},
         ]
         motion_components_optimizer = torch.optim.Adam(params)
         gaussians.motion_components = motion_components
@@ -966,6 +1091,9 @@ def training(
         trajectory_loss_fn=trajectory_loss_fn,
         fourier_head=fourier_head,
         fourier_optimizer=fourier_optimizer,
+        motion_components=motion_components,
+        motion_components_optimizer=motion_components_optimizer,
+        split_merge_controller=split_merge_controller,
     )
     if camera_offsets_module is not None:
         try:

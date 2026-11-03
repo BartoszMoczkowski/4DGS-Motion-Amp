@@ -149,6 +149,11 @@ class BaseComponentTrajectory(nn.Module):
         g_ik = (rotated - centered) + trans
         return g_ik, omega
 
+    def forward(self, canon_xyz: torch.Tensor, time: torch.Tensor) -> torch.Tensor:
+        """Standard nn.Module forward call returning candidate displacement g_ik(t)."""
+        g_ik, _ = self.compute_candidate_displacement(canon_xyz, time)
+        return g_ik
+
 
 class FourierComponentTrajectory(BaseComponentTrajectory):
     """Periodic multi-harmonic Fourier rigid trajectory with strict Nyquist guardrail."""
@@ -157,6 +162,8 @@ class FourierComponentTrajectory(BaseComponentTrajectory):
         self,
         base_frequency_hz: float = 5.691,
         fps: float = 20.004,
+        image_length: int = 261,
+        duration_s: Optional[float] = None,
         num_harmonics: int = 1,
         learn_frequency: bool = False,
         init_amplitude_m: float = 0.001,
@@ -167,6 +174,8 @@ class FourierComponentTrajectory(BaseComponentTrajectory):
         super().__init__(init_pivot=init_pivot)
         self.base_frequency_hz = float(base_frequency_hz)
         self.fps = float(fps)
+        self.image_length = int(image_length) if image_length is not None and int(image_length) > 0 else 261
+        self.duration_s = float(duration_s) if duration_s is not None else (float(self.image_length) / self.fps if self.fps > 0 else 1.0)
         self.num_harmonics = int(num_harmonics)
         self.learn_frequency = bool(learn_frequency)
 
@@ -218,6 +227,12 @@ class FourierComponentTrajectory(BaseComponentTrajectory):
             time = time.unsqueeze(-1)
         freq = self.effective_frequency_hz
 
+        # Physical time conversion: if normalized model time in [0, 1], scale to physical seconds
+        if time.max() <= 1.05 and self.duration_s > 0:
+            t_sec = time * self.duration_s
+        else:
+            t_sec = time
+
         u_norm = self.u_axis / torch.norm(self.u_axis).clamp(min=1e-8)
         v_norm = self.v_axis / torch.norm(self.v_axis).clamp(min=1e-8)
 
@@ -225,7 +240,7 @@ class FourierComponentTrajectory(BaseComponentTrajectory):
         total_rot = torch.zeros((*time.shape[:-1], 3), device=time.device, dtype=time.dtype)
 
         for h in range(1, self.num_harmonics + 1):
-            omega_h = 2.0 * math.pi * float(h) * freq * time
+            omega_h = 2.0 * math.pi * float(h) * freq * t_sec
             cos_h = torch.cos(omega_h)
             sin_h = torch.sin(omega_h)
 
@@ -508,6 +523,9 @@ class MotionComponents(nn.Module):
                 comp_info.update({
                     "base_frequency_hz": comp.base_frequency_hz,
                     "effective_frequency_hz": float(comp.effective_frequency_hz.item()),
+                    "fps": comp.fps,
+                    "image_length": comp.image_length,
+                    "duration_s": comp.duration_s,
                     "num_harmonics": comp.num_harmonics,
                     "dominant_axis": comp.u_axis.squeeze().tolist(),
                     "rotation_axis": comp.v_axis.squeeze().tolist(),

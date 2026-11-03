@@ -594,7 +594,7 @@ def test_w4_presets_resolve():
     assert turbine_preset.optim.use_motion_components is True
     assert turbine_preset.optim.num_motion_components == 1
     assert turbine_preset.optim.motion_components_type == "fourier"
-    assert turbine_preset.optim.motion_components_frequency_hz == 5.691
+    assert abs(turbine_preset.optim.motion_components_frequency_hz - 5.691) < 0.001
     assert turbine_preset.optim.motion_components_num_harmonics == 1
     assert turbine_preset.train.port == 6026
 
